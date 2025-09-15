@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  novita-gpu-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: novita-gpu-instance-api
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3000
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NOVITA_API_KEY=${NOVITA_API_KEY}
+      - NOVITA_API_BASE_URL=${NOVITA_API_BASE_URL:-https://api.novita.ai}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - DEFAULT_REGION=${DEFAULT_REGION:-CN-HK-01}
+      - INSTANCE_POLL_INTERVAL=${INSTANCE_POLL_INTERVAL:-30}
+      - MAX_RETRY_ATTEMPTS=${MAX_RETRY_ATTEMPTS:-3}
+      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-30000}
+    volumes:
+      # Mount logs directory for persistence (optional)
+      - ./logs:/app/logs:rw
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - novita-network
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+networks:
+  novita-network:
+    driver: bridge
