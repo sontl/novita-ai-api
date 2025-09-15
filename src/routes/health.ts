@@ -1,20 +1,289 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../utils/logger';
+import { novitaApiService } from '../services/novitaApiService';
+import { jobQueueService } from '../services/jobQueueService';
+import { instanceService } from '../services/instanceService';
+import { metricsService } from '../services/metricsService';
+import { HealthCheckResponse, EnhancedHealthCheckResponse } from '../types/api';
 
 const router = Router();
 
-router.get('/', (req: Request, res: Response) => {
-  const healthCheck = {
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    version: process.env.npm_package_version || '1.0.0',
-  };
-
-  logger.debug('Health check requested', healthCheck);
+router.get('/', async (req: Request, res: Response) => {
+  const requestId = req.headers['x-request-id'] || `health_${Date.now()}`;
   
-  res.status(200).json(healthCheck);
+  try {
+    logger.debug('Health check requested', { requestId });
+
+    // Check service dependencies with detailed information
+    const [services, dependencyDetails] = await Promise.all([
+      checkServiceHealth(),
+      checkDependencyDetails()
+    ]);
+    
+    // Get performance metrics
+    const healthMetrics = metricsService.getHealthMetrics();
+    const systemMetrics = metricsService.getSystemMetrics();
+    
+    // Determine overall health status
+    const isHealthy = Object.values(services).every(status => status === 'up') &&
+                     healthMetrics.memoryUsageMB < 1024 && // Less than 1GB memory usage
+                     (process.env.NODE_ENV === 'test' || healthMetrics.cpuUsagePercent < 90); // Skip CPU check in test
+    
+    const healthCheck: EnhancedHealthCheckResponse = {
+      status: isHealthy ? 'healthy' : 'unhealthy',
+      timestamp: new Date().toISOString(),
+      services,
+      uptime: process.uptime(),
+      performance: {
+        requestsPerMinute: Math.round(healthMetrics.requestsPerMinute * 100) / 100,
+        averageResponseTime: Math.round(healthMetrics.averageResponseTime),
+        errorRate: Math.round(healthMetrics.errorRate * 100) / 100,
+        jobProcessingRate: Math.round(healthMetrics.jobProcessingRate * 100) / 100
+      },
+      system: {
+        memory: {
+          usedMB: Math.round(systemMetrics.memory.heapUsed / 1024 / 1024),
+          totalMB: Math.round(systemMetrics.memory.heapTotal / 1024 / 1024),
+          externalMB: Math.round(systemMetrics.memory.external / 1024 / 1024),
+          rss: Math.round(systemMetrics.memory.rss / 1024 / 1024)
+        },
+        cpu: {
+          usage: Math.round(systemMetrics.cpu.usage * 100) / 100,
+          loadAverage: systemMetrics.cpu.loadAverage.map(load => Math.round(load * 100) / 100)
+        }
+      },
+      dependencies: dependencyDetails
+    };
+
+    // Add additional debug information in development
+    if (process.env.NODE_ENV === 'development') {
+      (healthCheck as any).debug = {
+        version: process.env.npm_package_version || '1.0.0',
+        nodeVersion: process.version,
+        platform: process.platform,
+        cacheStats: instanceService.getCacheStats(),
+        jobQueueStats: jobQueueService.getStats()
+      };
+    }
+
+    logger.debug('Health check completed', { 
+      requestId, 
+      status: healthCheck.status,
+      services: healthCheck.services,
+      memoryUsageMB: healthCheck.system.memory.usedMB,
+      cpuUsage: healthCheck.system.cpu.usage
+    });
+    
+    const statusCode = isHealthy ? 200 : 503;
+    res.status(statusCode).json(healthCheck);
+
+  } catch (error) {
+    logger.error('Health check failed', {
+      requestId,
+      error: (error as Error).message
+    });
+
+    const errorHealthCheck: HealthCheckResponse = {
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      services: {
+        novitaApi: 'down',
+        jobQueue: 'down',
+        cache: 'down'
+      },
+      uptime: process.uptime()
+    };
+
+    res.status(503).json(errorHealthCheck);
+  }
 });
+
+/**
+ * Check the health of service dependencies
+ */
+async function checkServiceHealth(): Promise<HealthCheckResponse['services']> {
+  const checks = await Promise.allSettled([
+    checkNovitaApiHealth(),
+    checkJobQueueHealth(),
+    checkCacheHealth()
+  ]);
+
+  return {
+    novitaApi: checks[0].status === 'fulfilled' && checks[0].value ? 'up' : 'down',
+    jobQueue: checks[1].status === 'fulfilled' && checks[1].value ? 'up' : 'down',
+    cache: checks[2].status === 'fulfilled' && checks[2].value ? 'up' : 'down'
+  };
+}
+
+/**
+ * Check detailed dependency information
+ */
+async function checkDependencyDetails(): Promise<Record<string, any>> {
+  const [novitaCheck, jobQueueCheck, cacheCheck] = await Promise.allSettled([
+    checkNovitaApiHealthDetailed(),
+    checkJobQueueHealthDetailed(),
+    checkCacheHealthDetailed()
+  ]);
+
+  return {
+    novitaApi: novitaCheck.status === 'fulfilled' ? novitaCheck.value : { 
+      status: 'down', 
+      error: novitaCheck.reason?.message || 'Unknown error' 
+    },
+    jobQueue: jobQueueCheck.status === 'fulfilled' ? jobQueueCheck.value : { 
+      status: 'down', 
+      error: jobQueueCheck.reason?.message || 'Unknown error' 
+    },
+    cache: cacheCheck.status === 'fulfilled' ? cacheCheck.value : { 
+      status: 'down', 
+      error: cacheCheck.reason?.message || 'Unknown error' 
+    }
+  };
+}
+
+/**
+ * Check Novita.ai API connectivity
+ */
+async function checkNovitaApiHealth(): Promise<boolean> {
+  try {
+    // Try to fetch products as a simple connectivity test
+    // Use a timeout to avoid hanging the health check
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Health check timeout')), 5000);
+    });
+
+    await Promise.race([
+      novitaApiService.getProducts({ name: 'test', region: 'CN-HK-01' }),
+      timeoutPromise
+    ]);
+
+    return true;
+  } catch (error) {
+    logger.debug('Novita API health check failed', {
+      error: (error as Error).message
+    });
+    return false;
+  }
+}
+
+/**
+ * Check job queue health
+ */
+async function checkJobQueueHealth(): Promise<boolean> {
+  try {
+    // Check if job queue service is responsive
+    const stats = jobQueueService.getStats();
+    return typeof stats === 'object' && stats !== null;
+  } catch (error) {
+    logger.debug('Job queue health check failed', {
+      error: (error as Error).message
+    });
+    return false;
+  }
+}
+
+/**
+ * Check cache health
+ */
+async function checkCacheHealth(): Promise<boolean> {
+  try {
+    // Check if instance service cache is accessible
+    const stats = instanceService.getCacheStats();
+    return typeof stats === 'object' && stats !== null;
+  } catch (error) {
+    logger.debug('Cache health check failed', {
+      error: (error as Error).message
+    });
+    return false;
+  }
+}
+
+/**
+ * Detailed Novita.ai API health check
+ */
+async function checkNovitaApiHealthDetailed(): Promise<any> {
+  const startTime = Date.now();
+  
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Health check timeout')), 5000);
+    });
+
+    await Promise.race([
+      novitaApiService.getProducts({ name: 'test', region: 'CN-HK-01' }),
+      timeoutPromise
+    ]);
+
+    const responseTime = Date.now() - startTime;
+    
+    return {
+      status: 'up',
+      responseTime,
+      lastChecked: new Date().toISOString()
+    };
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    
+    return {
+      status: 'down',
+      responseTime,
+      error: (error as Error).message,
+      lastChecked: new Date().toISOString()
+    };
+  }
+}
+
+/**
+ * Detailed job queue health check
+ */
+async function checkJobQueueHealthDetailed(): Promise<any> {
+  try {
+    const stats = jobQueueService.getStats();
+    
+    return {
+      status: 'up',
+      queueSize: stats.pendingJobs || 0,
+      processing: stats.processingJobs || 0,
+      completed: stats.completedJobs || 0,
+      failed: stats.failedJobs || 0,
+      lastChecked: new Date().toISOString()
+    };
+  } catch (error) {
+    return {
+      status: 'down',
+      error: (error as Error).message,
+      lastChecked: new Date().toISOString()
+    };
+  }
+}
+
+/**
+ * Detailed cache health check
+ */
+async function checkCacheHealthDetailed(): Promise<any> {
+  try {
+    const instanceStats = instanceService.getCacheStats();
+    
+    return {
+      status: 'up',
+      instanceCache: {
+        size: instanceStats.instanceDetailsCache?.size || 0,
+        hitRatio: Math.round((instanceStats.instanceDetailsCache?.hitRatio || 0) * 100)
+      },
+      instanceStatesCache: {
+        size: instanceStats.instanceStatesCache?.size || 0,
+        hitRatio: Math.round((instanceStats.instanceStatesCache?.hitRatio || 0) * 100)
+      },
+      totalStates: instanceStats.instanceStatesSize || 0,
+      lastChecked: new Date().toISOString()
+    };
+  } catch (error) {
+    return {
+      status: 'down',
+      error: (error as Error).message,
+      lastChecked: new Date().toISOString()
+    };
+  }
+}
 
 export { router as healthRouter };

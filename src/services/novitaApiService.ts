@@ -6,7 +6,7 @@ import {
   Product,
   ProductsResponse,
   Template,
-  CreateInstanceRequest,
+  NovitaCreateInstanceRequest,
   InstanceResponse,
   NovitaListInstancesResponse,
   InstanceStatus,
@@ -135,7 +135,7 @@ export class NovitaApiService {
   /**
    * Create a new GPU instance
    */
-  async createInstance(request: CreateInstanceRequest): Promise<InstanceResponse> {
+  async createInstance(request: NovitaCreateInstanceRequest): Promise<InstanceResponse> {
     try {
       const response = await novitaClient.post<NovitaApiResponse<InstanceResponse>>(
         '/v1/instances',

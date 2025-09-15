@@ -1,25 +1,21 @@
 import { logger } from '../utils/logger';
 import { novitaApiService } from './novitaApiService';
 import { Product, NovitaApiClientError } from '../types/api';
-
-interface CacheEntry<T> {
-  data: T;
-  timestamp: number;
-  ttl: number;
-}
-
-interface ProductCache {
-  [key: string]: CacheEntry<Product[]>;
-}
-
-interface OptimalProductCache {
-  [key: string]: CacheEntry<Product>;
-}
+import { cacheManager } from './cacheService';
 
 export class ProductService {
-  private productCache: ProductCache = {};
-  private optimalProductCache: OptimalProductCache = {};
-  private readonly defaultCacheTtl = 5 * 60 * 1000; // 5 minutes
+  private readonly productCache = cacheManager.getCache<Product[]>('products', {
+    maxSize: 100,
+    defaultTtl: 5 * 60 * 1000, // 5 minutes
+    cleanupIntervalMs: 60 * 1000 // Cleanup every minute
+  });
+  
+  private readonly optimalProductCache = cacheManager.getCache<Product>('optimal-products', {
+    maxSize: 50,
+    defaultTtl: 5 * 60 * 1000, // 5 minutes
+    cleanupIntervalMs: 60 * 1000 // Cleanup every minute
+  });
+  
   private readonly defaultRegion = 'CN-HK-01';
 
   /**
@@ -33,10 +29,10 @@ export class ProductService {
     const cacheKey = this.generateCacheKey(filters);
     
     // Check cache first
-    const cachedEntry = this.productCache[cacheKey];
-    if (cachedEntry && this.isCacheValid(cachedEntry)) {
+    const cachedProducts = this.productCache.get(cacheKey);
+    if (cachedProducts) {
       logger.debug('Returning cached products', { cacheKey, filters });
-      return cachedEntry.data;
+      return cachedProducts;
     }
 
     try {
@@ -45,11 +41,7 @@ export class ProductService {
       const products = await novitaApiService.getProducts(filters);
       
       // Cache the results
-      this.productCache[cacheKey] = {
-        data: products,
-        timestamp: Date.now(),
-        ttl: this.defaultCacheTtl
-      };
+      this.productCache.set(cacheKey, products);
 
       logger.info('Products fetched and cached', { 
         count: products.length, 
@@ -69,17 +61,17 @@ export class ProductService {
    */
   async getOptimalProduct(productName: string, region?: string): Promise<Product> {
     const targetRegion = region || this.defaultRegion;
-    const cacheKey = `optimal:${productName}:${targetRegion}`;
+    const cacheKey = `${productName}:${targetRegion}`;
     
     // Check cache first
-    const cachedEntry = this.optimalProductCache[cacheKey];
-    if (cachedEntry && this.isCacheValid(cachedEntry)) {
+    const cachedProduct = this.optimalProductCache.get(cacheKey);
+    if (cachedProduct) {
       logger.debug('Returning cached optimal product', { 
         cacheKey, 
         productName, 
         region: targetRegion 
       });
-      return cachedEntry.data;
+      return cachedProduct;
     }
 
     try {
@@ -121,11 +113,7 @@ export class ProductService {
       }
       
       // Cache the optimal product
-      this.optimalProductCache[cacheKey] = {
-        data: optimalProduct,
-        timestamp: Date.now(),
-        ttl: this.defaultCacheTtl
-      };
+      this.optimalProductCache.set(cacheKey, optimalProduct);
       
       logger.info('Optimal product selected and cached', {
         productId: optimalProduct.id,
@@ -188,18 +176,11 @@ export class ProductService {
   }
 
   /**
-   * Check if cache entry is still valid
-   */
-  private isCacheValid<T>(entry: CacheEntry<T>): boolean {
-    return Date.now() - entry.timestamp < entry.ttl;
-  }
-
-  /**
    * Clear all cached data
    */
   clearCache(): void {
-    this.productCache = {};
-    this.optimalProductCache = {};
+    this.productCache.clear();
+    this.optimalProductCache.clear();
     logger.info('Product cache cleared');
   }
 
@@ -207,29 +188,16 @@ export class ProductService {
    * Clear expired cache entries
    */
   clearExpiredCache(): void {
-    const now = Date.now();
-    let clearedCount = 0;
+    const productCleaned = this.productCache.cleanupExpired();
+    const optimalCleaned = this.optimalProductCache.cleanupExpired();
+    const totalCleaned = productCleaned + optimalCleaned;
 
-    // Clear expired product cache entries
-    for (const key in this.productCache) {
-      const entry = this.productCache[key];
-      if (entry && !this.isCacheValid(entry)) {
-        delete this.productCache[key];
-        clearedCount++;
-      }
-    }
-
-    // Clear expired optimal product cache entries
-    for (const key in this.optimalProductCache) {
-      const entry = this.optimalProductCache[key];
-      if (entry && !this.isCacheValid(entry)) {
-        delete this.optimalProductCache[key];
-        clearedCount++;
-      }
-    }
-
-    if (clearedCount > 0) {
-      logger.debug('Cleared expired cache entries', { count: clearedCount });
+    if (totalCleaned > 0) {
+      logger.debug('Cleared expired product cache entries', { 
+        productCleaned, 
+        optimalCleaned, 
+        totalCleaned 
+      });
     }
   }
 
@@ -237,26 +205,75 @@ export class ProductService {
    * Get cache statistics for monitoring
    */
   getCacheStats(): {
-    productCacheSize: number;
-    optimalProductCacheSize: number;
+    productCache: {
+      size: number;
+      hitRatio: number;
+      metrics: any;
+    };
+    optimalProductCache: {
+      size: number;
+      hitRatio: number;
+      metrics: any;
+    };
     totalCacheSize: number;
   } {
+    const productMetrics = this.productCache.getMetrics();
+    const optimalMetrics = this.optimalProductCache.getMetrics();
+    
     return {
-      productCacheSize: Object.keys(this.productCache).length,
-      optimalProductCacheSize: Object.keys(this.optimalProductCache).length,
-      totalCacheSize: Object.keys(this.productCache).length + Object.keys(this.optimalProductCache).length
+      productCache: {
+        size: this.productCache.size(),
+        hitRatio: this.productCache.getHitRatio(),
+        metrics: productMetrics
+      },
+      optimalProductCache: {
+        size: this.optimalProductCache.size(),
+        hitRatio: this.optimalProductCache.getHitRatio(),
+        metrics: optimalMetrics
+      },
+      totalCacheSize: this.productCache.size() + this.optimalProductCache.size()
     };
   }
 
   /**
-   * Set custom cache TTL (for testing or configuration)
+   * Invalidate cache for specific product
    */
-  setCacheTtl(ttlMs: number): void {
-    if (ttlMs < 0) {
-      throw new Error('Cache TTL must be non-negative');
+  invalidateProduct(productName: string, region?: string): void {
+    const targetRegion = region || this.defaultRegion;
+    const optimalKey = `${productName}:${targetRegion}`;
+    
+    // Remove from optimal product cache
+    this.optimalProductCache.delete(optimalKey);
+    
+    // Remove from product cache (need to check all keys that might contain this product)
+    const productKeys = this.productCache.keys();
+    for (const key of productKeys) {
+      if (key.includes(`name:${productName}`) || key.includes(`region:${targetRegion}`)) {
+        this.productCache.delete(key);
+      }
     }
-    (this as any).defaultCacheTtl = ttlMs;
-    logger.debug('Cache TTL updated', { ttlMs });
+    
+    logger.debug('Invalidated product cache', { productName, region: targetRegion });
+  }
+
+  /**
+   * Preload products into cache
+   */
+  async preloadProducts(filters?: {
+    name?: string;
+    region?: string;
+    gpuType?: string;
+  }): Promise<void> {
+    try {
+      await this.getProducts(filters);
+      logger.debug('Products preloaded into cache', { filters });
+    } catch (error) {
+      logger.warn('Failed to preload products', { 
+        filters, 
+        error: (error as Error).message 
+      });
+      throw error;
+    }
   }
 }
 

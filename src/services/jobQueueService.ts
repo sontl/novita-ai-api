@@ -2,8 +2,12 @@
  * In-memory job queue service for asynchronous processing
  */
 
-import { v4 as uuidv4 } from 'uuid';
+// Simple ID generator for jobs
+function generateJobId(): string {
+  return `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
 import { logger } from '../utils/logger';
+import { recordJobMetrics } from '../middleware/metricsMiddleware';
 import {
   Job,
   JobType,
@@ -18,7 +22,7 @@ import {
 export class JobQueueService {
   private jobs: Map<string, Job> = new Map();
   private isProcessing = false;
-  private processingInterval?: NodeJS.Timeout;
+  private processingInterval?: NodeJS.Timeout | undefined;
   private readonly processingIntervalMs: number;
   private readonly maxRetryDelay: number;
 
@@ -40,7 +44,7 @@ export class JobQueueService {
     maxAttempts: number = 3
   ): Promise<string> {
     const job: Job = {
-      id: uuidv4(),
+      id: generateJobId(),
       type,
       payload,
       status: JobStatus.PENDING,
@@ -213,6 +217,8 @@ export class JobQueueService {
    * Process a specific job
    */
   private async processJob(job: Job): Promise<void> {
+    const startTime = Date.now();
+    
     try {
       // Update job status to processing
       job.status = JobStatus.PROCESSING;
@@ -232,23 +238,31 @@ export class JobQueueService {
       // Mark as completed
       job.status = JobStatus.COMPLETED;
       job.completedAt = new Date();
-      job.error = undefined;
+      delete job.error;
+
+      // Record successful job metrics
+      const processingTime = Date.now() - startTime;
+      const queueSize = this.getStats().pendingJobs;
+      recordJobMetrics(job.type, processingTime, true, queueSize);
 
       logger.info('Job completed successfully', {
         jobId: job.id,
         type: job.type,
-        attempts: job.attempts
+        attempts: job.attempts,
+        processingTimeMs: processingTime
       });
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const processingTime = Date.now() - startTime;
       
       logger.error('Job processing failed', {
         jobId: job.id,
         type: job.type,
         attempt: job.attempts,
         maxAttempts: job.maxAttempts,
-        error: errorMessage
+        error: errorMessage,
+        processingTimeMs: processingTime
       });
 
       job.error = errorMessage;
@@ -256,7 +270,7 @@ export class JobQueueService {
       // Check if we should retry
       if (job.attempts < job.maxAttempts) {
         // Calculate retry delay with exponential backoff
-        const baseDelay = 1000; // 1 second
+        const baseDelay = 100; // 100ms for faster testing
         const delay = Math.min(
           baseDelay * Math.pow(2, job.attempts - 1),
           this.maxRetryDelay
@@ -275,6 +289,10 @@ export class JobQueueService {
         // Max attempts reached, mark as failed
         job.status = JobStatus.FAILED;
         job.completedAt = new Date();
+
+        // Record failed job metrics
+        const queueSize = this.getStats().pendingJobs;
+        recordJobMetrics(job.type, processingTime, false, queueSize);
 
         logger.error('Job failed permanently', {
           jobId: job.id,

@@ -4,6 +4,12 @@
 
 import { logger } from '../utils/logger';
 import { JobQueueService } from './jobQueueService';
+import { productService } from './productService';
+import { templateService } from './templateService';
+import { novitaApiService } from './novitaApiService';
+import { instanceService } from './instanceService';
+import { webhookClient } from '../clients/webhookClient';
+import { config } from '../config/config';
 import {
   Job,
   JobType,
@@ -11,9 +17,24 @@ import {
   MonitorInstanceJobPayload,
   SendWebhookJobPayload
 } from '../types/job';
+import {
+  NovitaCreateInstanceRequest,
+  InstanceStatus,
+  NovitaApiClientError
+} from '../types/api';
+import { JobPriority } from '../types/job';
 
 export class JobWorkerService {
+  private readonly pollIntervalMs: number;
+  private readonly maxWaitTimeMs: number;
+  private readonly maxRetryAttempts: number;
+
   constructor(private jobQueue: JobQueueService) {
+    // Use configurable polling interval and timeout settings
+    this.pollIntervalMs = config.defaults.pollInterval * 1000; // Convert seconds to milliseconds
+    this.maxWaitTimeMs = 10 * 60 * 1000; // 10 minutes timeout
+    this.maxRetryAttempts = config.defaults.maxRetryAttempts;
+    
     this.registerHandlers();
   }
 
@@ -40,21 +61,175 @@ export class JobWorkerService {
     });
 
     try {
-      // TODO: This will be implemented when InstanceService is available
-      // For now, we'll simulate the process
-      await this.simulateInstanceCreation(payload);
-      
-      logger.info('Instance creation job completed', {
+      // Get instance state to update it throughout the process
+      const instanceState = instanceService.getInstanceState(payload.instanceId);
+      if (!instanceState) {
+        throw new Error(`Instance state not found: ${payload.instanceId}`);
+      }
+
+      // Step 1: Get optimal product selection
+      logger.debug('Fetching optimal product', {
         jobId: job.id,
-        instanceId: payload.instanceId
+        instanceId: payload.instanceId,
+        productName: payload.productName,
+        region: payload.region
+      });
+
+      const optimalProduct = await productService.getOptimalProduct(
+        payload.productName,
+        payload.region
+      );
+
+      // Step 2: Get template configuration
+      logger.debug('Fetching template configuration', {
+        jobId: job.id,
+        instanceId: payload.instanceId,
+        templateId: payload.templateId
+      });
+
+      const templateConfig = await templateService.getTemplateConfiguration(payload.templateId);
+
+      // Step 3: Create Novita.ai instance request
+      const createRequest: NovitaCreateInstanceRequest = {
+        name: payload.name,
+        productId: optimalProduct.id,
+        templateId: payload.templateId,
+        gpuNum: payload.gpuNum,
+        rootfsSize: payload.rootfsSize,
+        region: payload.region,
+        billingMode: 'spot', // Default to spot pricing for cost optimization
+        imageUrl: templateConfig.imageUrl,
+        ...(templateConfig.imageAuth && { imageAuth: templateConfig.imageAuth }),
+        ports: templateConfig.ports,
+        envs: templateConfig.envs
+      };
+
+      logger.info('Creating Novita.ai instance', {
+        jobId: job.id,
+        instanceId: payload.instanceId,
+        productId: optimalProduct.id,
+        spotPrice: optimalProduct.spotPrice
+      });
+
+      // Step 4: Create instance via Novita.ai API
+      const novitaInstance = await novitaApiService.createInstance(createRequest);
+
+      // Step 5: Update instance state with Novita instance ID
+      instanceService.updateInstanceState(payload.instanceId, {
+        novitaInstanceId: novitaInstance.id,
+        status: novitaInstance.status,
+        timestamps: {
+          created: instanceState.timestamps.created,
+          ...(instanceState.timestamps.started && { started: instanceState.timestamps.started }),
+          ...(instanceState.timestamps.ready && { ready: instanceState.timestamps.ready }),
+          ...(instanceState.timestamps.failed && { failed: instanceState.timestamps.failed })
+        }
+      });
+
+      logger.info('Novita.ai instance created successfully', {
+        jobId: job.id,
+        instanceId: payload.instanceId,
+        novitaInstanceId: novitaInstance.id,
+        status: novitaInstance.status
+      });
+
+      // Step 6: Automatically start the instance
+      logger.info('Starting Novita.ai instance', {
+        jobId: job.id,
+        instanceId: payload.instanceId,
+        novitaInstanceId: novitaInstance.id
+      });
+
+      const startedInstance = await novitaApiService.startInstance(novitaInstance.id);
+
+      // Step 7: Update instance state with started status
+      instanceService.updateInstanceState(payload.instanceId, {
+        status: startedInstance.status,
+        timestamps: {
+          created: instanceState.timestamps.created,
+          started: new Date(),
+          ...(instanceState.timestamps.ready && { ready: instanceState.timestamps.ready }),
+          ...(instanceState.timestamps.failed && { failed: instanceState.timestamps.failed })
+        }
+      });
+
+      logger.info('Instance start initiated', {
+        jobId: job.id,
+        instanceId: payload.instanceId,
+        novitaInstanceId: novitaInstance.id,
+        status: startedInstance.status
+      });
+
+      // Step 8: Queue monitoring job to track startup progress
+      const monitoringPayload: MonitorInstanceJobPayload = {
+        instanceId: payload.instanceId,
+        novitaInstanceId: novitaInstance.id,
+        startTime: new Date(),
+        maxWaitTime: this.maxWaitTimeMs,
+        ...(payload.webhookUrl && { webhookUrl: payload.webhookUrl })
+      };
+
+      await this.jobQueue.addJob(
+        JobType.MONITOR_INSTANCE,
+        monitoringPayload,
+        JobPriority.HIGH
+      );
+
+      logger.info('Instance creation workflow completed, monitoring queued', {
+        jobId: job.id,
+        instanceId: payload.instanceId,
+        novitaInstanceId: novitaInstance.id
       });
 
     } catch (error) {
+      // Update instance state to failed
+      try {
+        const currentState = instanceService.getInstanceState(payload.instanceId);
+        instanceService.updateInstanceState(payload.instanceId, {
+          status: InstanceStatus.FAILED,
+          lastError: error instanceof Error ? error.message : 'Unknown error',
+          timestamps: {
+            created: currentState?.timestamps.created || new Date(),
+            ...(currentState?.timestamps.started && { started: currentState.timestamps.started }),
+            ...(currentState?.timestamps.ready && { ready: currentState.timestamps.ready }),
+            failed: new Date()
+          }
+        });
+      } catch (updateError) {
+        logger.error('Failed to update instance state to failed', {
+          instanceId: payload.instanceId,
+          error: updateError instanceof Error ? updateError.message : 'Unknown error'
+        });
+      }
+
+      // Send failure webhook if configured
+      if (payload.webhookUrl) {
+        try {
+          const webhookPayload = webhookClient.createNotificationPayload(
+            payload.instanceId,
+            'failed',
+            { error: error instanceof Error ? error.message : 'Unknown error' }
+          );
+
+          await this.jobQueue.addJob(JobType.SEND_WEBHOOK, {
+            url: payload.webhookUrl,
+            payload: webhookPayload
+          });
+        } catch (webhookError) {
+          logger.error('Failed to queue failure webhook', {
+            instanceId: payload.instanceId,
+            error: webhookError instanceof Error ? webhookError.message : 'Unknown error'
+          });
+        }
+      }
+
       logger.error('Instance creation job failed', {
         jobId: job.id,
         instanceId: payload.instanceId,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorType: error instanceof NovitaApiClientError ? 'NovitaApiClientError' : 'Unknown'
       });
+      
       throw error;
     }
   }
@@ -64,71 +239,94 @@ export class JobWorkerService {
    */
   private async handleMonitorInstance(job: Job): Promise<void> {
     const payload = job.payload as MonitorInstanceJobPayload;
+    const elapsedTime = Date.now() - payload.startTime.getTime();
+    const remainingTime = this.getRemainingStartupTime(payload.startTime, payload.maxWaitTime);
     
     logger.info('Processing monitor instance job', {
       jobId: job.id,
       instanceId: payload.instanceId,
-      novitaInstanceId: payload.novitaInstanceId
+      novitaInstanceId: payload.novitaInstanceId,
+      elapsedTime,
+      remainingTime
     });
 
     try {
       // Check if monitoring timeout has been reached
-      const now = new Date();
-      const elapsedTime = now.getTime() - payload.startTime.getTime();
-      
-      if (elapsedTime > payload.maxWaitTime) {
-        throw new Error(`Instance monitoring timeout after ${payload.maxWaitTime}ms`);
+      if (this.hasStartupTimedOut(payload.startTime, payload.maxWaitTime)) {
+        await this.handleStartupTimeout(payload);
+        return;
       }
 
-      // TODO: This will be implemented when NovitaApiService is available
-      // For now, we'll simulate the monitoring process
-      const isReady = await this.simulateInstanceMonitoring(payload);
+      // Get current instance status from Novita.ai API
+      logger.debug('Checking instance status', {
+        jobId: job.id,
+        instanceId: payload.instanceId,
+        novitaInstanceId: payload.novitaInstanceId,
+        elapsedTime,
+        remainingTime
+      });
+
+      const novitaInstance = await novitaApiService.getInstance(payload.novitaInstanceId);
       
-      if (isReady) {
-        logger.info('Instance is ready', {
+      // Update our internal instance state with current status
+      instanceService.updateInstanceState(payload.instanceId, {
+        status: novitaInstance.status
+      });
+
+      logger.debug('Instance status check completed', {
+        jobId: job.id,
+        instanceId: payload.instanceId,
+        novitaInstanceId: payload.novitaInstanceId,
+        status: novitaInstance.status,
+        elapsedTime
+      });
+
+      if (novitaInstance.status === InstanceStatus.RUNNING) {
+        // Instance is ready!
+        await this.handleStartupSuccess(payload, novitaInstance);
+      } else if (novitaInstance.status === InstanceStatus.FAILED) {
+        // Instance failed to start
+        const failureError = new Error(`Instance failed to start with status: ${novitaInstance.status}`);
+        await this.handleStartupFailure(payload, failureError);
+        throw failureError;
+      } else {
+        // Instance still starting, reschedule monitoring with delay
+        logger.debug('Instance still starting, rescheduling monitoring', {
           jobId: job.id,
           instanceId: payload.instanceId,
-          novitaInstanceId: payload.novitaInstanceId
+          novitaInstanceId: payload.novitaInstanceId,
+          status: novitaInstance.status,
+          nextCheckIn: this.pollIntervalMs
         });
 
-        // Send webhook notification if configured
-        if (payload.webhookUrl) {
-          await this.jobQueue.addJob(JobType.SEND_WEBHOOK, {
-            url: payload.webhookUrl,
-            payload: {
+        // Wait for configured poll interval before next check
+        setTimeout(async () => {
+          try {
+            await this.jobQueue.addJob(
+              JobType.MONITOR_INSTANCE,
+              payload,
+              JobPriority.HIGH
+            );
+          } catch (error) {
+            logger.error('Failed to reschedule monitoring job', {
               instanceId: payload.instanceId,
-              novitaInstanceId: payload.novitaInstanceId,
-              status: 'running',
-              timestamp: new Date().toISOString()
-            }
-          });
-        }
-      } else {
-        // Instance not ready yet, reschedule monitoring
-        await this.jobQueue.addJob(JobType.MONITOR_INSTANCE, payload);
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          }
+        }, this.pollIntervalMs);
       }
 
     } catch (error) {
       logger.error('Instance monitoring job failed', {
         jobId: job.id,
         instanceId: payload.instanceId,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        novitaInstanceId: payload.novitaInstanceId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        elapsedTime
       });
 
-      // Send failure webhook if configured
-      if (payload.webhookUrl) {
-        await this.jobQueue.addJob(JobType.SEND_WEBHOOK, {
-          url: payload.webhookUrl,
-          payload: {
-            instanceId: payload.instanceId,
-            novitaInstanceId: payload.novitaInstanceId,
-            status: 'failed',
-            error: error instanceof Error ? error.message : 'Unknown error',
-            timestamp: new Date().toISOString()
-          }
-        });
-      }
-
+      // Handle the failure using our centralized handler
+      await this.handleStartupFailure(payload, error instanceof Error ? error : new Error('Unknown monitoring error'));
       throw error;
     }
   }
@@ -145,10 +343,12 @@ export class JobWorkerService {
     });
 
     try {
-      // TODO: This will be implemented when HTTP client is available
-      // For now, we'll simulate the webhook sending
-      await this.simulateWebhookSending(payload);
-      
+      await webhookClient.sendWebhook({
+        url: payload.url,
+        payload: payload.payload,
+        ...(payload.headers && { headers: payload.headers })
+      });
+
       logger.info('Webhook sent successfully', {
         jobId: job.id,
         url: payload.url
@@ -164,65 +364,184 @@ export class JobWorkerService {
     }
   }
 
-  /**
-   * Simulate instance creation (placeholder for actual implementation)
-   */
-  private async simulateInstanceCreation(payload: CreateInstanceJobPayload): Promise<void> {
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Simulate potential failure (10% chance)
-    if (Math.random() < 0.1) {
-      throw new Error('Simulated instance creation failure');
-    }
 
-    logger.debug('Simulated instance creation completed', {
-      instanceId: payload.instanceId,
-      productName: payload.productName
-    });
+
+
+
+
+
+  /**
+   * Check if instance startup has timed out
+   */
+  private hasStartupTimedOut(startTime: Date, maxWaitTime: number): boolean {
+    const elapsedTime = Date.now() - startTime.getTime();
+    return elapsedTime > maxWaitTime;
   }
 
   /**
-   * Simulate instance monitoring (placeholder for actual implementation)
+   * Calculate remaining time for instance startup
    */
-  private async simulateInstanceMonitoring(payload: MonitorInstanceJobPayload): Promise<boolean> {
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Simulate instance becoming ready (30% chance per check)
-    const isReady = Math.random() < 0.3;
-    
-    logger.debug('Simulated instance monitoring check', {
-      instanceId: payload.instanceId,
-      isReady
-    });
-
-    return isReady;
+  private getRemainingStartupTime(startTime: Date, maxWaitTime: number): number {
+    const elapsedTime = Date.now() - startTime.getTime();
+    return Math.max(0, maxWaitTime - elapsedTime);
   }
 
   /**
-   * Simulate webhook sending (placeholder for actual implementation)
+   * Handle instance startup timeout
    */
-  private async simulateWebhookSending(payload: SendWebhookJobPayload): Promise<void> {
-    // Simulate HTTP request delay
-    await new Promise(resolve => setTimeout(resolve, 200));
+  private async handleStartupTimeout(payload: MonitorInstanceJobPayload): Promise<void> {
+    const timeoutError = `Instance startup timeout after ${payload.maxWaitTime}ms`;
     
-    // Simulate potential failure (5% chance)
-    if (Math.random() < 0.05) {
-      throw new Error('Simulated webhook delivery failure');
-    }
-
-    logger.debug('Simulated webhook sent', {
-      url: payload.url,
-      payloadSize: JSON.stringify(payload.payload).length
+    logger.error('Instance startup timed out', {
+      instanceId: payload.instanceId,
+      novitaInstanceId: payload.novitaInstanceId,
+      maxWaitTime: payload.maxWaitTime,
+      startTime: payload.startTime
     });
+
+    // Update instance state to failed
+    const currentState = instanceService.getInstanceState(payload.instanceId);
+    instanceService.updateInstanceState(payload.instanceId, {
+      status: InstanceStatus.FAILED,
+      lastError: timeoutError,
+      timestamps: {
+        created: currentState?.timestamps.created || new Date(),
+        ...(currentState?.timestamps.started && { started: currentState.timestamps.started }),
+        ...(currentState?.timestamps.ready && { ready: currentState.timestamps.ready }),
+        failed: new Date()
+      }
+    });
+
+    // Send timeout webhook notification if configured
+    if (payload.webhookUrl) {
+      const webhookPayload = webhookClient.createNotificationPayload(
+        payload.instanceId,
+        'timeout',
+        {
+          novitaInstanceId: payload.novitaInstanceId,
+          elapsedTime: Date.now() - payload.startTime.getTime(),
+          error: timeoutError
+        }
+      );
+
+      await this.jobQueue.addJob(JobType.SEND_WEBHOOK, {
+        url: payload.webhookUrl,
+        payload: webhookPayload
+      });
+    }
+  }
+
+  /**
+   * Handle instance startup failure
+   */
+  private async handleStartupFailure(payload: MonitorInstanceJobPayload, error: Error): Promise<void> {
+    logger.error('Instance startup failed', {
+      instanceId: payload.instanceId,
+      novitaInstanceId: payload.novitaInstanceId,
+      error: error.message,
+      elapsedTime: Date.now() - payload.startTime.getTime()
+    });
+
+    // Update instance state to failed
+    const currentState = instanceService.getInstanceState(payload.instanceId);
+    instanceService.updateInstanceState(payload.instanceId, {
+      status: InstanceStatus.FAILED,
+      lastError: error.message,
+      timestamps: {
+        created: currentState?.timestamps.created || new Date(),
+        ...(currentState?.timestamps.started && { started: currentState.timestamps.started }),
+        ...(currentState?.timestamps.ready && { ready: currentState.timestamps.ready }),
+        failed: new Date()
+      }
+    });
+
+    // Send failure webhook notification if configured
+    if (payload.webhookUrl) {
+      const webhookPayload = webhookClient.createNotificationPayload(
+        payload.instanceId,
+        'failed',
+        {
+          novitaInstanceId: payload.novitaInstanceId,
+          elapsedTime: Date.now() - payload.startTime.getTime(),
+          error: error.message
+        }
+      );
+
+      await this.jobQueue.addJob(JobType.SEND_WEBHOOK, {
+        url: payload.webhookUrl,
+        payload: webhookPayload
+      });
+    }
+  }
+
+  /**
+   * Handle successful instance startup
+   */
+  private async handleStartupSuccess(payload: MonitorInstanceJobPayload, novitaInstance: any): Promise<void> {
+    const elapsedTime = Date.now() - payload.startTime.getTime();
+    
+    logger.info('Instance startup completed successfully', {
+      instanceId: payload.instanceId,
+      novitaInstanceId: payload.novitaInstanceId,
+      status: novitaInstance.status,
+      elapsedTime
+    });
+
+    // Update instance state to running
+    const currentState = instanceService.getInstanceState(payload.instanceId);
+    instanceService.updateInstanceState(payload.instanceId, {
+      status: InstanceStatus.RUNNING,
+      timestamps: {
+        created: currentState?.timestamps.created || new Date(),
+        ...(currentState?.timestamps.started && { started: currentState.timestamps.started }),
+        ready: new Date(),
+        ...(currentState?.timestamps.failed && { failed: currentState.timestamps.failed })
+      }
+    });
+
+    // Send success webhook notification if configured
+    if (payload.webhookUrl) {
+      const webhookPayload = webhookClient.createNotificationPayload(
+        payload.instanceId,
+        'running',
+        {
+          novitaInstanceId: payload.novitaInstanceId,
+          elapsedTime,
+          data: novitaInstance
+        }
+      );
+
+      await this.jobQueue.addJob(JobType.SEND_WEBHOOK, {
+        url: payload.webhookUrl,
+        payload: webhookPayload
+      });
+    }
+  }
+
+  /**
+   * Get monitoring configuration
+   */
+  getMonitoringConfig(): {
+    pollIntervalMs: number;
+    maxWaitTimeMs: number;
+    maxRetryAttempts: number;
+  } {
+    return {
+      pollIntervalMs: this.pollIntervalMs,
+      maxWaitTimeMs: this.maxWaitTimeMs,
+      maxRetryAttempts: this.maxRetryAttempts
+    };
   }
 
   /**
    * Start the worker service
    */
   start(): void {
-    logger.info('Starting job worker service');
+    logger.info('Starting job worker service', {
+      pollIntervalMs: this.pollIntervalMs,
+      maxWaitTimeMs: this.maxWaitTimeMs,
+      maxRetryAttempts: this.maxRetryAttempts
+    });
     this.jobQueue.startProcessing();
   }
 

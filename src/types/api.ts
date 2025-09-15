@@ -60,6 +60,28 @@ export interface HealthCheckResponse {
   uptime: number;
 }
 
+export interface EnhancedHealthCheckResponse extends HealthCheckResponse {
+  performance: {
+    requestsPerMinute: number;
+    averageResponseTime: number;
+    errorRate: number;
+    jobProcessingRate: number;
+  };
+  system: {
+    memory: {
+      usedMB: number;
+      totalMB: number;
+      externalMB: number;
+      rss: number;
+    };
+    cpu: {
+      usage: number;
+      loadAverage: number[];
+    };
+  };
+  dependencies: Record<string, any>;
+}
+
 export interface NovitaApiResponse<T = any> {
   success: boolean;
   data?: T;

@@ -1,20 +1,14 @@
 import { logger } from '../utils/logger';
 import { novitaApiService } from './novitaApiService';
 import { Template, NovitaApiClientError } from '../types/api';
-
-interface CacheEntry<T> {
-  data: T;
-  timestamp: number;
-  ttl: number;
-}
-
-interface TemplateCache {
-  [templateId: string]: CacheEntry<Template>;
-}
+import { cacheManager } from './cacheService';
 
 export class TemplateService {
-  private templateCache: TemplateCache = {};
-  private readonly defaultCacheTtl = 10 * 60 * 1000; // 10 minutes (templates change less frequently)
+  private readonly templateCache = cacheManager.getCache<Template>('templates', {
+    maxSize: 200,
+    defaultTtl: 10 * 60 * 1000, // 10 minutes (templates change less frequently)
+    cleanupIntervalMs: 2 * 60 * 1000 // Cleanup every 2 minutes
+  });
 
   /**
    * Get template configuration by ID with caching support
@@ -31,12 +25,12 @@ export class TemplateService {
     const normalizedTemplateId = templateId.trim();
     
     // Check cache first
-    const cachedEntry = this.templateCache[normalizedTemplateId];
-    if (cachedEntry && this.isCacheValid(cachedEntry)) {
+    const cachedTemplate = this.templateCache.get(normalizedTemplateId);
+    if (cachedTemplate) {
       logger.debug('Returning cached template', { 
         templateId: normalizedTemplateId 
       });
-      return cachedEntry.data;
+      return cachedTemplate;
     }
 
     try {
@@ -48,11 +42,7 @@ export class TemplateService {
       this.validateTemplate(template);
       
       // Cache the results
-      this.templateCache[normalizedTemplateId] = {
-        data: template,
-        timestamp: Date.now(),
-        ttl: this.defaultCacheTtl
-      };
+      this.templateCache.set(normalizedTemplateId, template);
 
       logger.info('Template fetched and cached', { 
         templateId: template.id,
@@ -207,17 +197,10 @@ export class TemplateService {
   }
 
   /**
-   * Check if cache entry is still valid
-   */
-  private isCacheValid<T>(entry: CacheEntry<T>): boolean {
-    return Date.now() - entry.timestamp < entry.ttl;
-  }
-
-  /**
    * Clear all cached data
    */
   clearCache(): void {
-    this.templateCache = {};
+    this.templateCache.clear();
     logger.info('Template cache cleared');
   }
 
@@ -225,15 +208,7 @@ export class TemplateService {
    * Clear expired cache entries
    */
   clearExpiredCache(): void {
-    let clearedCount = 0;
-
-    for (const templateId in this.templateCache) {
-      const entry = this.templateCache[templateId];
-      if (entry && !this.isCacheValid(entry)) {
-        delete this.templateCache[templateId];
-        clearedCount++;
-      }
-    }
+    const clearedCount = this.templateCache.cleanupExpired();
 
     if (clearedCount > 0) {
       logger.debug('Cleared expired template cache entries', { count: clearedCount });
@@ -244,32 +219,24 @@ export class TemplateService {
    * Get cache statistics for monitoring
    */
   getCacheStats(): {
-    templateCacheSize: number;
+    size: number;
+    hitRatio: number;
+    metrics: any;
     cachedTemplateIds: string[];
   } {
     return {
-      templateCacheSize: Object.keys(this.templateCache).length,
-      cachedTemplateIds: Object.keys(this.templateCache)
+      size: this.templateCache.size(),
+      hitRatio: this.templateCache.getHitRatio(),
+      metrics: this.templateCache.getMetrics(),
+      cachedTemplateIds: this.templateCache.keys()
     };
-  }
-
-  /**
-   * Set custom cache TTL (for testing or configuration)
-   */
-  setCacheTtl(ttlMs: number): void {
-    if (ttlMs < 0) {
-      throw new Error('Cache TTL must be non-negative');
-    }
-    (this as any).defaultCacheTtl = ttlMs;
-    logger.debug('Template cache TTL updated', { ttlMs });
   }
 
   /**
    * Check if template is cached
    */
   isCached(templateId: string): boolean {
-    const entry = this.templateCache[templateId];
-    return entry ? this.isCacheValid(entry) : false;
+    return this.templateCache.has(templateId);
   }
 
   /**
@@ -286,6 +253,28 @@ export class TemplateService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Invalidate specific template from cache
+   */
+  invalidateTemplate(templateId: string): boolean {
+    const deleted = this.templateCache.delete(templateId);
+    if (deleted) {
+      logger.debug('Template invalidated from cache', { templateId });
+    }
+    return deleted;
+  }
+
+  /**
+   * Set custom TTL for specific template
+   */
+  setTemplateTtl(templateId: string, ttlMs: number): boolean {
+    const updated = this.templateCache.setTtl(templateId, ttlMs);
+    if (updated) {
+      logger.debug('Template TTL updated', { templateId, ttlMs });
+    }
+    return updated;
   }
 }
 
