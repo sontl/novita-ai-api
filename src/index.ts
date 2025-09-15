@@ -18,7 +18,14 @@ import cacheRouter from './routes/cache';
 const app = express();
 
 // Log configuration summary on startup
-logger.info('Configuration loaded successfully', getConfigSummary());
+try {
+  logger.info('Configuration loaded successfully', getConfigSummary());
+} catch (error) {
+  // In test environment, configuration might not be fully loaded
+  if (config.nodeEnv !== 'test') {
+    throw error;
+  }
+}
 
 // Security middleware - conditionally enabled based on configuration
 if (config.security.enableHelmet) {

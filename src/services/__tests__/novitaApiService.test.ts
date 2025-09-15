@@ -250,11 +250,15 @@ describe('NovitaApiService', () => {
   describe('createInstance', () => {
     const mockCreateRequest = {
       name: 'test-instance',
-      productName: 'RTX 4090 24GB',
+      productId: 'prod-1',
       templateId: 'template-1',
       gpuNum: 1,
       rootfsSize: 60,
-      region: 'CN-HK-01'
+      region: 'CN-HK-01',
+      billingMode: 'spot' as const,
+      imageUrl: 'docker.io/nvidia/cuda:11.8-runtime-ubuntu20.04',
+      ports: [],
+      envs: []
     };
 
     const mockInstanceResponse: InstanceResponse = {

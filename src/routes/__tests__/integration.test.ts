@@ -58,7 +58,7 @@ describe('API Integration Tests', () => {
     });
     
     mockInstanceService.getCacheStats.mockReturnValue({
-      instanceCacheSize: 0,
+      instanceDetailsCache: { size: 0, hitRatio: 0, metrics: {} },
       instanceStatesSize: 0,
       cachedInstanceIds: []
     });

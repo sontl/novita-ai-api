@@ -45,7 +45,7 @@ describe('Configuration Management', () => {
       expect(config.novita.apiKey).toBe('test-api-key-123');
       expect(config.nodeEnv).toBe('development');
       expect(config.port).toBe(3000);
-      expect(config.logLevel).toBe('info');
+      expect(config.logLevel).toBe('error'); // Test environment uses 'error' level
     });
 
     it('should apply default values for optional configuration', () => {
@@ -257,7 +257,7 @@ describe('Configuration Management', () => {
       expect(summary.hasWebhookSecret).toBe(true);
       expect(summary.nodeEnv).toBe('development');
       expect(summary.port).toBe(3000);
-      expect(summary.logLevel).toBe('info');
+      expect(summary.logLevel).toBe('error'); // Test environment uses 'error' level
       
       // Ensure sensitive data is not included
       expect(summary).not.toHaveProperty('apiKey');

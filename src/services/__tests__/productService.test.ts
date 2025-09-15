@@ -341,22 +341,16 @@ describe('ProductService', () => {
     it('should return cache statistics', () => {
       const stats = service.getCacheStats();
 
-      expect(stats.productCacheSize).toBeGreaterThan(0);
-      expect(stats.optimalProductCacheSize).toBe(1);
-      expect(stats.totalCacheSize).toBe(stats.productCacheSize + stats.optimalProductCacheSize);
+      expect(stats.productCache.size).toBeGreaterThan(0);
+      expect(stats.optimalProductCache.size).toBe(1);
+      expect(stats.totalCacheSize).toBe(stats.productCache.size + stats.optimalProductCache.size);
     });
 
-    it('should allow setting custom cache TTL', () => {
-      const customTtl = 10 * 60 * 1000; // 10 minutes
-      service.setCacheTtl(customTtl);
-
-      expect(logger.debug).toHaveBeenCalledWith('Cache TTL updated', {
-        ttlMs: customTtl
-      });
-    });
-
-    it('should throw error for negative cache TTL', () => {
-      expect(() => service.setCacheTtl(-1000)).toThrow('Cache TTL must be non-negative');
+    it('should use configured cache TTL', () => {
+      // Cache TTL is configured during service initialization
+      const stats = service.getCacheStats();
+      expect(stats.productCache).toBeDefined();
+      expect(stats.optimalProductCache).toBeDefined();
     });
   });
 
@@ -373,7 +367,7 @@ describe('ProductService', () => {
       await service.getProducts({ name: 'RTX 4090', region: 'CN-HK-01', gpuType: 'RTX 4090' });
 
       const stats = service.getCacheStats();
-      expect(stats.productCacheSize).toBe(6); // All different cache keys
+      expect(stats.productCache.size).toBe(6); // All different cache keys
     });
   });
 

@@ -49,8 +49,8 @@ async function demonstrateProductService() {
     // Example 5: Cache statistics
     console.log('5. Cache statistics:');
     const stats = productService.getCacheStats();
-    console.log(`   Product cache entries: ${stats.productCacheSize}`);
-    console.log(`   Optimal product cache entries: ${stats.optimalProductCacheSize}`);
+    console.log(`   Product cache entries: ${stats.productCache.size}`);
+    console.log(`   Optimal product cache entries: ${stats.optimalProductCache.size}`);
     console.log(`   Total cache entries: ${stats.totalCacheSize}\n`);
 
     // Example 6: Clear cache

@@ -78,7 +78,7 @@ async function demonstrateTemplateService(): Promise<void> {
     console.log('\n4. Cache management...');
     const cacheStats = templateService.getCacheStats();
     console.log(`✓ Cache statistics:`);
-    console.log(`  - Templates cached: ${cacheStats.templateCacheSize}`);
+    console.log(`  - Templates cached: ${cacheStats.size}`);
     console.log(`  - Cached template IDs: ${cacheStats.cachedTemplateIds.join(', ')}`);
 
     // Check if template is cached
@@ -116,13 +116,13 @@ async function demonstrateTemplateService(): Promise<void> {
 
     // Example 6: Cache cleanup
     console.log('\n7. Cache cleanup...');
-    console.log(`Cache size before cleanup: ${templateService.getCacheStats().templateCacheSize}`);
+    console.log(`Cache size before cleanup: ${templateService.getCacheStats().size}`);
     
     templateService.clearExpiredCache();
-    console.log(`Cache size after expired cleanup: ${templateService.getCacheStats().templateCacheSize}`);
+    console.log(`Cache size after expired cleanup: ${templateService.getCacheStats().size}`);
     
     templateService.clearCache();
-    console.log(`Cache size after full clear: ${templateService.getCacheStats().templateCacheSize}`);
+    console.log(`Cache size after full clear: ${templateService.getCacheStats().size}`);
 
     console.log('\n=== Template Service Example Complete ===');
 
