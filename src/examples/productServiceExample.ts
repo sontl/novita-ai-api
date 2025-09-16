@@ -39,7 +39,7 @@ async function demonstrateProductService() {
 
     // Example 4: Get all products with filters
     console.log('4. Getting all RTX 4090 products:');
-    const allProducts = await productService.getProducts({ name: 'RTX 4090 24GB' });
+    const allProducts = await productService.getProducts({ productName: 'RTX 4090 24GB' });
     console.log(`   Found ${allProducts.length} products:`);
     allProducts.forEach((product, index) => {
       console.log(`   ${index + 1}. ${product.name} - $${product.spotPrice}/hour (${product.availability})`);

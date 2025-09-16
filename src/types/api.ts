@@ -10,7 +10,7 @@ export interface NovitaApiError {
 export interface CreateInstanceRequest {
   name: string;
   productName: string;
-  templateId: string;
+  templateId: string | number; // Support both string and number for template IDs
   gpuNum?: number;
   rootfsSize?: number;
   region?: string;
@@ -132,7 +132,7 @@ export interface Template {
 export interface NovitaCreateInstanceRequest {
   name: string;
   productId: string;
-  templateId: string;
+  templateId: string | number;
   gpuNum: number;
   rootfsSize: number;
   region: string;
@@ -192,7 +192,7 @@ export interface InstanceState {
   status: InstanceStatus;
   novitaInstanceId?: string;
   productId: string;
-  templateId: string;
+  templateId: string | number;
   configuration: {
     gpuNum: number;
     rootfsSize: number;

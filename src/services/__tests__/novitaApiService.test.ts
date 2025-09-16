@@ -64,10 +64,41 @@ describe('NovitaApiService', () => {
     ];
 
     it('should fetch products successfully', async () => {
+      // Mock the actual API response structure
+      const mockApiProducts = [
+        {
+          id: '1',
+          name: 'RTX 4090 24GB',
+          cpuPerGpu: 16,
+          memoryPerGpu: 62,
+          diskPerGpu: 1913,
+          availableDeploy: true,
+          prices: [],
+          price: '35000',
+          spotPrice: '0.5',
+          regions: [],
+          monthlyPrice: [],
+          billingMethods: []
+        },
+        {
+          id: '2',
+          name: 'RTX 4090 24GB',
+          cpuPerGpu: 16,
+          memoryPerGpu: 125,
+          diskPerGpu: 1016,
+          availableDeploy: true,
+          prices: [],
+          price: '67000',
+          spotPrice: '0.6',
+          regions: [],
+          monthlyPrice: [],
+          billingMethods: []
+        }
+      ];
+
       mockedNovitaClient.get.mockResolvedValue({
         data: {
-          success: true,
-          data: { products: mockProducts, total: 2 }
+          data: mockApiProducts
         },
         status: 200,
         statusText: 'OK',
@@ -77,15 +108,28 @@ describe('NovitaApiService', () => {
 
       const result = await novitaApiService.getProducts();
 
-      expect(result).toEqual(mockProducts);
-      expect(mockedNovitaClient.get).toHaveBeenCalledWith('/v1/products?');
+      expect(result).toHaveLength(2);
+      expect(result[0]!.id).toBe('1');
+      expect(result[0]!.name).toBe('RTX 4090 24GB');
+      expect(result[0]!.spotPrice).toBe(0.5);
+      expect(result[0]!.availability).toBe('available');
+      expect(mockedNovitaClient.get).toHaveBeenCalledWith('/v1/products', { params: { billingMethod: 'spot' } });
     });
 
     it('should apply filters when provided', async () => {
+      const mockApiProduct = {
+        id: '1',
+        name: 'RTX 4090 24GB',
+        cpuPerGpu: 16,
+        memoryPerGpu: 62,
+        availableDeploy: true,
+        price: '35000',
+        spotPrice: '0.5'
+      };
+
       mockedNovitaClient.get.mockResolvedValue({
         data: {
-          success: true,
-          data: { products: [mockProducts[0]], total: 1 }
+          data: [mockApiProduct]
         },
         status: 200,
         statusText: 'OK',
@@ -94,26 +138,27 @@ describe('NovitaApiService', () => {
       } as any);
 
       await novitaApiService.getProducts({
-        name: 'RTX 4090',
+        productName: 'RTX 4090',
         region: 'CN-HK-01'
       });
 
       expect(mockedNovitaClient.get).toHaveBeenCalledWith(
-        '/v1/products?name=RTX+4090&region=CN-HK-01'
+        '/v1/products',
+        { params: { productName: 'RTX 4090', billingMethod: 'spot' } }
       );
     });
 
     it('should handle API errors', async () => {
-      mockedNovitaClient.get.mockResolvedValue({
-        data: {
-          success: false,
-          error: { code: 'INVALID_REQUEST', message: 'Invalid parameters' }
+      // Mock an axios error for the actual API
+      const axiosError = {
+        response: {
+          status: 400,
+          data: { message: 'Invalid parameters' }
         },
-        status: 400,
-        statusText: 'Bad Request',
-        headers: {},
-        config: {}
-      } as any);
+        message: 'Request failed with status code 400'
+      };
+
+      mockedNovitaClient.get.mockRejectedValue(axiosError);
 
       await expect(novitaApiService.getProducts()).rejects.toThrow(NovitaApiClientError);
     });
@@ -144,10 +189,28 @@ describe('NovitaApiService', () => {
     ];
 
     it('should return the product with lowest spot price', async () => {
+      const mockApiProducts = [
+        {
+          id: 'prod-1',
+          name: 'RTX 4090 24GB',
+          availableDeploy: true,
+          price: '67000',
+          spotPrice: '0.6',
+          regions: ['CN-HK-01']
+        },
+        {
+          id: 'prod-2',
+          name: 'RTX 4090 24GB',
+          availableDeploy: true,
+          price: '35000',
+          spotPrice: '0.5',
+          regions: ['CN-HK-01']
+        }
+      ];
+
       mockedNovitaClient.get.mockResolvedValue({
         data: {
-          success: true,
-          data: { products: mockProducts, total: 2 }
+          data: mockApiProducts
         },
         status: 200,
         statusText: 'OK',
@@ -164,8 +227,7 @@ describe('NovitaApiService', () => {
     it('should throw error when no products found', async () => {
       mockedNovitaClient.get.mockResolvedValue({
         data: {
-          success: true,
-          data: { products: [], total: 0 }
+          data: []
         },
         status: 200,
         statusText: 'OK',
@@ -179,15 +241,20 @@ describe('NovitaApiService', () => {
     });
 
     it('should throw error when no available products', async () => {
-      const unavailableProducts = mockProducts.map(p => ({
-        ...p,
-        availability: 'unavailable' as const
-      }));
+      const unavailableApiProducts = [
+        {
+          id: 'prod-1',
+          name: 'RTX 4090 24GB',
+          availableDeploy: false,
+          price: '35000',
+          spotPrice: '0.5',
+          regions: ['CN-HK-01']
+        }
+      ];
 
       mockedNovitaClient.get.mockResolvedValue({
         data: {
-          success: true,
-          data: { products: unavailableProducts, total: 2 }
+          data: unavailableApiProducts
         },
         status: 200,
         statusText: 'OK',
@@ -211,12 +278,31 @@ describe('NovitaApiService', () => {
       envs: [{ name: 'CUDA_VERSION', value: '12.0' }]
     };
 
+    const mockApiResponse = {
+      template: {
+        Id: 'template-1',
+        name: 'Ubuntu 22.04 with CUDA',
+        image: 'ubuntu:22.04-cuda',
+        imageAuth: 'token123',
+        ports: [
+          {
+            type: 'tcp',
+            ports: [22]
+          }
+        ],
+        envs: [
+          {
+            key: 'CUDA_VERSION',
+            value: '12.0'
+          }
+        ],
+        description: undefined
+      }
+    };
+
     it('should fetch template successfully', async () => {
       mockedNovitaClient.get.mockResolvedValue({
-        data: {
-          success: true,
-          data: mockTemplate
-        },
+        data: mockApiResponse,
         status: 200,
         statusText: 'OK',
         headers: {},
@@ -226,15 +312,12 @@ describe('NovitaApiService', () => {
       const result = await novitaApiService.getTemplate('template-1');
 
       expect(result).toEqual(mockTemplate);
-      expect(mockedNovitaClient.get).toHaveBeenCalledWith('/v1/templates/template-1');
+      expect(mockedNovitaClient.get).toHaveBeenCalledWith('/v1/template?templateId=template-1');
     });
 
     it('should handle template not found', async () => {
       mockedNovitaClient.get.mockResolvedValue({
-        data: {
-          success: true,
-          data: null
-        },
+        data: {},
         status: 200,
         statusText: 'OK',
         headers: {},
@@ -244,6 +327,118 @@ describe('NovitaApiService', () => {
       await expect(
         novitaApiService.getTemplate('nonexistent')
       ).rejects.toThrow('Template not found');
+    });
+
+    it('should handle numeric template ID', async () => {
+      mockedNovitaClient.get.mockResolvedValue({
+        data: mockApiResponse,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      const result = await novitaApiService.getTemplate(107672);
+
+      expect(result.id).toBe('template-1');
+      expect(mockedNovitaClient.get).toHaveBeenCalledWith('/v1/template?templateId=107672');
+    });
+
+    it('should transform ports correctly', async () => {
+      const multiPortResponse = {
+        template: {
+          Id: 'template-multi',
+          name: 'Multi Port Template',
+          image: 'ubuntu:latest',
+          ports: [
+            {
+              type: 'http',
+              ports: [80, 8188, 8189]
+            },
+            {
+              type: 'tcp',
+              ports: [22]
+            }
+          ],
+          envs: []
+        }
+      };
+
+      mockedNovitaClient.get.mockResolvedValue({
+        data: multiPortResponse,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      const result = await novitaApiService.getTemplate('template-multi');
+
+      expect(result.ports).toEqual([
+        { port: 80, type: 'http' },
+        { port: 8188, type: 'http' },
+        { port: 8189, type: 'http' },
+        { port: 22, type: 'tcp' }
+      ]);
+    });
+
+    it('should transform envs correctly', async () => {
+      const envResponse = {
+        template: {
+          Id: 'template-env',
+          name: 'Env Template',
+          image: 'ubuntu:latest',
+          ports: [],
+          envs: [
+            {
+              key: 'TORCH_INDUCTOR_FORCE_DISABLE_FP8',
+              value: '1'
+            },
+            {
+              key: 'CUDA_VISIBLE_DEVICES',
+              value: '0'
+            }
+          ]
+        }
+      };
+
+      mockedNovitaClient.get.mockResolvedValue({
+        data: envResponse,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      const result = await novitaApiService.getTemplate('template-env');
+
+      expect(result.envs).toEqual([
+        { name: 'TORCH_INDUCTOR_FORCE_DISABLE_FP8', value: '1' },
+        { name: 'CUDA_VISIBLE_DEVICES', value: '0' }
+      ]);
+    });
+
+    it('should handle templates with no ports or envs', async () => {
+      const minimalResponse = {
+        template: {
+          Id: 'template-minimal',
+          name: 'Minimal Template',
+          image: 'ubuntu:latest'
+        }
+      };
+
+      mockedNovitaClient.get.mockResolvedValue({
+        data: minimalResponse,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      const result = await novitaApiService.getTemplate('template-minimal');
+
+      expect(result.ports).toEqual([]);
+      expect(result.envs).toEqual([]);
     });
   });
 

@@ -124,6 +124,8 @@ docker-compose*.yml
 # Scripts (deployment scripts not needed in container)
 scripts/
 
+# Don't ignore src/ directory - we need it for development
+
 # Local development files
 .local
 .cache

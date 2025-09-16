@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: production
+      target: development
     image: novita-gpu-instance-api:latest
     container_name: novita-gpu-instance-api
     restart: unless-stopped

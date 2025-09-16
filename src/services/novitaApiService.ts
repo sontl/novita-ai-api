@@ -15,6 +15,7 @@ import {
   CircuitBreakerError,
   TimeoutError
 } from '../types/api';
+import { log } from 'console';
 
 export class NovitaApiService {
   
@@ -22,30 +23,54 @@ export class NovitaApiService {
    * Get available products with optional filtering
    */
   async getProducts(filters?: {
-    name?: string;
+    productName?: string;
     region?: string;
     gpuType?: string;
   }): Promise<Product[]> {
     try {
-      const params = new URLSearchParams();
+      const params: Record<string, string> = {};
       
-      if (filters?.name) params.append('name', filters.name);
-      if (filters?.region) params.append('region', filters.region);
-      if (filters?.gpuType) params.append('gpu_type', filters.gpuType);
+      if (filters?.productName) params.productName = filters.productName;
+      
+      // Add billing method for spot pricing
+      params.billingMethod = 'spot';
 
-      const response = await novitaClient.get<NovitaApiResponse<ProductsResponse>>(
-        `/v1/products?${params.toString()}`
+      const response = await novitaClient.get<{ data: any[] }>(
+        '/v1/products',
+        { params }
       );
+      
+      logger.debug('Raw API response:', response.data);
+      
+      // Handle the actual API response structure
+      const rawProducts = response.data.data || [];
+      
+      // Filter products by region if specified
+      const filteredProducts = filters?.region 
+        ? rawProducts.filter((product: any) => 
+            product.regions && product.regions.includes(filters.region)
+          )
+        : rawProducts;
+      
+      // Transform API response to match our Product interface
+      const products: Product[] = filteredProducts.map((rawProduct: any) => ({
+        id: rawProduct.id,
+        name: rawProduct.name,
+        region: filters?.region || 'CN-HK-01', // Use filter region or default
+        spotPrice: parseFloat(rawProduct.spotPrice || rawProduct.price || '0'),
+        onDemandPrice: parseFloat(rawProduct.price || '0'),
+        gpuType: this.extractGpuType(rawProduct.name),
+        gpuMemory: rawProduct.memoryPerGpu || 24, // Default to 24GB if not specified
+        availability: rawProduct.availableDeploy ? 'available' : 'unavailable'
+      }));
+      
+      logger.info('Products fetched and transformed', { 
+        count: products.length,
+        filteredCount: filteredProducts.length,
+        filters 
+      });
 
-      if (!response.data.success) {
-        throw new NovitaApiClientError(
-          response.data.error?.message || 'Failed to fetch products',
-          response.status,
-          response.data.error?.code
-        );
-      }
-
-      return response.data.data?.products || [];
+      return products;
     } catch (error) {
       throw this.handleApiError(error, 'Failed to fetch products');
     }
@@ -56,7 +81,7 @@ export class NovitaApiService {
    */
   async getOptimalProduct(productName: string, region: string): Promise<Product> {
     try {
-      const products = await this.getProducts({ name: productName, region });
+      const products = await this.getProducts({ productName: productName, region });
       
       if (products.length === 0) {
         throw new NovitaApiClientError(
@@ -66,18 +91,23 @@ export class NovitaApiService {
         );
       }
 
-      // Sort by spot price ascending and return the cheapest available option
-      const availableProducts = products.filter(p => p.availability === 'available');
+      // Filter products: available + spot price > 0 + in specified region
+      const validProducts = products.filter(p => 
+        p.availability === 'available' && 
+        p.spotPrice > 0 &&
+        p.region === region
+      );
       
-      if (availableProducts.length === 0) {
+      if (validProducts.length === 0) {
         throw new NovitaApiClientError(
-          `No available products found for "${productName}" in region "${region}"`,
+          `No available products found for "${productName}" in region "${region}" with valid spot pricing`,
           404,
           'NO_AVAILABLE_PRODUCTS'
         );
       }
 
-      const sortedProducts = availableProducts.sort((a, b) => a.spotPrice - b.spotPrice);
+      // Sort by spot price ascending and return the cheapest option
+      const sortedProducts = validProducts.sort((a, b) => a.spotPrice - b.spotPrice);
       const optimalProduct = sortedProducts[0];
       
       if (!optimalProduct) {
@@ -92,7 +122,9 @@ export class NovitaApiService {
         productId: optimalProduct.id,
         productName: optimalProduct.name,
         region: optimalProduct.region,
-        spotPrice: optimalProduct.spotPrice
+        spotPrice: optimalProduct.spotPrice,
+        totalCandidates: products.length,
+        validCandidates: validProducts.length
       });
 
       return optimalProduct;
@@ -104,29 +136,45 @@ export class NovitaApiService {
   /**
    * Get template configuration by ID
    */
-  async getTemplate(templateId: string): Promise<Template> {
+  async getTemplate(templateId: string | number): Promise<Template> {
     try {
-      const response = await novitaClient.get<NovitaApiResponse<Template>>(
-        `/v1/templates/${templateId}`
+      // Convert to string for API call
+      const stringTemplateId = typeof templateId === 'number' ? templateId.toString() : templateId;
+      logger.info('Fetching template', { templateId: stringTemplateId });
+      const response = await novitaClient.get<{ template: any }>(
+        `/v1/template?templateId=${stringTemplateId}`
       );
+      logger.info('Request url:', response.config.url);
+      logger.debug('Raw API response for template:', response.data);
 
-      if (!response.data.success) {
+      if (!response.data.template) {
         throw new NovitaApiClientError(
-          response.data.error?.message || 'Failed to fetch template',
-          response.status,
-          response.data.error?.code
-        );
-      }
-
-      if (!response.data.data) {
-        throw new NovitaApiClientError(
-          `Template not found: ${templateId}`,
+          `Template not found: ${stringTemplateId}`,
           404,
           'TEMPLATE_NOT_FOUND'
         );
       }
 
-      return response.data.data;
+      // Transform the API response to match our Template interface
+      const rawTemplate = response.data.template;
+      const template: Template = {
+        id: rawTemplate.Id || rawTemplate.id,
+        name: rawTemplate.name,
+        imageUrl: rawTemplate.image,
+        imageAuth: rawTemplate.imageAuth,
+        ports: this.transformPorts(rawTemplate.ports || []),
+        envs: this.transformEnvs(rawTemplate.envs || []),
+        description: rawTemplate.description
+      };
+
+      logger.info('Template fetched and transformed', {
+        templateId: template.id,
+        templateName: template.name,
+        portsCount: template.ports?.length || 0,
+        envsCount: template.envs?.length || 0
+      });
+
+      return template;
     } catch (error) {
       throw this.handleApiError(error, 'Failed to fetch template');
     }
@@ -246,14 +294,15 @@ export class NovitaApiService {
     status?: InstanceStatus;
   }): Promise<NovitaListInstancesResponse> {
     try {
-      const params = new URLSearchParams();
+      const params: Record<string, string> = {};
       
-      if (options?.page) params.append('page', options.page.toString());
-      if (options?.pageSize) params.append('page_size', options.pageSize.toString());
-      if (options?.status) params.append('status', options.status);
+      if (options?.page) params.page = options.page.toString();
+      if (options?.pageSize) params.page_size = options.pageSize.toString();
+      if (options?.status) params.status = options.status;
 
       const response = await novitaClient.get<NovitaApiResponse<NovitaListInstancesResponse>>(
-        `/v1/instances?${params.toString()}`
+        '/v1/instances',
+        { params }
       );
 
       if (!response.data.success) {
@@ -344,6 +393,53 @@ export class NovitaApiService {
       circuitBreakerState: novitaClient.getCircuitBreakerState(),
       queueStatus: novitaClient.getQueueStatus()
     };
+  }
+
+  /**
+   * Transform ports from API response format to our interface format
+   */
+  private transformPorts(apiPorts: any[]): Template['ports'] {
+    if (!Array.isArray(apiPorts)) {
+      return [];
+    }
+
+    const transformedPorts: Template['ports'] = [];
+    
+    apiPorts.forEach(portGroup => {
+      if (portGroup.ports && Array.isArray(portGroup.ports)) {
+        portGroup.ports.forEach((portNumber: number) => {
+          transformedPorts.push({
+            port: portNumber,
+            type: portGroup.type || 'tcp'
+          });
+        });
+      }
+    });
+
+    return transformedPorts;
+  }
+
+  /**
+   * Transform environment variables from API response format to our interface format
+   */
+  private transformEnvs(apiEnvs: any[]): Template['envs'] {
+    if (!Array.isArray(apiEnvs)) {
+      return [];
+    }
+
+    return apiEnvs.map(env => ({
+      name: env.key || env.name,
+      value: env.value
+    }));
+  }
+
+  /**
+   * Extract GPU type from product name
+   */
+  private extractGpuType(productName: string): string {
+    // Extract GPU type from names like "RTX 4090 24GB", "A100 80GB", etc.
+    const match = productName.match(/(RTX\s*\d+|A\d+|H\d+|GTX\s*\d+|Tesla\s*\w+)/i);
+    return match?.[1]?.trim() || 'Unknown';
   }
 
   /**

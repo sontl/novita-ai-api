@@ -156,11 +156,27 @@ class NovitaClient {
         config.headers = config.headers || {};
         config.headers['X-Correlation-ID'] = correlationId;
         
+        // Build full URL with parameters for logging
+        let fullUrl = config.url || '';
+        if (config.baseURL) {
+          fullUrl = config.baseURL + fullUrl;
+        }
+        
+        // Add query parameters to the logged URL if they exist
+        if (config.params && Object.keys(config.params).length > 0) {
+          const paramPairs = Object.entries(config.params).map(([key, value]) => 
+            `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`
+          );
+          fullUrl += (fullUrl.includes('?') ? '&' : '?') + paramPairs.join('&');
+        }
+        
         logger.debug('Outgoing request', {
           correlationId,
           method: config.method?.toUpperCase(),
           url: config.url,
-          baseURL: config.baseURL
+          baseURL: config.baseURL,
+          fullUrl,
+          params: config.params
         });
 
         return config;
@@ -176,11 +192,24 @@ class NovitaClient {
       (response) => {
         const correlationId = response.config.headers?.['X-Correlation-ID'];
         
+        // Build full URL with parameters for logging
+        let fullUrl = response.config.url || '';
+        if (response.config.baseURL) {
+          fullUrl = response.config.baseURL + fullUrl;
+        }
+        if (response.config.params && Object.keys(response.config.params).length > 0) {
+          const paramPairs = Object.entries(response.config.params).map(([key, value]) => 
+            `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`
+          );
+          fullUrl += (fullUrl.includes('?') ? '&' : '?') + paramPairs.join('&');
+        }
+        
         logger.debug('Incoming response', {
           correlationId,
           status: response.status,
           statusText: response.statusText,
-          url: response.config.url
+          url: response.config.url,
+          fullUrl
         });
 
         return response;
@@ -188,12 +217,25 @@ class NovitaClient {
       async (error: AxiosError) => {
         const correlationId = error.config?.headers?.['X-Correlation-ID'];
         
+        // Build full URL with parameters for logging
+        let fullUrl = error.config?.url || '';
+        if (error.config?.baseURL) {
+          fullUrl = error.config.baseURL + fullUrl;
+        }
+        if (error.config?.params && Object.keys(error.config.params).length > 0) {
+          const paramPairs = Object.entries(error.config.params).map(([key, value]) => 
+            `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`
+          );
+          fullUrl += (fullUrl.includes('?') ? '&' : '?') + paramPairs.join('&');
+        }
+        
         logger.error('Response error', {
           correlationId,
           status: error.response?.status,
           statusText: error.response?.statusText,
           message: error.message,
-          url: error.config?.url
+          url: error.config?.url,
+          fullUrl
         });
 
         // Check if we should retry

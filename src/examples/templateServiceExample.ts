@@ -10,7 +10,7 @@ async function demonstrateTemplateService(): Promise<void> {
 
     // Example 1: Fetch a template
     console.log('1. Fetching template configuration...');
-    const templateId = 'ubuntu-cuda-template';
+    const templateId = 107672; // Using numeric template ID
     
     try {
       const template = await templateService.getTemplate(templateId);
@@ -87,7 +87,7 @@ async function demonstrateTemplateService(): Promise<void> {
 
     // Example 4: Preload template
     console.log('\n5. Preloading template...');
-    const preloadTemplateId = 'pytorch-template';
+    const preloadTemplateId = 108567; // Another numeric template ID
     try {
       await templateService.preloadTemplate(preloadTemplateId);
       console.log(`✓ Template ${preloadTemplateId} preloaded successfully`);
@@ -98,7 +98,7 @@ async function demonstrateTemplateService(): Promise<void> {
     // Example 5: Error handling
     console.log('\n6. Error handling examples...');
     
-    // Invalid template ID
+    // Invalid template ID - test with empty string
     try {
       await templateService.getTemplate('');
       console.log('✗ Should have failed with empty template ID');
@@ -106,9 +106,17 @@ async function demonstrateTemplateService(): Promise<void> {
       console.log(`✓ Correctly handled empty template ID: ${(error as Error).message}`);
     }
 
+    // Invalid template ID - test with zero
+    try {
+      await templateService.getTemplate(0);
+      console.log('✗ Should have failed with zero template ID');
+    } catch (error) {
+      console.log(`✓ Correctly handled zero template ID: ${(error as Error).message}`);
+    }
+
     // Non-existent template
     try {
-      await templateService.getTemplate('non-existent-template');
+      await templateService.getTemplate(999999);
       console.log('✗ Should have failed with non-existent template');
     } catch (error) {
       console.log(`✓ Correctly handled non-existent template: ${(error as Error).message}`);

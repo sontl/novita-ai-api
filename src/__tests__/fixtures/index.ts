@@ -23,6 +23,8 @@ export const mockProducts: Product[] = [
     region: 'CN-HK-01',
     spotPrice: 0.45,
     onDemandPrice: 0.90,
+    gpuType: 'RTX 4090',
+    gpuMemory: 24,
     availability: 'available'
   },
   {
@@ -31,6 +33,8 @@ export const mockProducts: Product[] = [
     region: 'SG-01',
     spotPrice: 0.50,
     onDemandPrice: 0.95,
+    gpuType: 'RTX 4090',
+    gpuMemory: 24,
     availability: 'available'
   },
   {
@@ -39,6 +43,8 @@ export const mockProducts: Product[] = [
     region: 'CN-HK-01',
     spotPrice: 1.20,
     onDemandPrice: 2.40,
+    gpuType: 'A100',
+    gpuMemory: 80,
     availability: 'limited'
   },
   {
@@ -47,6 +53,8 @@ export const mockProducts: Product[] = [
     region: 'CN-HK-01',
     spotPrice: 2.50,
     onDemandPrice: 5.00,
+    gpuType: 'H100',
+    gpuMemory: 80,
     availability: 'available'
   }
 ];
@@ -61,8 +69,8 @@ export const mockTemplates: Template[] = [
     imageUrl: 'docker.io/nvidia/cuda:11.8-devel-ubuntu20.04',
     imageAuth: '',
     ports: [
-      { port: 8888, type: 'http', name: 'jupyter' },
-      { port: 22, type: 'tcp', name: 'ssh' }
+      { port: 8888, type: 'http' },
+      { port: 22, type: 'tcp' }
     ],
     envs: [
       { name: 'JUPYTER_ENABLE_LAB', value: 'yes' },
@@ -75,9 +83,9 @@ export const mockTemplates: Template[] = [
     imageUrl: 'docker.io/pytorch/pytorch:2.0.1-cuda11.7-cudnn8-devel',
     imageAuth: '',
     ports: [
-      { port: 8888, type: 'http', name: 'jupyter' },
-      { port: 6006, type: 'http', name: 'tensorboard' },
-      { port: 22, type: 'tcp', name: 'ssh' }
+      { port: 8888, type: 'http' },
+      { port: 6006, type: 'http' },
+      { port: 22, type: 'tcp' }
     ],
     envs: [
       { name: 'JUPYTER_ENABLE_LAB', value: 'yes' },
@@ -90,8 +98,8 @@ export const mockTemplates: Template[] = [
     imageUrl: 'docker.io/tensorflow/tensorflow:2.13.0-gpu-jupyter',
     imageAuth: '',
     ports: [
-      { port: 8888, type: 'http', name: 'jupyter' },
-      { port: 6006, type: 'http', name: 'tensorboard' }
+      { port: 8888, type: 'http' },
+      { port: 6006, type: 'http' }
     ],
     envs: [
       { name: 'JUPYTER_ENABLE_LAB', value: 'yes' }
@@ -111,7 +119,8 @@ export const mockInstanceResponses: InstanceResponse[] = [
     region: 'CN-HK-01',
     createdAt: '2024-01-01T00:00:00Z',
     gpuNum: 1,
-    rootfsSize: 60
+    rootfsSize: 60,
+    billingMode: 'spot'
   },
   {
     id: 'novita-inst-456',
@@ -121,10 +130,10 @@ export const mockInstanceResponses: InstanceResponse[] = [
     region: 'CN-HK-01',
     createdAt: '2024-01-01T00:00:00Z',
     startedAt: '2024-01-01T00:01:00Z',
-    readyAt: '2024-01-01T00:02:00Z',
     gpuNum: 2,
     rootfsSize: 100,
-    connectionDetails: {
+    billingMode: 'spot',
+    connectionInfo: {
       ssh: 'ssh://user@instance-456.novita.ai:22',
       jupyter: 'https://instance-456.novita.ai:8888',
       webTerminal: 'https://instance-456.novita.ai:7681'
@@ -137,10 +146,9 @@ export const mockInstanceResponses: InstanceResponse[] = [
     productId: 'prod-h100-hk',
     region: 'CN-HK-01',
     createdAt: '2024-01-01T00:00:00Z',
-    failedAt: '2024-01-01T00:01:00Z',
     gpuNum: 1,
     rootfsSize: 60,
-    lastError: 'Insufficient quota for H100 instances'
+    billingMode: 'spot'
   }
 ];
 
@@ -378,6 +386,7 @@ export class TestDataGenerator {
       createdAt: new Date().toISOString(),
       gpuNum: 1,
       rootfsSize: 60,
+      billingMode: 'spot',
       ...overrides
     };
   }

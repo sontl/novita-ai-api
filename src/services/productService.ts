@@ -22,7 +22,7 @@ export class ProductService {
    * Get products with caching support
    */
   async getProducts(filters?: {
-    name?: string;
+    productName?: string;
     region?: string;
     gpuType?: string;
   }): Promise<Product[]> {
@@ -77,7 +77,7 @@ export class ProductService {
     try {
       // Fetch products with filters
       const products = await this.getProducts({ 
-        name: productName, 
+        productName: productName, 
         region: targetRegion 
       });
       
@@ -159,7 +159,7 @@ export class ProductService {
    * Generate cache key from filters
    */
   private generateCacheKey(filters?: {
-    name?: string;
+    productName?: string;
     region?: string;
     gpuType?: string;
   }): string {
@@ -168,7 +168,7 @@ export class ProductService {
     }
 
     const parts: string[] = [];
-    if (filters.name) parts.push(`name:${filters.name}`);
+    if (filters.productName) parts.push(`productName:${filters.productName}`);
     if (filters.region) parts.push(`region:${filters.region}`);
     if (filters.gpuType) parts.push(`gpu:${filters.gpuType}`);
     
@@ -248,7 +248,7 @@ export class ProductService {
     // Remove from product cache (need to check all keys that might contain this product)
     const productKeys = this.productCache.keys();
     for (const key of productKeys) {
-      if (key.includes(`name:${productName}`) || key.includes(`region:${targetRegion}`)) {
+      if (key.includes(`productName:${productName}`) || key.includes(`region:${targetRegion}`)) {
         this.productCache.delete(key);
       }
     }
@@ -260,7 +260,7 @@ export class ProductService {
    * Preload products into cache
    */
   async preloadProducts(filters?: {
-    name?: string;
+    productName?: string;
     region?: string;
     gpuType?: string;
   }): Promise<void> {

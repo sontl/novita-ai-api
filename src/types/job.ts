@@ -41,7 +41,7 @@ export interface CreateInstanceJobPayload {
   instanceId: string;
   name: string;
   productName: string;
-  templateId: string;
+  templateId: string | number; // Support both string and number for template IDs
   gpuNum: number;
   rootfsSize: number;
   region: string;

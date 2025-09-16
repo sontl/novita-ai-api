@@ -142,9 +142,9 @@ describe('ProductService', () => {
       mockedNovitaApiService.getProducts.mockResolvedValue(mockProducts);
 
       // Call with different filters
-      await service.getProducts({ name: 'RTX 4090' });
+      await service.getProducts({ productName: 'RTX 4090' });
       await service.getProducts({ region: 'CN-HK-01' });
-      await service.getProducts({ name: 'RTX 4090', region: 'CN-HK-01' });
+      await service.getProducts({ productName: 'RTX 4090', region: 'CN-HK-01' });
 
       expect(mockedNovitaApiService.getProducts).toHaveBeenCalledTimes(3);
     });
@@ -174,7 +174,7 @@ describe('ProductService', () => {
       await service.getOptimalProduct('RTX 4090 24GB');
 
       expect(mockedNovitaApiService.getProducts).toHaveBeenCalledWith({
-        name: 'RTX 4090 24GB',
+        productName: 'RTX 4090 24GB',
         region: 'CN-HK-01'
       });
     });
@@ -185,7 +185,7 @@ describe('ProductService', () => {
       await service.getOptimalProduct('RTX 4090 24GB', 'US-WEST-01');
 
       expect(mockedNovitaApiService.getProducts).toHaveBeenCalledWith({
-        name: 'RTX 4090 24GB',
+        productName: 'RTX 4090 24GB',
         region: 'US-WEST-01'
       });
     });
@@ -360,11 +360,11 @@ describe('ProductService', () => {
 
       // Test different filter combinations
       await service.getProducts();
-      await service.getProducts({ name: 'RTX 4090' });
+      await service.getProducts({ productName: 'RTX 4090' });
       await service.getProducts({ region: 'CN-HK-01' });
       await service.getProducts({ gpuType: 'RTX 4090' });
-      await service.getProducts({ name: 'RTX 4090', region: 'CN-HK-01' });
-      await service.getProducts({ name: 'RTX 4090', region: 'CN-HK-01', gpuType: 'RTX 4090' });
+      await service.getProducts({ productName: 'RTX 4090', region: 'CN-HK-01' });
+      await service.getProducts({ productName: 'RTX 4090', region: 'CN-HK-01', gpuType: 'RTX 4090' });
 
       const stats = service.getCacheStats();
       expect(stats.productCache.size).toBe(6); // All different cache keys

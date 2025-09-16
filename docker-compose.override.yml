@@ -5,18 +5,17 @@ version: '3.8'
 services:
   novita-gpu-api:
     build:
-      target: build
+      target: development
     environment:
       - NODE_ENV=development
       - LOG_LEVEL=debug
     volumes:
-      # Mount source code for development
-      - ./src:/app/src:ro
-      - ./package*.json:/app/
-      # Development logs
+      # Development logs (use local directory)
       - ./logs:/app/logs
     # Remove read-only restriction for development
     read_only: false
+    # Remove tmpfs restrictions for development
+    tmpfs: []
     # Remove security restrictions for easier debugging
     security_opt: []
     # Faster restart for development

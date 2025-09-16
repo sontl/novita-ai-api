@@ -93,7 +93,7 @@ export class JobWorkerService {
       const createRequest: NovitaCreateInstanceRequest = {
         name: payload.name,
         productId: optimalProduct.id,
-        templateId: payload.templateId,
+        templateId: typeof payload.templateId === 'number' ? payload.templateId.toString() : payload.templateId,
         gpuNum: payload.gpuNum,
         rootfsSize: payload.rootfsSize,
         region: payload.region,

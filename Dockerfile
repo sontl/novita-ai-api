@@ -44,6 +44,40 @@ COPY package*.json ./
 # Install only production dependencies
 RUN npm ci --only=production && npm cache clean --force
 
+# Development stage
+FROM base AS development
+
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Copy dependencies from deps stage (includes dev dependencies)
+COPY --from=deps --chown=nodejs:nodejs /app/node_modules ./node_modules
+
+# Copy package files
+COPY --chown=nodejs:nodejs package*.json ./
+
+# Copy source code
+COPY --chown=nodejs:nodejs . .
+
+# Create logs directory with proper permissions
+RUN mkdir -p /app/logs && chown nodejs:nodejs /app/logs
+
+# Switch to non-root user
+USER nodejs
+
+# Expose port
+EXPOSE 3000
+
+# Health check for development
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:3000/health || exit 1
+
+# Use dumb-init for proper signal handling
+ENTRYPOINT ["dumb-init", "--"]
+
+# Start the application in development mode
+CMD ["npm", "run", "dev"]
+
 # Production stage
 FROM base AS production
 

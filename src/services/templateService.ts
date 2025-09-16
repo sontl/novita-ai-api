@@ -13,36 +13,40 @@ export class TemplateService {
   /**
    * Get template configuration by ID with caching support
    */
-  async getTemplate(templateId: string): Promise<Template> {
-    if (!templateId || typeof templateId !== 'string' || templateId.trim() === '') {
+  async getTemplate(templateId: string | number): Promise<Template> {
+    // Validate input first
+    if (templateId === null || templateId === undefined || 
+        (typeof templateId === 'string' && templateId.trim() === '') ||
+        (typeof templateId === 'number' && (templateId <= 0 || !Number.isInteger(templateId)))) {
       throw new NovitaApiClientError(
-        'Template ID is required and must be a non-empty string',
+        'Template ID is required and must be a non-empty string or valid positive integer',
         400,
         'INVALID_TEMPLATE_ID'
       );
     }
 
-    const normalizedTemplateId = templateId.trim();
+    // Convert number to string for consistency
+    const stringTemplateId = typeof templateId === 'number' ? templateId.toString() : templateId.trim();
     
     // Check cache first
-    const cachedTemplate = this.templateCache.get(normalizedTemplateId);
+    const cachedTemplate = this.templateCache.get(stringTemplateId);
     if (cachedTemplate) {
       logger.debug('Returning cached template', { 
-        templateId: normalizedTemplateId 
+        templateId: stringTemplateId 
       });
       return cachedTemplate;
     }
 
     try {
       // Fetch from API
-      logger.debug('Fetching template from API', { templateId: normalizedTemplateId });
-      const template = await novitaApiService.getTemplate(normalizedTemplateId);
+      logger.debug('Fetching template from API', { templateId: stringTemplateId });
+      const template = await novitaApiService.getTemplate(stringTemplateId);
       
       // Validate template data
       this.validateTemplate(template);
       
       // Cache the results
-      this.templateCache.set(normalizedTemplateId, template);
+      this.templateCache.set(stringTemplateId, template);
 
       logger.info('Template fetched and cached', { 
         templateId: template.id,
@@ -56,7 +60,7 @@ export class TemplateService {
     } catch (error) {
       logger.error('Failed to fetch template', { 
         error: (error as Error).message, 
-        templateId: normalizedTemplateId 
+        templateId: stringTemplateId 
       });
       throw error;
     }
@@ -65,7 +69,7 @@ export class TemplateService {
   /**
    * Extract configuration from template for instance creation
    */
-  async getTemplateConfiguration(templateId: string): Promise<{
+  async getTemplateConfiguration(templateId: string | number): Promise<{
     imageUrl: string;
     imageAuth?: string;
     ports: Template['ports'];
@@ -235,14 +239,15 @@ export class TemplateService {
   /**
    * Check if template is cached
    */
-  isCached(templateId: string): boolean {
-    return this.templateCache.has(templateId);
+  isCached(templateId: string | number): boolean {
+    const stringTemplateId = typeof templateId === 'number' ? templateId.toString() : templateId;
+    return this.templateCache.has(stringTemplateId);
   }
 
   /**
    * Preload template into cache (useful for warming cache)
    */
-  async preloadTemplate(templateId: string): Promise<void> {
+  async preloadTemplate(templateId: string | number): Promise<void> {
     try {
       await this.getTemplate(templateId);
       logger.debug('Template preloaded into cache', { templateId });
@@ -258,10 +263,11 @@ export class TemplateService {
   /**
    * Invalidate specific template from cache
    */
-  invalidateTemplate(templateId: string): boolean {
-    const deleted = this.templateCache.delete(templateId);
+  invalidateTemplate(templateId: string | number): boolean {
+    const stringTemplateId = typeof templateId === 'number' ? templateId.toString() : templateId;
+    const deleted = this.templateCache.delete(stringTemplateId);
     if (deleted) {
-      logger.debug('Template invalidated from cache', { templateId });
+      logger.debug('Template invalidated from cache', { templateId: stringTemplateId });
     }
     return deleted;
   }
@@ -269,10 +275,11 @@ export class TemplateService {
   /**
    * Set custom TTL for specific template
    */
-  setTemplateTtl(templateId: string, ttlMs: number): boolean {
-    const updated = this.templateCache.setTtl(templateId, ttlMs);
+  setTemplateTtl(templateId: string | number, ttlMs: number): boolean {
+    const stringTemplateId = typeof templateId === 'number' ? templateId.toString() : templateId;
+    const updated = this.templateCache.setTtl(stringTemplateId, ttlMs);
     if (updated) {
-      logger.debug('Template TTL updated', { templateId, ttlMs });
+      logger.debug('Template TTL updated', { templateId: stringTemplateId, ttlMs });
     }
     return updated;
   }

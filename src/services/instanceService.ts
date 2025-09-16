@@ -295,9 +295,11 @@ export class InstanceService {
       );
     }
 
-    if (!request.templateId || typeof request.templateId !== 'string' || request.templateId.trim() === '') {
+    if (!request.templateId || (typeof request.templateId !== 'string' && typeof request.templateId !== 'number') || 
+        (typeof request.templateId === 'string' && request.templateId.trim() === '') ||
+        (typeof request.templateId === 'number' && request.templateId <= 0)) {
       throw new NovitaApiClientError(
-        'Template ID is required and must be a non-empty string',
+        'Template ID is required and must be a non-empty string or valid positive number',
         400,
         'INVALID_TEMPLATE_ID'
       );

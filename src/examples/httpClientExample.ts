@@ -24,7 +24,7 @@ export async function demonstrateHttpClient() {
     // 3. Fetch products with filtering
     logger.info('3. Fetching GPU products...');
     const products = await novitaApiService.getProducts({
-      name: 'RTX 4090',
+      productName: 'RTX 4090',
       region: 'CN-HK-01'
     });
     logger.info(`Found ${products.length} products`);
