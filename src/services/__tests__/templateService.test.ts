@@ -43,8 +43,8 @@ describe('TemplateService', () => {
       { port: 22, type: 'tcp' }
     ],
     envs: [
-      { name: 'CUDA_VERSION', value: '11.8' },
-      { name: 'PYTHON_VERSION', value: '3.9' }
+      { key: 'CUDA_VERSION', value: '11.8' },
+      { key: 'PYTHON_VERSION', value: '3.9' }
     ],
     description: 'Ubuntu 22.04 with CUDA support'
   };
@@ -214,7 +214,7 @@ describe('TemplateService', () => {
       const invalidTemplate = {
         ...mockTemplate,
         envs: [
-          { name: '', value: 'test' } // Invalid env name
+          { key: '', value: 'test' } // Invalid env name
         ]
       };
 
@@ -229,7 +229,7 @@ describe('TemplateService', () => {
       const invalidTemplate = {
         ...mockTemplate,
         envs: [
-          { name: 'TEST', value: null as any } // Invalid env value
+          { key: 'TEST', value: null as any } // Invalid env value
         ]
       };
 

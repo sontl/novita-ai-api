@@ -32,7 +32,7 @@ async function demonstrateTemplateService(): Promise<void> {
       if (template.envs && template.envs.length > 0) {
         console.log('  - Environment Variables:');
         template.envs.forEach((env, index) => {
-          console.log(`    ${index + 1}. ${env.name}=${env.value}`);
+          console.log(`    ${index + 1}. ${env.key}=${env.value}`);
         });
       }
     } catch (error) {

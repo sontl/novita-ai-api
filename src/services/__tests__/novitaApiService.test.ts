@@ -413,8 +413,8 @@ describe('NovitaApiService', () => {
       const result = await novitaApiService.getTemplate('template-env');
 
       expect(result.envs).toEqual([
-        { name: 'TORCH_INDUCTOR_FORCE_DISABLE_FP8', value: '1' },
-        { name: 'CUDA_VISIBLE_DEVICES', value: '0' }
+        { key: 'TORCH_INDUCTOR_FORCE_DISABLE_FP8', value: '1' },
+        { key: 'CUDA_VISIBLE_DEVICES', value: '0' }
       ]);
     });
 
@@ -611,7 +611,7 @@ describe('NovitaApiService', () => {
       const result = await novitaApiService.getInstance('instance-1');
 
       expect(result).toEqual(mockInstance);
-      expect(mockedNovitaClient.get).toHaveBeenCalledWith('/v1/gpu/instance/instance-1');
+      expect(mockedNovitaClient.get).toHaveBeenCalledWith('/v1/gpu/instance?instanceId=instance-1');
     });
 
     it('should handle instance not found', async () => {

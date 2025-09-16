@@ -73,8 +73,8 @@ export const mockTemplates: Template[] = [
       { port: 22, type: 'tcp' }
     ],
     envs: [
-      { name: 'JUPYTER_ENABLE_LAB', value: 'yes' },
-      { name: 'JUPYTER_TOKEN', value: 'secure-token-123' }
+      { key: 'JUPYTER_ENABLE_LAB', value: 'yes' },
+      { key: 'JUPYTER_TOKEN', value: 'secure-token-123' }
     ]
   },
   {
@@ -88,8 +88,8 @@ export const mockTemplates: Template[] = [
       { port: 22, type: 'tcp' }
     ],
     envs: [
-      { name: 'JUPYTER_ENABLE_LAB', value: 'yes' },
-      { name: 'PYTHONPATH', value: '/workspace' }
+      { key: 'JUPYTER_ENABLE_LAB', value: 'yes' },
+      { key: 'PYTHONPATH', value: '/workspace' }
     ]
   },
   {
@@ -102,7 +102,7 @@ export const mockTemplates: Template[] = [
       { port: 6006, type: 'http' }
     ],
     envs: [
-      { name: 'JUPYTER_ENABLE_LAB', value: 'yes' }
+      { key: 'JUPYTER_ENABLE_LAB', value: 'yes' }
     ]
   }
 ];

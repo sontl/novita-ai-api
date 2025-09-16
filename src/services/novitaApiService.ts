@@ -281,7 +281,8 @@ export class NovitaApiService {
   async startInstance(instanceId: string): Promise<InstanceResponse> {
     try {
       const response = await novitaClient.post<NovitaApiResponse<InstanceResponse>>(
-        `/v1/gpu/instance/${instanceId}/start`
+        '/v1/gpu/instance/start',
+        { instanceId }
       );
 
       if (!response.data.success) {
@@ -382,7 +383,8 @@ export class NovitaApiService {
   async stopInstance(instanceId: string): Promise<InstanceResponse> {
     try {
       const response = await novitaClient.post<NovitaApiResponse<InstanceResponse>>(
-        `/v1/gpu/instance/${instanceId}/stop`
+        '/v1/gpu/instance/stop',
+        { instanceId }
       );
 
       if (!response.data.success) {
@@ -417,8 +419,9 @@ export class NovitaApiService {
    */
   async deleteInstance(instanceId: string): Promise<void> {
     try {
-      const response = await novitaClient.delete<NovitaApiResponse<void>>(
-        `/v1/gpu/instance/${instanceId}`
+      const response = await novitaClient.post<NovitaApiResponse<void>>(
+        '/v1/gpu/instance/delete',
+        { instanceId }
       );
 
       if (!response.data.success) {
