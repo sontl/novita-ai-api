@@ -93,15 +93,16 @@ export class JobWorkerService {
       const createRequest: NovitaCreateInstanceRequest = {
         name: payload.name,
         productId: optimalProduct.id,
-        templateId: typeof payload.templateId === 'number' ? payload.templateId.toString() : payload.templateId,
         gpuNum: payload.gpuNum,
         rootfsSize: payload.rootfsSize,
-        region: payload.region,
-        billingMode: 'spot', // Default to spot pricing for cost optimization
         imageUrl: templateConfig.imageUrl,
+        kind: 'gpu', // Default to GPU instances
+        billingMode: 'spot', // Default to spot pricing for cost optimization
         ...(templateConfig.imageAuth && { imageAuth: templateConfig.imageAuth }),
-        ports: templateConfig.ports,
-        envs: templateConfig.envs
+        ...(templateConfig.ports && templateConfig.ports.length > 0 && {
+          ports: templateConfig.ports.map(p => `${p.port}/${p.type}`).join(',')
+        }),
+        ...(templateConfig.envs && templateConfig.envs.length > 0 && { envs: templateConfig.envs })
       };
 
       logger.info('Creating Novita.ai instance', {
@@ -133,18 +134,18 @@ export class JobWorkerService {
         status: novitaInstance.status
       });
 
-      // Step 6: Automatically start the instance
-      logger.info('Starting Novita.ai instance', {
-        jobId: job.id,
-        instanceId: payload.instanceId,
-        novitaInstanceId: novitaInstance.id
-      });
+      // // Step 6: Automatically start the instance
+      // logger.info('Starting Novita.ai instance', {
+      //   jobId: job.id,
+      //   instanceId: payload.instanceId,
+      //   novitaInstanceId: novitaInstance.id
+      // });
 
-      const startedInstance = await novitaApiService.startInstance(novitaInstance.id);
+      // const startedInstance = await novitaApiService.startInstance(novitaInstance.id);
 
       // Step 7: Update instance state with started status
       instanceService.updateInstanceState(payload.instanceId, {
-        status: startedInstance.status,
+        status: novitaInstance.status,
         timestamps: {
           created: instanceState.timestamps.created,
           started: new Date(),
@@ -157,7 +158,7 @@ export class JobWorkerService {
         jobId: job.id,
         instanceId: payload.instanceId,
         novitaInstanceId: novitaInstance.id,
-        status: startedInstance.status
+        status: novitaInstance.status
       });
 
       // Step 8: Queue monitoring job to track startup progress

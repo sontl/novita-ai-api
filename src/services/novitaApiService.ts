@@ -185,34 +185,40 @@ export class NovitaApiService {
    */
   async createInstance(request: NovitaCreateInstanceRequest): Promise<InstanceResponse> {
     try {
-      const response = await novitaClient.post<NovitaApiResponse<InstanceResponse>>(
-        '/v1/instances',
+      const response = await novitaClient.post<{ id: string }>(
+        '/v1/gpu/instance/create',
         request
       );
 
-      if (!response.data.success) {
+      if (!response.data.id) {
         throw new NovitaApiClientError(
-          response.data.error?.message || 'Failed to create instance',
-          response.status,
-          response.data.error?.code
-        );
-      }
-
-      if (!response.data.data) {
-        throw new NovitaApiClientError(
-          'Invalid response: missing instance data',
+          'Invalid response: missing instance ID',
           500,
           'INVALID_RESPONSE'
         );
       }
 
       logger.info('Instance created successfully', {
-        instanceId: response.data.data.id,
-        name: response.data.data.name,
-        status: response.data.data.status
+        instanceId: response.data.id,
+        name: request.name,
+        productId: request.productId
       });
 
-      return response.data.data;
+      // Return a standardized InstanceResponse
+      const instanceResponse: InstanceResponse = {
+        id: response.data.id,
+        name: request.name,
+        status: InstanceStatus.CREATING,
+        productId: request.productId,
+        region: 'Unknown', // Region is not returned by the create API
+        gpuNum: request.gpuNum,
+        rootfsSize: request.rootfsSize,
+        billingMode: request.billingMode || 'spot',
+        createdAt: new Date().toISOString(),
+        portMappings: []
+      };
+
+      return instanceResponse;
     } catch (error) {
       throw this.handleApiError(error, 'Failed to create instance');
     }
@@ -224,7 +230,7 @@ export class NovitaApiService {
   async startInstance(instanceId: string): Promise<InstanceResponse> {
     try {
       const response = await novitaClient.post<NovitaApiResponse<InstanceResponse>>(
-        `/v1/instances/${instanceId}/start`
+        `/v1/gpu/instance/${instanceId}/start`
       );
 
       if (!response.data.success) {
@@ -260,7 +266,7 @@ export class NovitaApiService {
   async getInstance(instanceId: string): Promise<InstanceResponse> {
     try {
       const response = await novitaClient.get<NovitaApiResponse<InstanceResponse>>(
-        `/v1/instances/${instanceId}`
+        `/v1/gpu/instance/${instanceId}`
       );
 
       if (!response.data.success) {
@@ -301,7 +307,7 @@ export class NovitaApiService {
       if (options?.status) params.status = options.status;
 
       const response = await novitaClient.get<NovitaApiResponse<NovitaListInstancesResponse>>(
-        '/v1/instances',
+        '/v1/gpu/instances',
         { params }
       );
 
@@ -325,7 +331,7 @@ export class NovitaApiService {
   async stopInstance(instanceId: string): Promise<InstanceResponse> {
     try {
       const response = await novitaClient.post<NovitaApiResponse<InstanceResponse>>(
-        `/v1/instances/${instanceId}/stop`
+        `/v1/gpu/instance/${instanceId}/stop`
       );
 
       if (!response.data.success) {
@@ -361,7 +367,7 @@ export class NovitaApiService {
   async deleteInstance(instanceId: string): Promise<void> {
     try {
       const response = await novitaClient.delete<NovitaApiResponse<void>>(
-        `/v1/instances/${instanceId}`
+        `/v1/gpu/instance/${instanceId}`
       );
 
       if (!response.data.success) {

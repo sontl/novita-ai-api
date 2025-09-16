@@ -132,15 +132,32 @@ export interface Template {
 export interface NovitaCreateInstanceRequest {
   name: string;
   productId: string;
-  templateId: string | number;
   gpuNum: number;
   rootfsSize: number;
-  region: string;
-  billingMode: 'spot' | 'on_demand';
   imageUrl: string;
   imageAuth?: string;
-  ports: Port[];
-  envs: EnvVar[];
+  imageAuthId?: string;
+  ports?: string;
+  envs?: EnvVar[];
+  tools?: Tool[];
+  command?: string;
+  clusterId?: string;
+  networkStorages?: NetworkStorage[];
+  networkId?: string;
+  kind: 'gpu' | 'cpu';
+  month?: number;
+  billingMode?: 'onDemand' | 'monthly' | 'spot';
+}
+
+export interface Tool {
+  name: string;
+  port: string;
+  type: string;
+}
+
+export interface NetworkStorage {
+  Id: string;
+  mountPoint: string;
 }
 
 export interface InstanceResponse {
