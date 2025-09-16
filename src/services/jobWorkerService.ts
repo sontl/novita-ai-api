@@ -561,3 +561,9 @@ export class JobWorkerService {
     await this.jobQueue.shutdown(timeoutMs);
   }
 }
+
+// Import the singleton job queue service and create worker singleton
+import { jobQueueService } from './jobQueueService';
+
+// Export singleton instance
+export const jobWorkerService = new JobWorkerService(jobQueueService);

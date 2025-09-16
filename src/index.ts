@@ -14,6 +14,7 @@ import { healthRouter } from './routes/health';
 import { instancesRouter } from './routes/instances';
 import { metricsRouter } from './routes/metrics';
 import cacheRouter from './routes/cache';
+import { jobWorkerService } from './services/jobWorkerService';
 
 const app = express();
 
@@ -89,6 +90,10 @@ app.use(errorHandler);
 
 // Only start server if not in test environment
 if (config.nodeEnv !== 'test') {
+  // Start job worker service for background processing
+  jobWorkerService.start();
+  logger.info('Job worker service started');
+  
   const server = app.listen(config.port, () => {
     logger.info(`Server running on port ${config.port}`);
     logger.info(`Environment: ${config.nodeEnv}`);
@@ -97,17 +102,27 @@ if (config.nodeEnv !== 'test') {
   // Graceful shutdown
   process.on('SIGTERM', () => {
     logger.info('SIGTERM received, shutting down gracefully');
-    server.close(() => {
-      logger.info('Process terminated');
-      process.exit(0);
+    jobWorkerService.shutdown(10000).then(() => {
+      server.close(() => {
+        logger.info('Process terminated');
+        process.exit(0);
+      });
+    }).catch((error) => {
+      logger.error('Error during shutdown', { error: error.message });
+      process.exit(1);
     });
   });
 
   process.on('SIGINT', () => {
     logger.info('SIGINT received, shutting down gracefully');
-    server.close(() => {
-      logger.info('Process terminated');
-      process.exit(0);
+    jobWorkerService.shutdown(10000).then(() => {
+      server.close(() => {
+        logger.info('Process terminated');
+        process.exit(0);
+      });
+    }).catch((error) => {
+      logger.error('Error during shutdown', { error: error.message });
+      process.exit(1);
     });
   });
 }
