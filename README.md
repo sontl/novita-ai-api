@@ -61,13 +61,32 @@ curl http://localhost:3000/health
 ## API Endpoints
 
 - `GET /health` - Health check endpoint
-- `POST /api/instances` - Create new GPU instance (coming soon)
-- `GET /api/instances/{id}` - Get instance status (coming soon)
-- `GET /api/instances` - List all instances (coming soon)
+- `POST /api/instances` - Create new GPU instance
+- `GET /api/instances/{id}` - Get instance status
+- `GET /api/instances` - List all instances
+- `GET /api/metrics` - Service metrics
 
-## Configuration
+## Documentation
 
-All configuration is done via environment variables. See `.env.example` for available options.
+For comprehensive documentation, see the [docs/](./docs/) directory:
+
+- **[API Documentation](./docs/API.md)** - Complete API reference with examples
+- **[Deployment Guide](./docs/DEPLOYMENT.md)** - Docker Compose deployment instructions  
+- **[Configuration Reference](./docs/CONFIGURATION.md)** - All environment variables and settings
+- **[Usage Examples](./docs/EXAMPLES.md)** - Client code examples and integration patterns
+- **[Troubleshooting Guide](./docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Operations Runbook](./docs/OPERATIONS.md)** - Monitoring, maintenance, and incident response
+
+### Client Examples
+
+See [client-examples/](./client-examples/) for ready-to-use client code in:
+- Node.js/JavaScript
+- Python
+- Shell scripts (cURL)
+
+### Quick Reference
+- [API Endpoints Summary](./API_ENDPOINTS_SUMMARY.md)
+- [Docker Deployment Summary](./DOCKER_DEPLOYMENT_SUMMARY.md)
 
 ## Development
 

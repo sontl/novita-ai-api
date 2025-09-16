@@ -1,39 +1,129 @@
 # Dependencies
 node_modules
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Build outputs
 dist
+build
 coverage
+*.tsbuildinfo
 
 # Environment files
 .env
 .env.local
 .env.*.local
+.env.development
+.env.test
+.env.production
 
 # IDE files
 .vscode
 .idea
 *.swp
 *.swo
+*.sublime-*
 
 # OS files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
 # Git
 .git
 .gitignore
+.gitattributes
 
 # Documentation
 README.md
+DEPLOYMENT.md
 docs/
+*.md
 
 # Test files
 **/*.test.ts
 **/*.spec.ts
-__tests__/
+**/__tests__/
+jest.config.js
+coverage/
 
 # Logs
 logs/
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# next.js build output
+.next
+
+# nuxt.js build output
+.nuxt
+
+# vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# Backup files
+backups/
+*.backup
+*.bak
+
+# Docker files (don't include in image)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Scripts (deployment scripts not needed in container)
+scripts/
+
+# Local development files
+.local
+.cache

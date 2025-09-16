@@ -1,0 +1,71 @@
+# Example Docker Compose configuration
+# Copy this file to docker-compose.override.yml and customize for your environment
+
+version: '3.8'
+
+services:
+  novita-gpu-api:
+    # Example: Use specific image tag
+    # image: novita-gpu-instance-api:v1.0.0
+    
+    # Example: Custom port mapping
+    ports:
+      - "8080:3000"  # Map to port 8080 instead of 3000
+    
+    # Example: Additional environment variables
+    environment:
+      - LOG_LEVEL=debug
+      - CUSTOM_SETTING=value
+    
+    # Example: Additional volume mounts
+    volumes:
+      - ./custom-config:/app/config:ro
+      - ./custom-logs:/app/logs
+    
+    # Example: Custom resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
+    
+    # Example: Custom labels for monitoring
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.novita-api.rule=Host(`api.example.com`)"
+      - "traefik.http.services.novita-api.loadbalancer.server.port=3000"
+
+  # Example: Add reverse proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - novita-gpu-api
+    networks:
+      - novita-network
+
+  # Example: Add monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - novita-network
+
+# Example: Custom network configuration
+networks:
+  novita-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
