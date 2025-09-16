@@ -317,7 +317,7 @@ export class NovitaApiService {
   async getInstance(instanceId: string): Promise<InstanceResponse> {
     try {
       const response = await novitaClient.get<NovitaApiResponse<InstanceResponse>>(
-        `/v1/gpu/instance/${instanceId}`
+        `/v1/gpu/instance?instanceId=${instanceId}`
       );
 
       if (!response.data.success) {
