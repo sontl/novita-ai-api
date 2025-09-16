@@ -98,12 +98,41 @@ export class JobWorkerService {
         imageUrl: templateConfig.imageUrl,
         kind: 'gpu', // Default to GPU instances
         billingMode: 'spot', // Default to spot pricing for cost optimization
-        ...(templateConfig.imageAuth && { imageAuth: templateConfig.imageAuth }),
         ...(templateConfig.ports && templateConfig.ports.length > 0 && {
           ports: templateConfig.ports.map(p => `${p.port}/${p.type}`).join(',')
         }),
         ...(templateConfig.envs && templateConfig.envs.length > 0 && { envs: templateConfig.envs })
       };
+
+      // Step 3.1: Handle image authentication if required
+      if (templateConfig.imageAuth) {
+        logger.debug('Fetching registry authentication credentials', {
+          jobId: job.id,
+          instanceId: payload.instanceId,
+          imageAuthId: templateConfig.imageAuth
+        });
+
+        try {
+          const registryAuth = await novitaApiService.getRegistryAuth(templateConfig.imageAuth);
+          // Set imageAuth in username:password format
+          createRequest.imageAuth = `${registryAuth.username}:${registryAuth.password}`;
+          
+          logger.info('Registry authentication credentials configured', {
+            jobId: job.id,
+            instanceId: payload.instanceId,
+            imageAuthId: templateConfig.imageAuth,
+            username: registryAuth.username
+          });
+        } catch (authError) {
+          logger.error('Failed to fetch registry authentication credentials', {
+            jobId: job.id,
+            instanceId: payload.instanceId,
+            imageAuthId: templateConfig.imageAuth,
+            error: authError instanceof Error ? authError.message : 'Unknown error'
+          });
+          throw authError;
+        }
+      }
 
       logger.info('Creating Novita.ai instance', {
         jobId: job.id,

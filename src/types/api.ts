@@ -324,3 +324,15 @@ export class TimeoutError extends NovitaApiClientError {
     this.name = 'TimeoutError';
   }
 }
+
+// Registry authentication types
+export interface RegistryAuth {
+  id: string;
+  name: string;
+  username: string;
+  password: string;
+}
+
+export interface RegistryAuthsResponse {
+  data: RegistryAuth[];
+}

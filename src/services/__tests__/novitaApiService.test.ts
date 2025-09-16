@@ -442,18 +442,96 @@ describe('NovitaApiService', () => {
     });
   });
 
+  describe('getRegistryAuth', () => {
+    const mockRegistryAuthsResponse = {
+      data: [
+        {
+          id: 'auth_token_123',
+          name: 'Docker Hub Auth',
+          username: 'dockeruser',
+          password: 'dockerpass'
+        },
+        {
+          id: 'auth_token_456',
+          name: 'GitHub Registry Auth',
+          username: 'githubuser',
+          password: 'githubpass'
+        }
+      ]
+    };
+
+    it('should fetch registry auth credentials successfully', async () => {
+      mockedNovitaClient.get.mockResolvedValue({
+        data: mockRegistryAuthsResponse,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      const result = await novitaApiService.getRegistryAuth('auth_token_123');
+
+      expect(result).toEqual({
+        username: 'dockeruser',
+        password: 'dockerpass'
+      });
+      expect(mockedNovitaClient.get).toHaveBeenCalledWith('/v1/repository/auths');
+    });
+
+    it('should handle registry auth not found', async () => {
+      mockedNovitaClient.get.mockResolvedValue({
+        data: mockRegistryAuthsResponse,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      await expect(
+        novitaApiService.getRegistryAuth('nonexistent_auth')
+      ).rejects.toThrow('Registry authentication not found for ID: nonexistent_auth');
+    });
+
+    it('should handle invalid API response format', async () => {
+      mockedNovitaClient.get.mockResolvedValue({
+        data: { data: null },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      await expect(
+        novitaApiService.getRegistryAuth('auth_token_123')
+      ).rejects.toThrow('Invalid response format from registry auths API');
+    });
+
+    it('should handle API errors when fetching registry auth', async () => {
+      const axiosError = {
+        response: {
+          status: 401,
+          data: { message: 'Unauthorized access to registry auths' }
+        },
+        message: 'Request failed with status code 401'
+      };
+
+      mockedNovitaClient.get.mockRejectedValue(axiosError);
+
+      await expect(
+        novitaApiService.getRegistryAuth('auth_token_123')
+      ).rejects.toThrow(NovitaApiClientError);
+    });
+  });
+
   describe('createInstance', () => {
     const mockCreateRequest = {
       name: 'test-instance',
       productId: 'prod-1',
-      templateId: 'template-1',
       gpuNum: 1,
       rootfsSize: 60,
-      region: 'CN-HK-01',
-      billingMode: 'spot' as const,
       imageUrl: 'docker.io/nvidia/cuda:11.8-runtime-ubuntu20.04',
-      ports: [],
-      envs: []
+      kind: 'gpu' as const,
+      billingMode: 'spot' as const
     };
 
     const mockInstanceResponse: InstanceResponse = {
@@ -471,8 +549,7 @@ describe('NovitaApiService', () => {
     it('should create instance successfully', async () => {
       mockedNovitaClient.post.mockResolvedValue({
         data: {
-          success: true,
-          data: mockInstanceResponse
+          id: 'instance-1'
         },
         status: 201,
         statusText: 'Created',
@@ -482,25 +559,26 @@ describe('NovitaApiService', () => {
 
       const result = await novitaApiService.createInstance(mockCreateRequest);
 
-      expect(result).toEqual(mockInstanceResponse);
-      expect(mockedNovitaClient.post).toHaveBeenCalledWith('/v1/instances', mockCreateRequest);
+      expect(result.id).toBe('instance-1');
+      expect(result.name).toBe('test-instance');
+      expect(result.status).toBe(InstanceStatus.CREATING);
+      expect(mockedNovitaClient.post).toHaveBeenCalledWith('/v1/gpu/instance/create', mockCreateRequest);
     });
 
     it('should handle creation errors', async () => {
-      mockedNovitaClient.post.mockResolvedValue({
-        data: {
-          success: false,
-          error: { code: 'INSUFFICIENT_QUOTA', message: 'Insufficient quota' }
+      const axiosError = {
+        response: {
+          status: 400,
+          data: { message: 'Insufficient quota' }
         },
-        status: 400,
-        statusText: 'Bad Request',
-        headers: {},
-        config: {}
-      } as any);
+        message: 'Request failed with status code 400'
+      };
+
+      mockedNovitaClient.post.mockRejectedValue(axiosError);
 
       await expect(
         novitaApiService.createInstance(mockCreateRequest)
-      ).rejects.toThrow('Insufficient quota');
+      ).rejects.toThrow(NovitaApiClientError);
     });
   });
 
@@ -533,7 +611,7 @@ describe('NovitaApiService', () => {
       const result = await novitaApiService.getInstance('instance-1');
 
       expect(result).toEqual(mockInstance);
-      expect(mockedNovitaClient.get).toHaveBeenCalledWith('/v1/instances/instance-1');
+      expect(mockedNovitaClient.get).toHaveBeenCalledWith('/v1/gpu/instance/instance-1');
     });
 
     it('should handle instance not found', async () => {

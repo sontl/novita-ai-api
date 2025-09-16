@@ -141,6 +141,10 @@ describe('Instance Creation Workflow Integration Tests', () => {
     mockNovitaApiService.createInstance.mockResolvedValue(mockInstanceResponse);
     mockNovitaApiService.startInstance.mockResolvedValue(mockStartedInstanceResponse);
     mockNovitaApiService.getInstance.mockResolvedValue(mockRunningInstanceResponse);
+    mockNovitaApiService.getRegistryAuth.mockResolvedValue({
+      username: 'testuser',
+      password: 'testpass'
+    });
 
     mockInstanceService.getInstanceState.mockReturnValue({
       id: 'inst_123',
@@ -203,14 +207,13 @@ describe('Instance Creation Workflow Integration Tests', () => {
       expect(mockNovitaApiService.createInstance).toHaveBeenCalledWith({
         name: 'test-instance',
         productId: 'prod_123',
-        templateId: 'template_456',
         gpuNum: 1,
         rootfsSize: 60,
-        region: 'CN-HK-01',
-        billingMode: 'spot',
         imageUrl: mockTemplate.imageUrl,
-        imageAuth: mockTemplate.imageAuth,
-        ports: mockTemplate.ports,
+        kind: 'gpu',
+        billingMode: 'spot',
+        imageAuth: 'testuser:testpass',
+        ports: '8888/http,22/tcp',
         envs: mockTemplate.envs
       });
 
@@ -309,14 +312,119 @@ describe('Instance Creation Workflow Integration Tests', () => {
       expect(mockNovitaApiService.createInstance).toHaveBeenCalledWith({
         name: 'test-instance',
         productId: 'prod_123',
+        gpuNum: 1,
+        rootfsSize: 60,
+        imageUrl: templateWithoutAuth.imageUrl,
+        kind: 'gpu',
+        billingMode: 'spot',
+        ports: '8888/http,22/tcp',
+        envs: templateWithoutAuth.envs
+      });
+    });
+
+    it('should handle template with imageAuth correctly', async () => {
+      const templateWithAuth = {
+        ...mockTemplate,
+        imageAuth: 'auth_token_123'
+      };
+
+      mockTemplateService.getTemplateConfiguration.mockResolvedValue(templateWithAuth);
+      mockNovitaApiService.getRegistryAuth.mockResolvedValue({
+        username: 'registry_user',
+        password: 'registry_pass'
+      });
+
+      const jobPayload: CreateInstanceJobPayload = {
+        instanceId: 'inst_123',
+        name: 'test-instance',
+        productName: 'RTX 4090 24GB',
+        templateId: 'template_456',
+        gpuNum: 1,
+        rootfsSize: 60,
+        region: 'CN-HK-01'
+      };
+
+      const job = {
+        id: 'job_123',
+        type: JobType.CREATE_INSTANCE,
+        payload: jobPayload,
+        status: 'pending' as any,
+        priority: JobPriority.HIGH,
+        attempts: 0,
+        maxAttempts: 3,
+        createdAt: new Date()
+      };
+
+      // Execute the job
+      await (jobWorkerService as any).handleCreateInstance(job);
+
+      // Verify registry auth was fetched
+      expect(mockNovitaApiService.getRegistryAuth).toHaveBeenCalledWith('auth_token_123');
+
+      // Verify create instance was called with imageAuth in username:password format
+      expect(mockNovitaApiService.createInstance).toHaveBeenCalledWith({
+        name: 'test-instance',
+        productId: 'prod_123',
+        gpuNum: 1,
+        rootfsSize: 60,
+        imageUrl: templateWithAuth.imageUrl,
+        kind: 'gpu',
+        billingMode: 'spot',
+        imageAuth: 'registry_user:registry_pass',
+        ports: '8888/http,22/tcp',
+        envs: templateWithAuth.envs
+      });
+    });
+
+    it('should handle registry authentication errors', async () => {
+      const templateWithAuth = {
+        ...mockTemplate,
+        imageAuth: 'invalid_auth_token'
+      };
+
+      mockTemplateService.getTemplateConfiguration.mockResolvedValue(templateWithAuth);
+      
+      const registryAuthError = new NovitaApiClientError(
+        'Registry authentication not found for ID: invalid_auth_token',
+        404,
+        'REGISTRY_AUTH_NOT_FOUND'
+      );
+      
+      mockNovitaApiService.getRegistryAuth.mockRejectedValue(registryAuthError);
+
+      const jobPayload: CreateInstanceJobPayload = {
+        instanceId: 'inst_123',
+        name: 'test-instance',
+        productName: 'RTX 4090 24GB',
         templateId: 'template_456',
         gpuNum: 1,
         rootfsSize: 60,
         region: 'CN-HK-01',
-        billingMode: 'spot',
-        imageUrl: templateWithoutAuth.imageUrl,
-        ports: templateWithoutAuth.ports,
-        envs: templateWithoutAuth.envs
+        webhookUrl: 'https://example.com/webhook'
+      };
+
+      const job = {
+        id: 'job_123',
+        type: JobType.CREATE_INSTANCE,
+        payload: jobPayload,
+        status: 'pending' as any,
+        priority: JobPriority.HIGH,
+        attempts: 0,
+        maxAttempts: 3,
+        createdAt: new Date()
+      };
+
+      // Execute the job and expect it to throw
+      await expect((jobWorkerService as any).handleCreateInstance(job)).rejects.toThrow(registryAuthError);
+
+      // Verify registry auth was attempted
+      expect(mockNovitaApiService.getRegistryAuth).toHaveBeenCalledWith('invalid_auth_token');
+
+      // Verify instance state was updated to failed
+      expect(mockInstanceService.updateInstanceState).toHaveBeenCalledWith('inst_123', {
+        status: InstanceStatus.FAILED,
+        lastError: registryAuthError.message,
+        timestamps: expect.any(Object)
       });
     });
   });

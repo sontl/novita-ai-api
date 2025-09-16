@@ -13,7 +13,9 @@ import {
   NovitaApiClientError,
   RateLimitError,
   CircuitBreakerError,
-  TimeoutError
+  TimeoutError,
+  RegistryAuth,
+  RegistryAuthsResponse
 } from '../types/api';
 import { log } from 'console';
 
@@ -177,6 +179,55 @@ export class NovitaApiService {
       return template;
     } catch (error) {
       throw this.handleApiError(error, 'Failed to fetch template');
+    }
+  }
+
+  /**
+   * Get registry authentication credentials by ID
+   */
+  async getRegistryAuth(authId: string): Promise<{ username: string; password: string }> {
+    try {
+      logger.info('Fetching registry authentication credentials', { authId });
+      
+      const response = await novitaClient.get<RegistryAuthsResponse>(
+        '/v1/repository/auths'
+      );
+      
+      logger.debug('Registry auths API response', { 
+        authCount: response.data.data?.length || 0 
+      });
+
+      if (!response.data.data || !Array.isArray(response.data.data)) {
+        throw new NovitaApiClientError(
+          'Invalid response format from registry auths API',
+          500,
+          'INVALID_RESPONSE'
+        );
+      }
+
+      // Find the auth entry by ID
+      const authEntry = response.data.data.find(auth => auth.id === authId);
+      
+      if (!authEntry) {
+        throw new NovitaApiClientError(
+          `Registry authentication not found for ID: ${authId}`,
+          404,
+          'REGISTRY_AUTH_NOT_FOUND'
+        );
+      }
+
+      logger.info('Registry authentication credentials found', {
+        authId,
+        name: authEntry.name,
+        username: authEntry.username
+      });
+
+      return {
+        username: authEntry.username,
+        password: authEntry.password
+      };
+    } catch (error) {
+      throw this.handleApiError(error, 'Failed to fetch registry authentication');
     }
   }
 
