@@ -275,7 +275,7 @@ describe('NovitaApiService', () => {
       imageUrl: 'ubuntu:22.04-cuda',
       imageAuth: 'token123',
       ports: [{ port: 22, type: 'tcp' }],
-      envs: [{ name: 'CUDA_VERSION', value: '12.0' }]
+      envs: [{ key: 'CUDA_VERSION', value: '12.0' }]
     };
 
     const mockApiResponse = {

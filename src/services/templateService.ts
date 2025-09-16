@@ -181,7 +181,7 @@ export class TemplateService {
           );
         }
         
-        if (!env.name || typeof env.name !== 'string' || env.name.trim() === '') {
+        if (!env.key || typeof env.key !== 'string' || env.key.trim() === '') {
           throw new NovitaApiClientError(
             `Template env at index ${index} has invalid name`,
             500,

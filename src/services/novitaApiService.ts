@@ -165,7 +165,7 @@ export class NovitaApiService {
         imageUrl: rawTemplate.image,
         imageAuth: rawTemplate.imageAuth,
         ports: this.transformPorts(rawTemplate.ports || []),
-        envs: this.transformEnvs(rawTemplate.envs || []),
+        envs: rawTemplate.envs || [],
         description: rawTemplate.description
       };
 
@@ -474,20 +474,6 @@ export class NovitaApiService {
     });
 
     return transformedPorts;
-  }
-
-  /**
-   * Transform environment variables from API response format to our interface format
-   */
-  private transformEnvs(apiEnvs: any[]): Template['envs'] {
-    if (!Array.isArray(apiEnvs)) {
-      return [];
-    }
-
-    return apiEnvs.map(env => ({
-      name: env.key || env.name,
-      value: env.value
-    }));
   }
 
   /**

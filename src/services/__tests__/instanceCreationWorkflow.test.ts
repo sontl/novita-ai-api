@@ -82,8 +82,8 @@ describe('Instance Creation Workflow Integration Tests', () => {
       { port: 22, type: 'tcp', name: 'ssh' }
     ],
     envs: [
-      { name: 'JUPYTER_TOKEN', value: 'secure_token' },
-      { name: 'CUDA_VISIBLE_DEVICES', value: '0' }
+      { key: 'JUPYTER_TOKEN', value: 'secure_token' },
+      { key: 'CUDA_VISIBLE_DEVICES', value: '0' }
     ],
     description: 'PyTorch development environment'
   };

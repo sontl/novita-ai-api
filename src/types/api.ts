@@ -114,7 +114,7 @@ export interface Port {
 }
 
 export interface EnvVar {
-  name: string;
+  key: string;
   value: string;
 }
 
