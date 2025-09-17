@@ -1,6 +1,6 @@
 import { logger } from '../utils/logger';
 import { novitaApiService } from './novitaApiService';
-import { Product, NovitaApiClientError } from '../types/api';
+import { Product, NovitaApiClientError, RegionConfig } from '../types/api';
 import { cacheManager } from './cacheService';
 
 export class ProductService {
@@ -17,6 +17,13 @@ export class ProductService {
   });
   
   private readonly defaultRegion = 'CN-HK-01';
+  
+  // Default region configuration with fallback priorities
+  private readonly defaultRegions: RegionConfig[] = [
+    { id: 'as-sgp-2', name: 'AS-SGP-02', priority: 1 },
+    { id: 'cn-hongkong-1', name: 'CN-HK-01', priority: 2 },
+    { id: 'as-in-1', name: 'AS-IN-01', priority: 3 }
+  ];
 
   /**
    * Get products with caching support
@@ -61,7 +68,7 @@ export class ProductService {
    */
   async getOptimalProduct(productName: string, region?: string): Promise<Product> {
     const targetRegion = region || this.defaultRegion;
-    const cacheKey = `${productName}:${targetRegion}`;
+    const cacheKey = `optimal:${productName}:${targetRegion}`;
     
     // Check cache first
     const cachedProduct = this.optimalProductCache.get(cacheKey);
@@ -133,6 +140,99 @@ export class ProductService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Get optimal product with multi-region fallback based on priority
+   * Tries regions in priority order until an available product is found
+   */
+  async getOptimalProductWithFallback(
+    productName: string, 
+    preferredRegion?: string,
+    regions?: RegionConfig[]
+  ): Promise<{ product: Product; regionUsed: string }> {
+    const fallbackRegions = regions || this.defaultRegions;
+    
+    // Sort regions by priority (lower number = higher priority)
+    const sortedRegions = [...fallbackRegions].sort((a, b) => a.priority - b.priority);
+    
+    // If preferred region is provided, try it first if it's in our region list
+    if (preferredRegion) {
+      const preferredRegionConfig = sortedRegions.find(r => r.name === preferredRegion || r.id === preferredRegion);
+      if (preferredRegionConfig) {
+        // Move preferred region to the front
+        const otherRegions = sortedRegions.filter(r => r !== preferredRegionConfig);
+        sortedRegions.splice(0, sortedRegions.length, preferredRegionConfig, ...otherRegions);
+      }
+    }
+    
+    logger.debug('Starting multi-region product search', {
+      productName,
+      preferredRegion,
+      regionOrder: sortedRegions.map(r => `${r.name} (priority: ${r.priority})`)
+    });
+    
+    const regionErrors: Array<{ region: string; error: string }> = [];
+    
+    for (const regionConfig of sortedRegions) {
+      const regionName = regionConfig.name;
+      
+      try {
+        logger.debug('Trying region for optimal product', {
+          productName,
+          region: regionName,
+          priority: regionConfig.priority
+        });
+        
+        const product = await this.getOptimalProduct(productName, regionName);
+        
+        logger.info('Found optimal product in region', {
+          productName,
+          regionUsed: regionName,
+          priority: regionConfig.priority,
+          productId: product.id,
+          spotPrice: product.spotPrice,
+          attemptsBeforeSuccess: regionErrors.length
+        });
+        
+        return {
+          product,
+          regionUsed: regionName
+        };
+        
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        regionErrors.push({ region: regionName, error: errorMessage });
+        
+        logger.warn('Failed to find optimal product in region, trying next', {
+          productName,
+          region: regionName,
+          priority: regionConfig.priority,
+          error: errorMessage,
+          remainingRegions: sortedRegions.length - regionErrors.length
+        });
+        
+        // Continue to next region unless this is the last one
+        if (regionErrors.length < sortedRegions.length) {
+          continue;
+        }
+      }
+    }
+    
+    // If we get here, all regions failed
+    logger.error('Failed to find optimal product in any region', {
+      productName,
+      preferredRegion,
+      attemptedRegions: regionErrors.length,
+      regionErrors
+    });
+    
+    throw new NovitaApiClientError(
+      `No optimal product found for "${productName}" in any available region. Attempted regions: ${regionErrors.map(e => `${e.region} (${e.error})`).join(', ')}`,
+      404,
+      'NO_OPTIMAL_PRODUCT_ANY_REGION',
+      { regionErrors }
+    );
   }
 
   /**
@@ -240,7 +340,7 @@ export class ProductService {
    */
   invalidateProduct(productName: string, region?: string): void {
     const targetRegion = region || this.defaultRegion;
-    const optimalKey = `${productName}:${targetRegion}`;
+    const optimalKey = `optimal:${productName}:${targetRegion}`;
     
     // Remove from optimal product cache
     this.optimalProductCache.delete(optimalKey);

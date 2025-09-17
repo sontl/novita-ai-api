@@ -325,6 +325,13 @@ export class TimeoutError extends NovitaApiClientError {
   }
 }
 
+// Region configuration types
+export interface RegionConfig {
+  id: string;
+  name: string;
+  priority: number;
+}
+
 // Registry authentication types
 export interface RegistryAuth {
   id: string;

@@ -27,6 +27,7 @@ describe('ProductService', () => {
 
   beforeEach(() => {
     service = new ProductService();
+    service.clearCache(); // Ensure cache is clean
     jest.clearAllMocks();
     jest.useFakeTimers();
   });
@@ -322,8 +323,10 @@ describe('ProductService', () => {
 
       const stats = service.getCacheStats();
       expect(stats.totalCacheSize).toBe(0);
-      expect(logger.debug).toHaveBeenCalledWith('Cleared expired cache entries', {
-        count: initialStats.totalCacheSize
+      expect(logger.debug).toHaveBeenCalledWith('Cleared expired product cache entries', {
+        productCleaned: expect.any(Number),
+        optimalCleaned: expect.any(Number),
+        totalCleaned: initialStats.totalCacheSize
       });
     });
 

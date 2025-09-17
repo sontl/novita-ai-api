@@ -67,18 +67,27 @@ export class JobWorkerService {
         throw new Error(`Instance state not found: ${payload.instanceId}`);
       }
 
-      // Step 1: Get optimal product selection
-      logger.debug('Fetching optimal product', {
+      // Step 1: Get optimal product selection with region fallback
+      logger.debug('Fetching optimal product with region fallback', {
         jobId: job.id,
         instanceId: payload.instanceId,
         productName: payload.productName,
-        region: payload.region
+        preferredRegion: payload.region
       });
 
-      const optimalProduct = await productService.getOptimalProduct(
+      const { product: optimalProduct, regionUsed } = await productService.getOptimalProductWithFallback(
         payload.productName,
         payload.region
       );
+      
+      logger.info('Optimal product selected with region fallback', {
+        jobId: job.id,
+        instanceId: payload.instanceId,
+        productId: optimalProduct.id,
+        regionUsed,
+        spotPrice: optimalProduct.spotPrice,
+        requestedRegion: payload.region
+      });
 
       // Step 2: Get template configuration
       logger.debug('Fetching template configuration', {
@@ -95,6 +104,7 @@ export class JobWorkerService {
         productId: optimalProduct.id,
         gpuNum: payload.gpuNum,
         rootfsSize: payload.rootfsSize,
+        clusterId: regionUsed === 'CN-HK-01' ? 'cn-hongkong-1' : regionUsed.toLowerCase(),
         imageUrl: templateConfig.imageUrl,
         kind: 'gpu', // Default to GPU instances
         billingMode: 'spot', // Default to spot pricing for cost optimization
@@ -138,7 +148,9 @@ export class JobWorkerService {
         jobId: job.id,
         instanceId: payload.instanceId,
         productId: optimalProduct.id,
-        spotPrice: optimalProduct.spotPrice
+        spotPrice: optimalProduct.spotPrice,
+        regionUsed,
+        requestedRegion: payload.region
       });
 
       // Step 4: Create instance via Novita.ai API
