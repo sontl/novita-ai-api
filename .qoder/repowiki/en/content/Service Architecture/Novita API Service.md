@@ -2,12 +2,20 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [novitaApiService.ts](file://src/services/novitaApiService.ts)
-- [novitaClient.ts](file://src/clients/novitaClient.ts)
-- [config.ts](file://src/config/config.ts)
-- [instanceService.ts](file://src/services/instanceService.ts)
-- [api.ts](file://src/types/api.ts)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts) - *Updated in recent commits*
+- [novitaClient.ts](file://src/clients/novitaClient.ts) - *Updated in recent commits*
+- [config.ts](file://src/config/config.ts) - *Configuration system*
+- [instanceService.ts](file://src/services/instanceService.ts) - *Integration with instance management*
+- [api.ts](file://src/types/api.ts) - *Type definitions and error classes*
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Updated key methods section to reflect POST-based API calls and new request parameters
+- Added new section for getRegistryAuth method introduced in recent commit
+- Updated error handling strategy to reflect current implementation
+- Revised architecture diagrams to match updated API call patterns
+- Enhanced security and configuration section with registry authentication details
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -59,22 +67,29 @@ B --> A
 The NovitaApiService provides several key methods for GPU instance management:
 
 ### createInstance
-Creates a new GPU instance with the specified configuration parameters.
+Creates a new GPU instance with the specified configuration parameters using POST request with payload.
 
 **Request Parameters:**
 - `name`: Instance name
 - `productId`: Product identifier
-- `templateId`: Template configuration identifier
 - `gpuNum`: Number of GPUs (1-8)
 - `rootfsSize`: Root filesystem size in GB (10-1000)
-- `region`: Deployment region
-- `billingMode`: Pricing model (spot or on-demand)
+- `kind`: Instance type ('gpu' or 'cpu')
+- `billingMode`: Pricing model (spot, on-demand, or monthly)
+- `imageUrl`: Container image URL
+- `imageAuthId`: Registry authentication ID (optional)
+- `ports`: Port configuration
+- `envs`: Environment variables
+- `tools`: Pre-installed tools
+- `networkStorages`: Attached network storage
+
+**Updated** Method updated to use POST request with payload instead of GET with URL parameters
 
 **Section sources**
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L250-L280)
 
 ### getInstance
-Retrieves detailed information about a specific instance by its ID.
+Retrieves detailed information about a specific instance by its ID using GET request with instanceId parameter.
 
 **Response Includes:**
 - Instance status and configuration
@@ -82,20 +97,43 @@ Retrieves detailed information about a specific instance by its ID.
 - Timestamps for creation and state changes
 - Port mappings and network configuration
 
+**Updated** Method updated to use GET request with instanceId parameter in query string
+
 **Section sources**
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L330-L360)
 
 ### stopInstance
-Stops a running instance gracefully.
+Stops a running instance gracefully using POST request with payload.
 
 **Process Flow:**
-1. Sends stop request to Novita.ai API
+1. Sends stop request to Novita.ai API via POST with instanceId in payload
 2. Validates API response success
 3. Returns updated instance status
 4. Logs operation for monitoring
 
+**Updated** Method updated to use POST request with payload instead of DELETE with URL parameters
+
 **Section sources**
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L390-L420)
+
+### getRegistryAuth
+Retrieves registry authentication credentials by authentication ID.
+
+**Process Flow:**
+1. Fetches all registry authentication entries from /v1/repository/auths endpoint
+2. Searches for the entry matching the provided authId
+3. Returns username and password if found
+4. Throws error if authentication entry not found
+
+**Request Parameters:**
+- `authId`: Authentication identifier for registry credentials
+
+**Response:**
+- `username`: Registry username
+- `password`: Registry password
+
+**Section sources**
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L150-L180)
 
 ## Error Handling Strategy
 The NovitaApiService implements a comprehensive error handling strategy to manage various failure scenarios:
@@ -132,6 +170,8 @@ The service handles specific HTTP status codes with appropriate error types:
 - **403 (Forbidden)**: Transformed to access forbidden error
 - **404 (Not Found)**: Converted to resource not found error
 - **5xx (Server Errors)**: Transformed to server error with appropriate status code
+
+**Updated** Error handling updated to reflect current implementation in code
 
 **Section sources**
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L403-L449)
@@ -184,8 +224,9 @@ The InstanceService uses NovitaApiService methods as part of its instance creati
 1. Validate instance creation request
 2. Get optimal product via NovitaApiService.getOptimalProduct
 3. Get template configuration via NovitaApiService.getTemplate
-4. Create instance via NovitaApiService.createInstance
-5. Monitor instance status via NovitaApiService.getInstance
+4. Get registry authentication via NovitaApiService.getRegistryAuth (if needed)
+5. Create instance via NovitaApiService.createInstance
+6. Monitor instance status via NovitaApiService.getInstance
 
 ### State Management
 The InstanceService maintains internal state while using NovitaApiService for external API communication:
@@ -202,13 +243,21 @@ NovitaClient->>NovitaAPI : HTTP Request
 NovitaAPI-->>NovitaClient : Product List
 NovitaClient-->>NovitaApiService : Response
 NovitaApiService-->>InstanceService : Optimal Product
+InstanceService->>NovitaApiService : getTemplate()
+NovitaApiService->>NovitaClient : get(/v1/template)
+NovitaClient->>NovitaAPI : HTTP Request
+NovitaAPI-->>NovitaClient : Template Data
+NovitaClient-->>NovitaApiService : Response
+NovitaApiService-->>InstanceService : Template
 InstanceService->>NovitaApiService : createInstance()
-NovitaApiService->>NovitaClient : post(/v1/instances)
+NovitaApiService->>NovitaClient : post(/v1/gpu/instance/create)
 NovitaClient->>NovitaAPI : HTTP Request
 NovitaAPI-->>NovitaClient : Instance Data
 NovitaClient-->>NovitaApiService : Response
 NovitaApiService-->>InstanceService : Created Instance
 ```
+
+**Updated** Sequence diagram updated to reflect POST-based instance creation
 
 **Diagram sources**
 - [instanceService.ts](file://src/services/instanceService.ts#L50-L150)
@@ -237,6 +286,9 @@ The service implements several security measures:
 - **Request Logging**: Correlation IDs for tracking requests
 - **Input Validation**: Validates request parameters before sending
 - **Error Sanitization**: Prevents sensitive information leakage in error messages
+- **Registry Authentication**: Secure handling of private image registry credentials
+
+**Updated** Added registry authentication security details
 
 **Section sources**
 - [config.ts](file://src/config/config.ts#L100-L200)
@@ -318,6 +370,8 @@ style G fill:#f96,stroke:#333
 style H fill:#f96,stroke:#333
 style I fill:#9f9,stroke:#333
 ```
+
+**Updated** Architecture diagram updated to reflect current implementation
 
 **Diagram sources**
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L1-L50)

@@ -2,13 +2,22 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [productService.ts](file://src/services/productService.ts)
+- [productService.ts](file://src/services/productService.ts) - *Updated with region fallback feature*
 - [templateService.ts](file://src/services/templateService.ts)
 - [instanceService.ts](file://src/services/instanceService.ts)
 - [novitaClient.ts](file://src/clients/novitaClient.ts)
 - [productServiceExample.ts](file://src/examples/productServiceExample.ts)
 - [templateServiceExample.ts](file://src/examples/templateServiceExample.ts)
+- [regionFallbackExample.ts](file://src/examples/regionFallbackExample.ts) - *Added in recent commit*
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Added new section on multi-region fallback functionality in ProductService
+- Updated ProductService overview to include region fallback capabilities
+- Added usage example for region fallback feature
+- Updated diagram sources to reflect code changes
+- Enhanced section sources with annotations for updated files
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -30,13 +39,14 @@ The ProductService manages domain-specific data related to GPU instance types an
 Key functionalities include:
 - Retrieval of available GPU instance types with filtering capabilities
 - Selection of optimal (lowest spot price) products based on name and region
+- Multi-region fallback support for product selection
 - Validation of product availability and pricing
 - Integration with external APIs via NovitaApiClient
 
-The service implements robust error handling for scenarios such as missing products or unavailable configurations, ensuring that consumers receive meaningful feedback during instance provisioning processes.
+The service implements robust error handling for scenarios such as missing products or unavailable configurations, ensuring that consumers receive meaningful feedback during instance provisioning processes. The recent addition of multi-region fallback functionality enhances availability by automatically trying alternative regions when the preferred region lacks available products.
 
 **Section sources**
-- [productService.ts](file://src/services/productService.ts#L1-L280)
+- [productService.ts](file://src/services/productService.ts#L1-L380) - *Updated with region fallback feature*
 
 ## TemplateService Overview
 
@@ -156,6 +166,33 @@ const stats = productService.getCacheStats();
 productService.clearCache();
 ```
 
+### Multi-Region Fallback Usage
+The regionFallbackExample demonstrates the new multi-region fallback functionality:
+
+```typescript
+// Example 1: Using default region configuration
+const result = await productService.getOptimalProductWithFallback('RTX 4090 24GB');
+console.log(`Found in region: ${result.regionUsed}`);
+
+// Example 2: With preferred region
+const result = await productService.getOptimalProductWithFallback(
+  'RTX 4090 24GB', 
+  'AS-SGP-02'
+);
+
+// Example 3: With custom region priority
+const customRegions: RegionConfig[] = [
+  { id: 'as-in-1', name: 'AS-IN-01', priority: 1 },
+  { id: 'cn-hongkong-1', name: 'CN-HK-01', priority: 2 },
+  { id: 'as-sgp-2', name: 'AS-SGP-02', priority: 3 }
+];
+const result = await productService.getOptimalProductWithFallback(
+  'RTX 4090 24GB',
+  undefined,
+  customRegions
+);
+```
+
 ### TemplateService Usage
 The TemplateServiceExample illustrates template operations:
 
@@ -177,6 +214,7 @@ These examples demonstrate how templates streamline provisioning by encapsulatin
 **Section sources**
 - [productServiceExample.ts](file://src/examples/productServiceExample.ts#L1-L75)
 - [templateServiceExample.ts](file://src/examples/templateServiceExample.ts#L1-L148)
+- [regionFallbackExample.ts](file://src/examples/regionFallbackExample.ts#L1-L91) - *Added in recent commit*
 
 ## Data Consistency and Error Handling
 
@@ -186,8 +224,9 @@ Both services implement comprehensive error handling and data validation strateg
 - **PRODUCT_NOT_FOUND**: When no products match the specified name
 - **NO_AVAILABLE_PRODUCTS**: When matching products exist but none are available
 - **NO_OPTIMAL_PRODUCT**: When no optimal product can be determined
+- **NO_OPTIMAL_PRODUCT_ANY_REGION**: When no optimal product can be found in any region (multi-region fallback)
 
-The service validates product availability and sorts by spot price to ensure cost-effective selections.
+The service validates product availability and sorts by spot price to ensure cost-effective selections. The multi-region fallback feature enhances reliability by attempting to find available products across multiple regions in priority order.
 
 ### TemplateService Validation
 The TemplateService performs rigorous validation:
@@ -225,4 +264,4 @@ H --> I["Force Fresh Fetch"]
 - [templateService.ts](file://src/services/templateService.ts#L100-L250)
 
 ## Conclusion
-The ProductService and TemplateService form a critical foundation for GPU instance management within the Novita.ai platform. By providing efficient access to pricing information and standardized deployment templates, these services enable rapid, consistent, and cost-effective instance provisioning. Their sophisticated caching strategies significantly reduce API load while maintaining fresh data, and their tight integration with the InstanceService ensures configuration validity throughout the deployment lifecycle. The comprehensive error handling and validation mechanisms guarantee reliable operations even in edge cases, making these services robust components of the overall architecture.
+The ProductService and TemplateService form a critical foundation for GPU instance management within the Novita.ai platform. By providing efficient access to pricing information and standardized deployment templates, these services enable rapid, consistent, and cost-effective instance provisioning. Their sophisticated caching strategies significantly reduce API load while maintaining fresh data, and their tight integration with the InstanceService ensures configuration validity throughout the deployment lifecycle. The comprehensive error handling and validation mechanisms guarantee reliable operations even in edge cases, making these services robust components of the overall architecture. The recent addition of multi-region fallback functionality in ProductService further enhances system reliability by automatically attempting alternative regions when the preferred region lacks available products.

@@ -2,13 +2,23 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [api.ts](file://src/types/api.ts)
+- [api.ts](file://src/types/api.ts) - *Updated in recent commit*
 - [validation.ts](file://src/types/validation.ts)
 - [job.ts](file://src/types/job.ts)
 - [instanceService.ts](file://src/services/instanceService.ts)
 - [jobQueueService.ts](file://src/services/jobQueueService.ts)
 - [instances.ts](file://src/routes/instances.ts)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts) - *Updated in recent commit*
+- [templateService.ts](file://src/services/templateService.ts) - *Updated in recent commit*
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Updated EnvVar interface documentation to reflect the property name change from 'name' to 'key'
+- Added documentation for RegionConfig interface and multi-region fallback functionality
+- Updated NovitaCreateInstanceRequest to include new optional fields and billingMode options
+- Updated section sources to include newly affected service files
+- Ensured all documentation accurately reflects the current state of the codebase
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -87,6 +97,74 @@ class CreateInstanceRequest {
 **Section sources**
 - [api.ts](file://src/types/api.ts#L9-L17)
 - [instances.ts](file://src/routes/instances.ts#L15-L35)
+
+### RegionConfig Interface
+The RegionConfig interface defines the structure for region configuration in the multi-region fallback system. It specifies region identifiers, display names, and priority levels for GPU product selection across different geographical locations.
+
+```mermaid
+classDiagram
+class RegionConfig {
++string id
++string name
++number priority
+}
+```
+
+**Diagram sources**
+- [api.ts](file://src/types/api.ts#L320-L325)
+
+**Section sources**
+- [api.ts](file://src/types/api.ts#L320-L325)
+- [productService.ts](file://src/services/productService.ts#L45-L120)
+
+### NovitaCreateInstanceRequest Interface
+The NovitaCreateInstanceRequest interface extends the basic instance creation model with additional fields required for the Novita API integration. It includes billing options and infrastructure configuration parameters.
+
+```mermaid
+classDiagram
+class NovitaCreateInstanceRequest {
++string name
++string productId
++number gpuNum
++number rootfsSize
++string imageUrl
++string? imageAuth
++string? imageAuthId
++string? ports
++EnvVar[]? envs
++Tool[]? tools
++string? command
++string? clusterId
++NetworkStorage[]? networkStorages
++string? networkId
++string kind
++number? month
++string? billingMode
+}
+class EnvVar {
++string key
++string value
+}
+class Tool {
++string name
++string port
++string type
+}
+class NetworkStorage {
++string Id
++string mountPoint
+}
+NovitaCreateInstanceRequest --> EnvVar : "has optional"
+NovitaCreateInstanceRequest --> Tool : "has optional"
+NovitaCreateInstanceRequest --> NetworkStorage : "has optional"
+```
+
+**Diagram sources**
+- [api.ts](file://src/types/api.ts#L131-L149)
+
+**Section sources**
+- [api.ts](file://src/types/api.ts#L131-L149)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L80-L150)
 
 ## Validation Schema
 

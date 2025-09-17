@@ -2,12 +2,23 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [requirements.txt](file://client-examples/python/requirements.txt)
-- [setup.py](file://client-examples/python/setup.py)
-- [httpClientExample.ts](file://src/examples/httpClientExample.ts)
-- [novitaClient.ts](file://src/clients/novitaClient.ts)
-- [webhookClient.ts](file://src/clients/webhookClient.ts)
+- [requirements.txt](file://client-examples/python/requirements.txt) - *Updated with required dependencies*
+- [setup.py](file://client-examples/python/setup.py) - *Updated with package configuration*
+- [httpClientExample.ts](file://src/examples/httpClientExample.ts) - *Reference for HTTP client patterns*
+- [novitaClient.ts](file://src/clients/novitaClient.ts) - *Core API client implementation*
+- [webhookClient.ts](file://src/clients/webhookClient.ts) - *Webhook handling implementation*
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts) - *Added in recent commit for registry authentication*
+- [templateServiceExample.ts](file://src/examples/templateServiceExample.ts) - *Updated instance API calls to use POST with payload*
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Updated instance creation API call to use POST with payload as per recent changes
+- Added new section on registry authentication for private image instances
+- Updated environment variable references to match current naming conventions
+- Added code examples for registry authentication workflow
+- Enhanced error handling examples to include registry authentication errors
+- Updated diagram sources to reflect new implementation details
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -20,6 +31,7 @@
 8. [Security Best Practices](#security-best-practices)
 9. [Performance Optimization](#performance-optimization)
 10. [Common Pitfalls and Solutions](#common-pitfalls-and-solutions)
+11. [Registry Authentication](#registry-authentication)
 
 ## Introduction
 This guide provides comprehensive instructions for integrating Python applications with the Novita API to manage GPU instances. It covers environment setup, instance lifecycle management, webhook integration, error handling, and performance optimization. The documentation draws from the official TypeScript implementation patterns and adapts them for Python using the requests library and best practices in asynchronous programming.
@@ -38,10 +50,6 @@ MethodPip --> Verify["Verify Installation"]
 MethodSetup --> Verify
 Verify --> Complete["Environment Ready"]
 ```
-
-**Diagram sources**
-- [requirements.txt](file://client-examples/python/requirements.txt#L1-L2)
-- [setup.py](file://client-examples/python/setup.py#L1-L25)
 
 **Section sources**
 - [requirements.txt](file://client-examples/python/requirements.txt#L1-L2)
@@ -96,10 +104,6 @@ NovitaClient --> RateLimiter : "uses"
 NovitaClient --> WebhookClient : "coordinates with"
 ```
 
-**Diagram sources**
-- [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
-- [webhookClient.ts](file://src/clients/webhookClient.ts#L0-L242)
-
 **Section sources**
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
 - [webhookClient.ts](file://src/clients/webhookClient.ts#L0-L242)
@@ -124,12 +128,10 @@ ClientHTTP-->>Service : Response
 Service-->>Client : Instance object
 ```
 
-**Diagram sources**
-- [httpClientExample.ts](file://src/examples/httpClientExample.ts#L0-L130)
-- [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
-
 **Section sources**
 - [httpClientExample.ts](file://src/examples/httpClientExample.ts#L0-L130)
+- [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
+- [templateServiceExample.ts](file://src/examples/templateServiceExample.ts#L0-L148)
 
 ## Monitoring Instance Status
 
@@ -149,12 +151,9 @@ Error --> Complete
 Timeout --> Complete
 ```
 
-**Diagram sources**
-- [httpClientExample.ts](file://src/examples/httpClientExample.ts#L0-L130)
-- [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
-
 **Section sources**
 - [httpClientExample.ts](file://src/examples/httpClientExample.ts#L0-L130)
+- [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
 
 ## Webhook Callback Handling
 
@@ -177,9 +176,6 @@ Receiver->>Receiver : Reject request
 Receiver-->>WebhookClient : 401 Unauthorized
 end
 ```
-
-**Diagram sources**
-- [webhookClient.ts](file://src/clients/webhookClient.ts#L0-L242)
 
 **Section sources**
 - [webhookClient.ts](file://src/clients/webhookClient.ts#L0-L242)
@@ -206,10 +202,6 @@ Complete --> End
 Fail --> End
 FinalFail --> End
 ```
-
-**Diagram sources**
-- [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
-- [webhookClient.ts](file://src/clients/webhookClient.ts#L0-L242)
 
 **Section sources**
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
@@ -244,10 +236,6 @@ F --> J
 G --> J
 H --> J
 ```
-
-**Diagram sources**
-- [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
-- [webhookClient.ts](file://src/clients/webhookClient.ts#L0-L242)
 
 **Section sources**
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
@@ -284,10 +272,6 @@ D --> H
 I --> J
 K --> L
 ```
-
-**Diagram sources**
-- [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
-- [httpClientExample.ts](file://src/examples/httpClientExample.ts#L0-L130)
 
 **Section sources**
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
@@ -336,10 +320,42 @@ K --> O
 L --> O
 ```
 
-**Diagram sources**
-- [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
-- [httpClientExample.ts](file://src/examples/httpClientExample.ts#L0-L130)
-
 **Section sources**
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L0-L384)
 - [httpClientExample.ts](file://src/examples/httpClientExample.ts#L0-L130)
+
+## Registry Authentication
+
+Support for private Docker registries has been added through registry authentication. This feature allows instances to be created using private images by providing authentication credentials through the Novita API.
+
+```mermaid
+sequenceDiagram
+participant Client as "Python Client"
+participant Service as "NovitaApiService"
+participant API as "Novita API"
+Client->>Service : getRegistryAuth(authId)
+Service->>API : GET /v1/repository/auths
+API-->>Service : List of registry auths
+Service->>Service : Find auth by ID
+Service-->>Client : Username and password
+Client->>Service : createInstance(config) with imageAuth
+```
+
+The workflow for using registry authentication is:
+1. Template specifies imageAuth ID (e.g., "registry_auth_123")
+2. System calls GET /v1/repository/auths to fetch all credentials
+3. Find credentials by matching the auth ID
+4. Extract username and password from the response
+5. Format as "username:password" for the imageAuth field
+6. Include in instance creation request to Novita.ai
+
+Benefits:
+- Supports private Docker registries
+- Secure credential management via Novita.ai API
+- No need to store credentials in templates
+- Automatic credential resolution during instance creation
+
+**Section sources**
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts#L0-L97)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L222)
+- [api.ts](file://src/types/api.ts#L267-L344)

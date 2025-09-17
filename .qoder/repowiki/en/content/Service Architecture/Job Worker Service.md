@@ -2,23 +2,36 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [jobWorkerService.ts](file://src/services/jobWorkerService.ts)
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts) - *Updated with region fallback and registry authentication support*
 - [jobQueueService.ts](file://src/services/jobQueueService.ts)
 - [instanceService.ts](file://src/services/instanceService.ts)
 - [novitaApiService.ts](file://src/services/novitaApiService.ts)
+- [productService.ts](file://src/services/productService.ts) - *Added in commit 7839892bad3d5bf00dcba06ce76c91441270d92e*
+- [index.ts](file://src/index.ts) - *Updated with worker lifecycle management*
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Updated **Core Job Types** section to reflect multi-region product selection with fallback
+- Added **Registry Authentication Support** section for private image instances
+- Enhanced **Integration with InstanceService and NovitaApiService** with new workflow details
+- Updated **Configuration and Tuning** with new region fallback parameters
+- Added **Service Lifecycle Management** section for startup/shutdown integration
+- Modified **Architecture Overview** to include service initialization flow
 
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Job Execution Lifecycle](#job-execution-lifecycle)
 3. [Core Job Types](#core-job-types)
-4. [Integration with InstanceService and NovitaApiService](#integration-with-instanceservice-and-novitaapiservice)
-5. [Concurrency and Worker Management](#concurrency-and-worker-management)
-6. [Failure Recovery Mechanisms](#failure-recovery-mechanisms)
-7. [Monitoring and Logging](#monitoring-and-logging)
-8. [Configuration and Tuning](#configuration-and-tuning)
-9. [Graceful Shutdown Process](#graceful-shutdown-process)
-10. [Architecture Overview](#architecture-overview)
+4. [Registry Authentication Support](#registry-authentication-support)
+5. [Integration with InstanceService and NovitaApiService](#integration-with-instanceservice-and-novitaapiservice)
+6. [Concurrency and Worker Management](#concurrency-and-worker-management)
+7. [Failure Recovery Mechanisms](#failure-recovery-mechanisms)
+8. [Monitoring and Logging](#monitoring-and-logging)
+9. [Configuration and Tuning](#configuration-and-tuning)
+10. [Service Lifecycle Management](#service-lifecycle-management)
+11. [Graceful Shutdown Process](#graceful-shutdown-process)
+12. [Architecture Overview](#architecture-overview)
 
 ## Introduction
 
@@ -55,14 +68,13 @@ I --> J
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L26-L562)
 
 **Section sources**
-- [jobQueueService.ts](file://src/services/jobQueueService.ts#L234-L326)
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L26-L562)
 
 ## Core Job Types
 
 The JobWorkerService handles three primary job types, each serving a distinct purpose in the application's asynchronous processing workflow. These job types are registered with the JobQueueService during initialization and processed by dedicated handler functions.
 
-The CREATE_INSTANCE job type orchestrates the complete instance creation workflow, including product selection, template configuration, and initial instance provisioning. The MONITOR_INSTANCE job type performs periodic health checks on newly created instances, tracking their startup progress until they reach a ready state or fail. The SEND_WEBHOOK job type handles external notifications, delivering status updates to configured webhook endpoints.
+The CREATE_INSTANCE job type orchestrates the complete instance creation workflow, including product selection with multi-region fallback, template configuration, and initial instance provisioning. The MONITOR_INSTANCE job type performs periodic health checks on newly created instances, tracking their startup progress until they reach a ready state or fail. The SEND_WEBHOOK job type handles external notifications, delivering status updates to configured webhook endpoints.
 
 ```mermaid
 classDiagram
@@ -90,20 +102,53 @@ JobWorkerService --> JobType : "processes"
 **Section sources**
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L26-L562)
 
+## Registry Authentication Support
+
+The JobWorkerService now supports registry authentication for private Docker images through the imageAuth field in template configurations. When creating an instance with a template that requires authentication, the worker service automatically resolves the authentication credentials from the Novita.ai API and formats them for the instance creation request.
+
+During the instance creation workflow, if the template configuration contains an imageAuth identifier, the JobWorkerService calls the getRegistryAuth method of NovitaApiService to retrieve the username and password. These credentials are then formatted as "username:password" and included in the createInstance request. This enables secure deployment of instances using private container images from authenticated registries.
+
+```mermaid
+sequenceDiagram
+participant JW as JobWorkerService
+participant NS as NovitaApiService
+participant TA as Template
+JW->>TA : Get template configuration
+TA-->>JW : imageAuth ID present
+JW->>NS : getRegistryAuth(authId)
+NS-->>JW : {username, password}
+JW->>JW : Format as "username : password"
+JW->>NS : createInstance() with imageAuth
+```
+
+**Diagram sources**
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L150-L180)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L380-L410)
+- [api.ts](file://src/types/api.ts#L120-L128)
+
+**Section sources**
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L150-L180)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L380-L410)
+
 ## Integration with InstanceService and NovitaApiService
 
 The JobWorkerService integrates closely with both the InstanceService and NovitaApiService to monitor and manage remote instance states. During instance creation and monitoring workflows, the worker service coordinates between these services to ensure consistent state management and proper error handling.
 
 When creating a new instance, the JobWorkerService uses the InstanceService to maintain internal state tracking while leveraging the NovitaApiService to interact with the external API for actual instance provisioning. The monitoring workflow periodically queries the NovitaApiService for current instance status and updates the local state in InstanceService accordingly, enabling real-time status reporting through the application's API endpoints.
 
+The integration now includes multi-region product selection with fallback capabilities. When processing a CREATE_INSTANCE job, the worker service calls getOptimalProductWithFallback from ProductService, which attempts to find available products in the preferred region first, then falls back to alternative regions based on priority configuration.
+
 ```mermaid
 sequenceDiagram
 participant JW as JobWorkerService
 participant IS as InstanceService
 participant NS as NovitaApiService
+participant PS as ProductService
 JW->>IS : getInstanceState(instanceId)
 IS-->>JW : InstanceState
-JW->>NS : createInstance(request)
+JW->>PS : getOptimalProductWithFallback(productName, region)
+PS-->>JW : Optimal product with regionUsed
+JW->>NS : createInstance(request) with clusterId
 NS-->>JW : NovitaInstance
 JW->>IS : updateInstanceState(instanceId, novitaInstanceId)
 JW->>NS : startInstance(novitaInstanceId)
@@ -114,11 +159,13 @@ JW->>JW : Queue MONITOR_INSTANCE job
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L26-L562)
 - [instanceService.ts](file://src/services/instanceService.ts#L1-L517)
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L1-L482)
+- [productService.ts](file://src/services/productService.ts#L148-L235)
 
 **Section sources**
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L26-L562)
 - [instanceService.ts](file://src/services/instanceService.ts#L1-L517)
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L1-L482)
+- [productService.ts](file://src/services/productService.ts#L148-L235)
 
 ## Concurrency and Worker Management
 
@@ -221,9 +268,40 @@ The JobWorkerService utilizes configurable parameters for polling intervals, tim
 
 Configuration values are accessible through the getMonitoringConfig method, which returns the current settings for pollIntervalMs, maxWaitTimeMs, and maxRetryAttempts. This enables runtime inspection of configuration and supports dynamic adjustment based on operational requirements or environmental constraints.
 
+The service now supports region-based cluster mapping for multi-region deployments. When a product is selected in a specific region, the worker service maps the region to the appropriate clusterId for the Novita.ai API request (e.g., 'CN-HK-01' maps to 'cn-hongkong-1').
+
 **Section sources**
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L480-L498)
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L10-L24)
+
+## Service Lifecycle Management
+
+The JobWorkerService is now integrated into the server initialization and shutdown lifecycle through the main application entry point. During server startup, the job worker service is automatically started to begin processing background jobs. This integration ensures that background processing is available as soon as the API server is ready to accept requests.
+
+The service lifecycle is managed through the index.ts file, which calls jobWorkerService.start() during server initialization when not in test environment. This ensures that background workers are only activated in production and development environments, not during testing.
+
+```mermaid
+sequenceDiagram
+participant Server as "Server"
+participant JW as "JobWorkerService"
+participant App as "Express App"
+Server->>App : Initialize Express
+App->>JW : jobWorkerService.start()
+JW->>JW : Start processing loop
+App->>Server : Listen on port
+Server->>Server : SIGTERM received
+Server->>JW : jobWorkerService.shutdown(10000)
+JW->>JW : Wait for job completion
+JW-->>Server : Shutdown complete
+```
+
+**Diagram sources**
+- [index.ts](file://src/index.ts#L100-L120)
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L540-L562)
+
+**Section sources**
+- [index.ts](file://src/index.ts#L100-L120)
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L540-L562)
 
 ## Graceful Shutdown Process
 
@@ -263,6 +341,8 @@ The JobWorkerService forms a critical component of the application's asynchronou
 
 The service maintains loose coupling between job producers and consumers through well-defined job types and payload structures. This design enables extensibility and makes it easy to add new job types without modifying existing code. The integration with monitoring, logging, and error handling systems provides comprehensive observability and resilience.
 
+The updated architecture includes automatic service startup during server initialization and enhanced region-aware product selection with fallback capabilities.
+
 ```mermaid
 graph TB
 subgraph "API Layer"
@@ -281,6 +361,7 @@ subgraph "External Services"
 G[NovitaApiService]
 H[InstanceService]
 I[WebhookClient]
+J[ProductService]
 end
 A --> |Enqueue| B
 B --> C
@@ -289,17 +370,23 @@ E --> F
 F --> G
 F --> H
 F --> I
+F --> J
 G --> |Status Updates| H
 H --> |State Changes| F
 I --> |Notifications| External[External Systems]
+J --> |Region Fallback| G
 ```
 
 **Diagram sources**
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L26-L562)
 - [jobQueueService.ts](file://src/services/jobQueueService.ts#L1-L377)
 - [instanceService.ts](file://src/services/instanceService.ts#L1-L517)
+- [productService.ts](file://src/services/productService.ts#L148-L235)
+- [index.ts](file://src/index.ts#L100-L120)
 
 **Section sources**
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L26-L562)
 - [jobQueueService.ts](file://src/services/jobQueueService.ts#L1-L377)
 - [instanceService.ts](file://src/services/instanceService.ts#L1-L517)
+- [productService.ts](file://src/services/productService.ts#L148-L235)
+- [index.ts](file://src/index.ts#L100-L120)

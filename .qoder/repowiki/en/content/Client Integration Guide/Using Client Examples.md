@@ -6,12 +6,22 @@
 - [jobQueueExample.ts](file://src/examples/jobQueueExample.ts)
 - [productServiceExample.ts](file://src/examples/productServiceExample.ts)
 - [templateServiceExample.ts](file://src/examples/templateServiceExample.ts)
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts) - *Added in recent commit*
+- [regionFallbackExample.ts](file://src/examples/regionFallbackExample.ts) - *Added in recent commit*
 - [novitaClient.ts](file://src/clients/novitaClient.ts)
 - [productService.ts](file://src/services/productService.ts)
 - [templateService.ts](file://src/services/templateService.ts)
 - [jobQueueService.ts](file://src/services/jobQueueService.ts)
 - [README.md](file://client-examples/README.md)
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Added new section for Region Fallback Example to document the multi-region fallback feature
+- Added new section for Registry Authentication Example to document private image registry support
+- Updated Template Service Example section to reflect the environment variable field name change from 'name' to 'key'
+- Updated document sources to include the new regionFallbackExample.ts and registryAuthExample.ts files
+- Verified all existing examples remain accurate with current codebase
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -56,11 +66,6 @@ Service->>Service : sort by spot price
 Service-->>Demo : Optimal Product
 ```
 
-**Diagram sources**
-- [httpClientExample.ts](file://src/examples/httpClientExample.ts#L15-L85)
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L25-L120)
-- [novitaClient.ts](file://src/clients/novitaClient.ts#L300-L350)
-
 **Section sources**
 - [httpClientExample.ts](file://src/examples/httpClientExample.ts#L1-L130)
 
@@ -85,7 +90,7 @@ class JobQueueService {
 class JobWorkerService {
 +start()
 +shutdown(timeout)
--registerHandlers()
++registerHandlers()
 }
 class Job {
 +id : string
@@ -125,11 +130,6 @@ HIGH
 }
 ```
 
-**Diagram sources**
-- [jobQueueExample.ts](file://src/examples/jobQueueExample.ts#L15-L100)
-- [jobQueueService.ts](file://src/services/jobQueueService.ts#L15-L375)
-- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L10-L85)
-
 **Section sources**
 - [jobQueueExample.ts](file://src/examples/jobQueueExample.ts#L1-L102)
 
@@ -151,11 +151,6 @@ CacheResult --> ReturnResult["Return optimal product"]
 ReturnCached --> End([End])
 ReturnResult --> End
 ```
-
-**Diagram sources**
-- [productServiceExample.ts](file://src/examples/productServiceExample.ts#L15-L75)
-- [productService.ts](file://src/services/productService.ts#L15-L280)
-- [cacheService.ts](file://src/services/cacheService.ts#L10-L150)
 
 **Section sources**
 - [productServiceExample.ts](file://src/examples/productServiceExample.ts#L1-L75)
@@ -188,13 +183,57 @@ Service->>Service : getTemplate(templateId)
 Service-->>Demo : Preload Complete
 ```
 
-**Diagram sources**
-- [templateServiceExample.ts](file://src/examples/templateServiceExample.ts#L15-L148)
-- [templateService.ts](file://src/services/templateService.ts#L15-L288)
-- [cacheService.ts](file://src/services/cacheService.ts#L10-L150)
+**Updated** The template service now uses 'key' instead of 'name' for environment variable field names in the template configuration.
 
 **Section sources**
 - [templateServiceExample.ts](file://src/examples/templateServiceExample.ts#L1-L148)
+- [templateService.ts](file://src/services/templateService.ts#L172-L219) - *Updated in recent commit*
+
+### Region Fallback Example Analysis
+The `regionFallbackExample.ts` demonstrates the new multi-region fallback functionality for GPU product selection. This example shows how the system can automatically try different regions in priority order when searching for optimal products, with support for default configurations, preferred regions, and custom region priority lists.
+
+```mermaid
+flowchart TD
+Start([Start]) --> Default["Default Region Config"]
+Default --> TryRegions["Try regions in priority order"]
+subgraph Region Priority
+TryRegions --> SGP["AS-SGP-02 (Priority 1)"]
+TryRegions --> HK["CN-HK-01 (Priority 2)"]
+TryRegions --> IN["AS-IN-01 (Priority 3)"]
+end
+TryRegions --> Found{"Product Found?"}
+Found --> |Yes| Return["Return product and region used"]
+Found --> |No| Fail["All regions failed"]
+Preferred[Preferred Region] --> MoveToFront["Move preferred region to front"]
+MoveToFront --> TryRegions
+Custom[Custom Regions] --> DefineOrder["Define custom priority order"]
+DefineOrder --> TryRegions
+Return --> End([End])
+Fail --> End
+```
+
+**Section sources**
+- [regionFallbackExample.ts](file://src/examples/regionFallbackExample.ts#L1-L91)
+- [productService.ts](file://src/services/productService.ts#L150-L250)
+
+### Registry Authentication Example Analysis
+The `registryAuthExample.ts` demonstrates the new registry authentication functionality that supports private Docker images. This example shows how the system handles Docker registry authentication when creating instances with private images, including credential management and secure handling.
+
+```mermaid
+flowchart TD
+Start([Start]) --> Template["Template with imageAuth ID"]
+Template --> Fetch["Fetch registry credentials"]
+Fetch --> System["System calls /v1/repository/auths"]
+System --> Match["Find credentials by auth ID"]
+Match --> Extract["Extract username/password"]
+Extract --> Format["Format as username:password"]
+Format --> Request["Include in instance creation"]
+Request --> Instance["Private image instance created"]
+```
+
+**Section sources**
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts#L1-L97)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L150-L200)
 
 ## Extending Examples with Advanced Features
 

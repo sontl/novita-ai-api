@@ -10,6 +10,7 @@
 - [validation.ts](file://src/types/validation.ts)
 - [errorHandler.ts](file://src/middleware/errorHandler.ts)
 - [instanceService.ts](file://src/services/instanceService.ts)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts) - *Updated in recent commits*
 </cite>
 
 ## Table of Contents
@@ -242,6 +243,141 @@ curl -X GET https://api.novitai.com/api/instances \
 **Section sources**
 - [instances.ts](file://src/routes/instances.ts#L90-L132)
 - [api.ts](file://src/types/api.ts#L57-L65)
+
+### POST /api/instances/:instanceId/start
+Starts an existing stopped instance.
+
+**HTTP Method**: POST  
+**URL Pattern**: `/api/instances/{instanceId}/start`  
+**Authentication Required**: Yes
+
+#### Request Body
+```json
+{
+  "instanceId": "string"
+}
+```
+
+#### Response Schema
+Returns a 200 OK status with the following JSON response:
+
+```json
+{
+  "id": "string",
+  "status": "starting",
+  "message": "Instance start initiated successfully"
+}
+```
+
+#### Example Request
+```bash
+curl -X POST https://api.novitai.com/api/instances/inst_1697843200_abc123/start \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"instanceId": "inst_1697843200_abc123"}'
+```
+
+#### Example Response
+```json
+{
+  "id": "inst_1697843200_abc123",
+  "status": "starting",
+  "message": "Instance start initiated successfully"
+}
+```
+
+**Section sources**
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L250-L280) - *Updated in commit eb20e150f556a2dbbd7b947ea379df561f4a9b53*
+
+### POST /api/instances/:instanceId/stop
+Stops a running instance.
+
+**HTTP Method**: POST  
+**URL Pattern**: `/api/instances/{instanceId}/stop`  
+**Authentication Required**: Yes
+
+#### Request Body
+```json
+{
+  "instanceId": "string"
+}
+```
+
+#### Response Schema
+Returns a 200 OK status with the following JSON response:
+
+```json
+{
+  "id": "string",
+  "status": "stopping",
+  "message": "Instance stop initiated successfully"
+}
+```
+
+#### Example Request
+```bash
+curl -X POST https://api.novitai.com/api/instances/inst_1697843200_abc123/stop \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"instanceId": "inst_1697843200_abc123"}'
+```
+
+#### Example Response
+```json
+{
+  "id": "inst_1697843200_abc123",
+  "status": "stopping",
+  "message": "Instance stop initiated successfully"
+}
+```
+
+**Section sources**
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L380-L410) - *Updated in commit eb20e150f556a2dbbd7b947ea379df561f4a9b53*
+
+### POST /api/instances/:instanceId/delete
+Deletes/terminates an instance.
+
+**HTTP Method**: POST  
+**URL Pattern**: `/api/instances/{instanceId}/delete`  
+**Authentication Required**: Yes
+
+#### Request Body
+```json
+{
+  "instanceId": "string"
+}
+```
+
+#### Response Schema
+Returns a 200 OK status with the following JSON response:
+
+```json
+{
+  "id": "string",
+  "status": "terminated",
+  "message": "Instance deletion initiated successfully"
+}
+```
+
+#### Example Request
+```bash
+curl -X POST https://api.novitai.com/api/instances/inst_1697843200_abc123/delete \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"instanceId": "inst_1697843200_abc123"}'
+```
+
+#### Example Response
+```json
+{
+  "id": "inst_1697843200_abc123",
+  "status": "terminated",
+  "message": "Instance deletion initiated successfully"
+}
+```
+
+**Section sources**
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L415-L445) - *Updated in commit eb20e150f556a2dbbd7b947ea379df561f4a9b53*
 
 ## Health
 The Health API provides endpoints for system monitoring and container health checks.

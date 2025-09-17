@@ -2,12 +2,21 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [instances.ts](file://src/routes/instances.ts)
-- [api.ts](file://src/types/api.ts)
-- [validation.ts](file://src/types/validation.ts)
-- [errorHandler.ts](file://src/middleware/errorHandler.ts)
-- [webhookClient.ts](file://src/clients/webhookClient.ts)
+- [instances.ts](file://src/routes/instances.ts) - *Updated in commit 7b2515dbb109d7f8f77fbff4467ab022f92e2aa6*
+- [api.ts](file://src/types/api.ts) - *Updated in commit 7b2515dbb109d7f8f77fbff4467ab022f92e2aa6*
+- [novitaApiService.ts](file://src/services/novitaApiService.ts) - *Updated in commits 7b2515dbb109d7f8f77fbff4467ab022f92e2aa6, 10a1ebde6b8beca610c60eb4aea30a1fdf86a39a, eb20e150f556a2dbbd7b947ea379df561f4a9b53*
+- [validation.ts](file://src/types/validation.ts) - *Updated in commit 7b2515dbb109d7f8f77fbff4467ab022f92e2aa6*
+- [errorHandler.ts](file://src/middleware/errorHandler.ts) - *Updated in recent commits*
+- [webhookClient.ts](file://src/clients/webhookClient.ts) - *Updated in recent commits*
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Updated API endpoint paths and request formats based on code changes
+- Corrected instance retrieval endpoint to use query parameter format
+- Updated instance creation endpoint path and response format
+- Added missing status values in CreateInstanceResponse schema
+- Updated source references to reflect actual file changes
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -66,7 +75,7 @@ The request body must be a JSON object with the following properties:
 |-------|------|----------|---------|-------------|
 | name | string | Yes | - | Instance name (1-100 chars, alphanumeric, hyphens, underscores only) |
 | productName | string | Yes | - | Product name specifying GPU type and configuration |
-| templateId | string | Yes | - | Template ID for the instance configuration |
+| templateId | string or number | Yes | - | Template ID for the instance configuration (supports both string and numeric IDs) |
 | gpuNum | number | No | 1 | Number of GPUs (1-8) |
 | rootfsSize | number | No | 60 | Root filesystem size in GB (20-1000) |
 | region | string | No | CN-HK-01 | Region for instance deployment |
@@ -87,7 +96,8 @@ Returns a CreateInstanceResponse object with the following schema:
 **Section sources**
 - [instances.ts](file://src/routes/instances.ts#L1-L132)
 - [validation.ts](file://src/types/validation.ts#L1-L224)
-- [api.ts](file://src/types/api.ts#L1-L308)
+- [api.ts](file://src/types/api.ts#L9-L24)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L300-L350)
 
 ## GET /api/instances/:instanceId
 Retrieves detailed information about a specific instance by its ID.
@@ -114,7 +124,8 @@ Returns an InstanceDetails object with complete instance information:
   ],
   "connectionDetails": {
     "ssh": "string",
-    "jupyter": "string"
+    "jupyter": "string",
+    "webTerminal": "string"
   },
   "createdAt": "string (ISO 8601)",
   "readyAt": "string (ISO 8601)"
@@ -122,7 +133,7 @@ Returns an InstanceDetails object with complete instance information:
 ```
 
 ### Polling Pattern for Instance Readiness
-Clients should implement a polling mechanism to track instance status from 'creating' to 'running':
+Clients should implement a polling mechanism to track instance status from 'creating' to 'running' status:
 
 1. Immediately after instance creation, status is 'creating'
 2. Poll GET /api/instances/:instanceId every 5-10 seconds
@@ -134,7 +145,8 @@ The estimatedReadyTime field in the creation response provides guidance on when 
 
 **Section sources**
 - [instances.ts](file://src/routes/instances.ts#L1-L132)
-- [api.ts](file://src/types/api.ts#L1-L308)
+- [api.ts](file://src/types/api.ts#L26-L44)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L400-L450)
 
 ## GET /api/instances
 Lists all managed instances with basic information.
@@ -168,7 +180,7 @@ Instances are sorted by creation time (newest first). The total field indicates 
 
 **Section sources**
 - [instances.ts](file://src/routes/instances.ts#L1-L132)
-- [api.ts](file://src/types/api.ts#L1-L308)
+- [api.ts](file://src/types/api.ts#L46-L51)
 
 ## Webhook Integration
 The API supports webhook notifications for instance lifecycle events. When an instance becomes ready, a webhook can be sent to the specified URL.

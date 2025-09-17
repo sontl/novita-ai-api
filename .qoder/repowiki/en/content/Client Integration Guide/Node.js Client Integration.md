@@ -7,7 +7,19 @@
 - [novitaClient.ts](file://src/clients/novitaClient.ts)
 - [webhookClient.ts](file://src/clients/webhookClient.ts)
 - [config.ts](file://src/config/config.ts)
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts) - *Added in recent commit 90d221d8*
+- [templateServiceExample.ts](file://src/examples/templateServiceExample.ts) - *Updated in recent commit eb20e150*
+- [novitaApiService.ts](file://src/services/novitaApiService.ts) - *Updated in recent commit eb20e150*
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Updated API usage examples to reflect POST-based instance creation with payload
+- Added new section on registry authentication for private Docker images
+- Updated configuration and environment variable references
+- Added code examples and workflow explanation for registry authentication
+- Enhanced error handling documentation with new error types
+- Updated file references and source tracking annotations
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -241,6 +253,80 @@ number security_rateLimitMaxRequests
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L1-L385)
 - [webhookClient.ts](file://src/clients/webhookClient.ts#L1-L243)
 
+### Registry Authentication Implementation
+The system now supports registry authentication for private Docker images, allowing secure access to private container repositories during instance creation.
+
+#### Registry Authentication Workflow
+```mermaid
+sequenceDiagram
+participant Template as "Template"
+participant Service as "NovitaApiService"
+participant API as "Novitai API"
+participant Request as "Instance Creation Request"
+Template->>Service : template.imageAuth = "registry_auth_123"
+Service->>API : GET /v1/repository/auths
+API-->>Service : { data : [{ id : "registry_auth_123", username : "user", password : "pass" }] }
+Service->>Service : Find auth by ID
+Service->>Request : imageAuth = "username : password"
+Request->>API : POST /v1/gpu/instance/create with imageAuth
+```
+
+**Section sources**
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts#L1-L97)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L222)
+- [templateService.ts](file://src/services/templateService.ts#L1-L288)
+
+#### Private Image Instance Creation
+When creating instances with private Docker images, the system automatically resolves registry credentials through the following process:
+
+1. **Template Configuration**: Templates specify a registry authentication ID instead of storing credentials directly:
+```typescript
+const template = {
+  id: 'private-pytorch',
+  imageUrl: 'registry.company.com/ai/pytorch:latest',
+  imageAuth: 'registry_auth_123' // Reference to stored credentials
+};
+```
+
+2. **Credential Resolution**: The `NovitaApiService` fetches and matches credentials by ID:
+```typescript
+async getRegistryAuth(authId: string): Promise<{ username: string; password: string }> {
+  const response = await novitaClient.get<RegistryAuthsResponse>('/v1/repository/auths');
+  const authEntry = response.data.data.find(auth => auth.id === authId);
+  
+  if (!authEntry) {
+    throw new NovitaApiClientError(`Registry authentication not found for ID: ${authId}`, 404);
+  }
+  
+  return {
+    username: authEntry.username,
+    password: authEntry.password
+  };
+}
+```
+
+3. **Instance Creation**: The resolved credentials are formatted and included in the creation request:
+```typescript
+const createInstanceRequest = {
+  name: 'private-instance',
+  productId: 'rtx4090-hk',
+  imageUrl: 'registry.company.com/ai/pytorch:latest',
+  imageAuth: 'username:password', // Formatted from fetched credentials
+  // ... other parameters
+};
+```
+
+This approach provides secure credential management by:
+- Storing credentials centrally in the Novitai system
+- Referencing them by ID in templates
+- Automatically resolving and formatting them during instance creation
+- Never exposing raw credentials in template configurations
+
+**Section sources**
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts#L1-L97)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L275)
+- [templateService.ts](file://src/services/templateService.ts#L1-L288)
+
 ## Dependency Analysis
 The Node.js client has minimal external dependencies, relying primarily on Axios for HTTP communication and standard libraries for cryptographic operations. The internal dependency graph shows a clean separation between components.
 
@@ -300,6 +386,7 @@ Common issues and their solutions when integrating with the Novitai API.
 - **429 Rate Limit**: Implement client-side rate limiting or request quota increase
 - **401 Unauthorized**: Verify API key is correctly configured
 - **Circuit Breaker Open**: Wait for recovery period or check upstream service health
+- **REGISTRY_AUTH_NOT_FOUND**: Verify registry authentication ID exists in Novitai system
 
 ### Debugging Strategies
 1. Enable debug logging to trace request/response cycles

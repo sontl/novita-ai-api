@@ -2,9 +2,9 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [instanceService.ts](file://src/services/instanceService.ts)
+- [instanceService.ts](file://src/services/instanceService.ts) - *Updated in recent commit*
 - [cacheService.ts](file://src/services/cacheService.ts)
-- [novitaApiService.ts](file://src/services/novitaApiService.ts)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts) - *Updated in recent commit*
 - [job.ts](file://src/types/job.ts)
 </cite>
 
@@ -41,11 +41,9 @@ E --> |No| J[Map internal state]
 J --> H
 ```
 
-**Diagram sources**
-- [instanceService.ts](file://src/services/instanceService.ts#L20-L517)
-
 **Section sources**
 - [instanceService.ts](file://src/services/instanceService.ts#L20-L517)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L300-L320)
 
 ## Caching Strategy and TTL Management
 
@@ -111,12 +109,9 @@ InstanceService->>Cache : set(instanceId, details)
 InstanceService-->>Client : InstanceDetails (from cache)
 ```
 
-**Diagram sources**
-- [instanceService.ts](file://src/services/instanceService.ts#L20-L517)
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L0-L482)
-
 **Section sources**
 - [instanceService.ts](file://src/services/instanceService.ts#L20-L517)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L300-L320)
 
 ## Active Polling with MonitorInstanceJobPayload
 
@@ -145,10 +140,6 @@ I --> J[Send webhook if configured]
 J --> K[Complete job]
 ```
 
-**Diagram sources**
-- [job.ts](file://src/types/job.ts#L50-L56)
-- [instanceService.ts](file://src/services/instanceService.ts#L20-L517)
-
 **Section sources**
 - [job.ts](file://src/types/job.ts#L50-L56)
 - [instanceService.ts](file://src/services/instanceService.ts#L20-L517)
@@ -173,9 +164,6 @@ only once on first
 transition to RUNNING
 end note
 ```
-
-**Diagram sources**
-- [instanceService.ts](file://src/services/instanceService.ts#L20-L517)
 
 **Section sources**
 - [instanceService.ts](file://src/services/instanceService.ts#L20-L517)
@@ -222,12 +210,9 @@ INSTANCE_DETAILS_CACHE ||--o{ INSTANCE_STATES : "maps to"
 INSTANCE_STATES_CACHE ||--o{ INSTANCE_STATES : "stores"
 ```
 
-**Diagram sources**
-- [instanceService.ts](file://src/services/instanceService.ts#L20-L517)
-- [cacheService.ts](file://src/services/cacheService.ts#L0-L490)
-
 **Section sources**
 - [instanceService.ts](file://src/services/instanceService.ts#L20-L517)
+- [cacheService.ts](file://src/services/cacheService.ts#L0-L490)
 
 ## Performance Considerations
 
@@ -244,4 +229,4 @@ The system's design prioritizes cache utilization to minimize external API calls
 **Section sources**
 - [instanceService.ts](file://src/services/instanceService.ts#L20-L517)
 - [cacheService.ts](file://src/services/cacheService.ts#L0-L490)
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L0-L482)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L300-L320)

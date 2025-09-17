@@ -2,12 +2,23 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [config.ts](file://src/config/config.ts)
+- [config.ts](file://src/config/config.ts) - *Updated in recent commit*
 - [docker-compose.yml](file://docker-compose.yml)
 - [docker-compose.override.yml](file://docker-compose.override.yml)
 - [docker-compose.prod.yml](file://docker-compose.prod.yml)
 - [README.md](file://src/config/README.md)
+- [templateService.ts](file://src/services/templateService.ts) - *Updated in commit e324432*
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts) - *Added in commit 90d221d*
+- [templateServiceExample.ts](file://src/examples/templateServiceExample.ts) - *Updated in commit e324432*
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Updated environment variable naming convention from 'name' to 'key' in template service examples and validation
+- Added new section on registry authentication configuration and workflow
+- Updated code examples to reflect the new 'key' property for environment variables
+- Added documentation for new registry authentication feature
+- Updated section sources to reflect modified and new files
 
 ## Table of Contents
 1. [Configuration System Overview](#configuration-system-overview)
@@ -19,6 +30,7 @@
 7. [Startup Validation and Failure Modes](#startup-validation-and-failure-modes)
 8. [Extending the Configuration System](#extending-the-configuration-system)
 9. [Troubleshooting Common Configuration Issues](#troubleshooting-common-configuration-issues)
+10. [Registry Authentication Configuration](#registry-authentication-configuration)
 
 ## Configuration System Overview
 
@@ -335,3 +347,91 @@ The configuration system's comprehensive error messages and validation feedback 
 **Section sources**
 - [config.ts](file://src/config/config.ts#L302-L354)
 - [README.md](file://src/config/README.md#L0-L349)
+
+## Registry Authentication Configuration
+
+The Novitai application now supports registry authentication for private Docker images through a secure credential management system. This feature allows users to create instances from private repositories without exposing credentials in templates or configuration files.
+
+### Configuration Workflow
+
+The registry authentication system follows a four-step workflow:
+
+1. **Template Configuration**: Templates specify a registry authentication ID in the `imageAuth` field instead of storing credentials directly.
+2. **Credential Resolution**: The system fetches all available registry credentials from the Novita.ai API endpoint `/v1/repository/auths`.
+3. **Authentication Mapping**: The system matches the template's `imageAuth` ID with the corresponding credentials from the API response.
+4. **Instance Creation**: The resolved credentials are formatted as `username:password` and included in the instance creation request.
+
+### Environment Variable Configuration
+
+No additional environment variables are required for registry authentication, as credentials are managed through the Novita.ai API. However, the following configuration parameters affect the authentication process:
+
+- `NOVITA_API_KEY`: Required for accessing the registry authentication API
+- `REQUEST_TIMEOUT`: Controls the timeout for fetching registry credentials (default: 30000ms)
+- `LOG_LEVEL`: Set to `debug` to see detailed authentication workflow logs
+
+### Code Implementation
+
+The `TemplateService` validates that environment variables use the `key` property instead of `name`:
+
+```typescript
+if (!env.key || typeof env.key !== 'string' || env.key.trim() === '') {
+  throw new NovitaApiClientError(
+    `Template env at index ${index} has invalid name`,
+    500,
+    'INVALID_TEMPLATE_ENV_NAME'
+  );
+}
+```
+
+The `NovitaApiService` handles credential fetching:
+
+```typescript
+async getRegistryAuth(authId: string): Promise<{ username: string; password: string }> {
+  const response = await novitaClient.get<RegistryAuthsResponse>('/v1/repository/auths');
+  
+  const authEntry = response.data.data.find(auth => auth.id === authId);
+  
+  if (!authEntry) {
+    throw new NovitaApiClientError(
+      `Registry authentication not found for ID: ${authId}`,
+      404,
+      'REGISTRY_AUTH_NOT_FOUND'
+    );
+  }
+  
+  return {
+    username: authEntry.username,
+    password: authEntry.password
+  };
+}
+```
+
+### Security Considerations
+
+- Credentials are never stored in templates or configuration files
+- Authentication IDs are used as references to securely stored credentials
+- Passwords are masked in all logs and outputs
+- The system uses HTTPS for all credential-related API calls
+- Failed authentication attempts are logged without revealing credential details
+
+### Example Usage
+
+```typescript
+// Template with registry authentication
+const templateWithAuth = {
+  id: 'custom-template',
+  name: 'Private PyTorch Environment',
+  imageUrl: 'registry.company.com/ai/pytorch:latest',
+  imageAuth: 'registry_auth_123', // References stored credentials
+  envs: [
+    { key: 'JUPYTER_TOKEN', value: 'secure_token' } // Using 'key' instead of 'name'
+  ]
+};
+```
+
+**Section sources**
+- [templateService.ts](file://src/services/templateService.ts#L183-L188)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L222)
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts#L0-L97)
+- [templateServiceExample.ts](file://src/examples/templateServiceExample.ts#L34)
+- [api.ts](file://src/types/api.ts#L267-L344)

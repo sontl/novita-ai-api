@@ -2,13 +2,27 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [instanceService.ts](file://src/services/instanceService.ts)
+- [instanceService.ts](file://src/services/instanceService.ts) - *Updated in recent commit*
 - [jobQueueService.ts](file://src/services/jobQueueService.ts)
-- [novitaApiService.ts](file://src/services/novitaApiService.ts)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts) - *Updated in recent commit*
 - [novitaClient.ts](file://src/clients/novitaClient.ts)
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts) - *Updated in recent commit*
 - [templateService.ts](file://src/services/templateService.ts)
+- [productService.ts](file://src/services/productService.ts) - *Added in recent commit*
 - [config.ts](file://src/config/config.ts)
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Updated API endpoint references from generic paths to specific `/v1/gpu/instance` routes
+- Added documentation for registry authentication support in private image instances
+- Revised instance creation workflow to reflect POST-based control operations
+- Updated sequence diagram to reflect new job processing flow with registry authentication
+- Added new section on registry authentication handling
+- Updated error handling and retry logic descriptions to reflect current implementation
+- Added comprehensive documentation for multi-region fallback capability in product selection
+- Updated end-to-end workflow diagram to include region fallback logic
+- Enhanced failure recovery section with multi-region fallback details
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -18,9 +32,11 @@
 5. [NovitaApiService and NovitaClient Integration](#novitaapiservice-and-novitaclient-integration)
 6. [Instance Status Polling and Readiness Detection](#instance-status-polling-and-readiness-detection)
 7. [Template-Based Configuration System](#template-based-configuration-system)
-8. [Failure Recovery and Retry Mechanisms](#failure-recovery-and-retry-mechanisms)
-9. [Performance Considerations](#performance-considerations)
-10. [Client Implementation Best Practices](#client-implementation-best-practices)
+8. [Registry Authentication for Private Images](#registry-authentication-for-private-images)
+9. [Multi-Region Fallback for Product Selection](#multi-region-fallback-for-product-selection)
+10. [Failure Recovery and Retry Mechanisms](#failure-recovery-and-retry-mechanisms)
+11. [Performance Considerations](#performance-considerations)
+12. [Client Implementation Best Practices](#client-implementation-best-practices)
 
 ## Introduction
 The Instance Management System provides a comprehensive solution for GPU instance lifecycle management, from API request to fully provisioned instance. This document details the end-to-end workflow, component interactions, and architectural patterns that enable reliable instance provisioning through the Novita.ai platform. The system is designed with scalability, fault tolerance, and operational observability in mind, implementing asynchronous processing, circuit breaker patterns, and comprehensive retry mechanisms to ensure reliable operation in distributed environments.
@@ -42,10 +58,10 @@ Client->>API : POST /api/instances<br/>{name, productName, templateId}
 API->>InstanceService : createInstance(request)
 activate InstanceService
 InstanceService->>InstanceService : Validate request parameters
-InstanceService->>productService : getOptimalProduct(productName, region)
+InstanceService->>productService : getOptimalProductWithFallback(productName, region)
 InstanceService->>templateService : getTemplateConfiguration(templateId)
 parallel
-productService-->>InstanceService : Optimal product configuration
+productService-->>InstanceService : Optimal product configuration with region fallback
 templateService-->>InstanceService : Template configuration
 end
 InstanceService->>InstanceService : Create instance state
@@ -57,6 +73,9 @@ API-->>Client : 201 Created<br/>{instanceId, estimatedReadyTime}
 loop Job Processing
 JobQueue->>JobWorker : Process CREATE_INSTANCE job
 activate JobWorker
+JobWorker->>productService : getOptimalProductWithFallback(productName, region)
+JobWorker->>templateService : getTemplateConfiguration(templateId)
+JobWorker->>novitaApiService : getRegistryAuth(templateConfig.imageAuth)
 JobWorker->>NovitaAPI : createInstance(request)
 activate NovitaAPI
 NovitaAPI-->>JobWorker : Instance creation response
@@ -84,11 +103,14 @@ end
 - [instanceService.ts](file://src/services/instanceService.ts#L37-L119)
 - [jobQueueService.ts](file://src/services/jobQueueService.ts#L21-L374)
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L18-L474)
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L45-L250)
+- [productService.ts](file://src/services/productService.ts#L148-L235)
 
 **Section sources**
 - [instanceService.ts](file://src/services/instanceService.ts#L37-L119)
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L18-L474)
-- [jobQueueService.ts](file://src/services/jobQueueService.ts#L21-L374)
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L45-L250)
+- [productService.ts](file://src/services/productService.ts#L148-L235)
 
 ## InstanceService: Core Coordination Layer
 The InstanceService serves as the central coordination component for GPU instance lifecycle management, orchestrating creation, monitoring, and termination operations. This service maintains the authoritative state for all managed instances through an in-memory state store and provides a clean API interface for instance operations. When creating a new instance, InstanceService validates the request, determines optimal product configuration based on pricing and availability, retrieves template settings, and initiates the provisioning workflow through the job queue system.
@@ -243,12 +265,60 @@ The template system supports optional image authentication, allowing private con
 **Section sources**
 - [templateService.ts](file://src/services/templateService.ts#L35-L84)
 
+## Registry Authentication for Private Images
+The system now supports registry authentication for private container images through enhanced integration between jobWorkerService and novitaApiService. When a template configuration specifies an imageAuth field, the instance creation workflow automatically retrieves the corresponding registry credentials from the Novita.ai API before provisioning. This feature enables secure deployment of proprietary machine learning models and specialized environments that require private image repositories.
+
+The authentication process is handled transparently during instance creation. When jobWorkerService processes a CREATE_INSTANCE job, it checks the template configuration for the imageAuth property. If present, it calls novitaApiService.getRegistryAuth() to retrieve the username and password credentials, which are then included in the instance creation request to Novita.ai API. The credentials are handled securely and never stored in the instance state beyond the provisioning process.
+
+This enhancement maintains the system's security posture by keeping authentication credentials out of client requests and configuration files. Instead, clients reference predefined authentication configurations by ID, while the backend securely manages the credential retrieval and injection process. The implementation includes comprehensive error handling for cases where authentication configurations are invalid or inaccessible, ensuring clear error reporting without exposing sensitive information.
+
+**Section sources**
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L150-L180)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L187-L231)
+
+## Multi-Region Fallback for Product Selection
+The system now implements multi-region fallback for GPU product selection through the getOptimalProductWithFallback method in productService. This enhancement allows the system to automatically try alternative regions when the preferred region is unavailable or lacks suitable products, improving provisioning reliability and success rates. The fallback mechanism uses a priority-based region configuration, attempting regions in order of priority until an available product is found.
+
+The region fallback process begins with the preferred region specified in the request, then proceeds through a predefined list of regions sorted by priority. For each region, the system attempts to find the optimal (lowest spot price) available product. If no suitable product is found in the current region, the system logs the failure and proceeds to the next region in the priority list. This continues until either a suitable product is found or all regions have been exhausted.
+
+The default region configuration includes three regions with priority levels: AS-SGP-02 (priority 1), CN-HK-01 (priority 2), and AS-IN-01 (priority 3). This configuration can be overridden by passing a custom regions array to the getOptimalProductWithFallback method. The system logs detailed information about each region attempt, including the reason for failure, which aids in troubleshooting and monitoring.
+
+```mermaid
+flowchart TD
+Start([Start Product Selection]) --> CheckPreferred["Check Preferred Region"]
+CheckPreferred --> |Region Specified| TryPreferred["Try Preferred Region First"]
+CheckPreferred --> |No Region| UseDefault["Use Default Priority Order"]
+TryPreferred --> Attempt["Attempt Product Selection"]
+Attempt --> Success{"Success?"}
+Success --> |Yes| ReturnProduct["Return Product & Region"]
+Success --> |No| LogFailure["Log Region Failure"]
+LogFailure --> NextRegion["Move to Next Priority Region"]
+NextRegion --> CheckRemaining["Any Regions Remaining?"]
+CheckRemaining --> |Yes| Attempt
+CheckRemaining --> |No| AllFailed["All Regions Failed"]
+AllFailed --> ThrowError["Throw NO_OPTIMAL_PRODUCT_ANY_REGION Error"]
+UseDefault --> Attempt
+style Start fill:#4CAF50,stroke:#388E3C
+style ReturnProduct fill:#4CAF50,stroke:#388E3C
+style ThrowError fill:#F44336,stroke:#D32F2F
+```
+
+**Diagram sources**
+- [productService.ts](file://src/services/productService.ts#L148-L235)
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L85-L105)
+
+**Section sources**
+- [productService.ts](file://src/services/productService.ts#L148-L235)
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L85-L105)
+
 ## Failure Recovery and Retry Mechanisms
 The system implements comprehensive failure recovery mechanisms and retry logic to handle transient API errors and ensure reliable instance provisioning. At the HTTP client level, NovitaClient automatically retries requests that fail due to network issues, timeouts, or 5xx server errors, using exponential backoff with a base delay of 1 second that doubles with each attempt up to a maximum of 30 seconds. This approach prevents overwhelming the API during periods of instability while maximizing the likelihood of eventual success.
 
 JobQueueService provides an additional layer of retry capability for background operations, allowing jobs to be retried up to MAX_RETRY_ATTEMPTS times (configurable, default: 3) before being marked as permanently failed. The job system uses exponential backoff with a base delay of 100ms for faster recovery testing, ensuring that transient issues are handled gracefully without excessive delay. Failed jobs are rescheduled with increasing delays between attempts, preventing thundering herd problems when the API recovers.
 
 The circuit breaker pattern implemented in NovitaClient provides protection against cascading failures during extended API outages. When the failure threshold is exceeded, the circuit breaker opens, immediately failing subsequent requests without contacting the API. This fast-fail behavior reduces load on both the client and server during outages and allows client applications to implement appropriate fallback strategies. After a configurable recovery timeout (default: 1 minute), the circuit transitions to HALF_OPEN state, allowing a limited number of test requests to determine if the API has recovered.
+
+The multi-region fallback capability in productService provides an additional layer of failure recovery for product selection. When the preferred region is unavailable, the system automatically attempts alternative regions according to priority, increasing the likelihood of successful provisioning. This regional redundancy ensures that temporary regional outages or product unavailability do not result in provisioning failures.
 
 ```mermaid
 flowchart TD
@@ -278,10 +348,12 @@ style ReopenCircuit fill:#FF9800,stroke:#F57C00
 **Diagram sources**
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L51-L99)
 - [config.ts](file://src/config/config.ts#L195-L243)
+- [productService.ts](file://src/services/productService.ts#L148-L235)
 
 **Section sources**
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L51-L99)
 - [jobQueueService.ts](file://src/services/jobQueueService.ts#L21-L374)
+- [productService.ts](file://src/services/productService.ts#L148-L235)
 
 ## Performance Considerations
 The system incorporates several performance optimizations and configurable parameters to balance responsiveness, resource utilization, and API efficiency. Polling intervals, timeout settings, and cache configurations are all controlled through environment variables, allowing operators to tune the system for their specific requirements and constraints. The default polling interval of 30 seconds provides a reasonable balance between timely status updates and API request volume, while the 4-minute estimated ready time accounts for typical provisioning durations.

@@ -7,10 +7,22 @@
 - [novita_client.py](file://client-examples/python/novita_client.py)
 - [monitoring.py](file://client-examples/python/monitoring.py)
 - [novitaClient.ts](file://src/clients/novitaClient.ts)
+- [webhookClient.ts](file://src/clients/webhookClient.ts)
 - [novitaApiService.ts](file://src/services/novitaApiService.ts)
+- [productService.ts](file://src/services/productService.ts)
 - [httpClientExample.ts](file://src/examples/httpClientExample.ts)
-- [config.ts](file://src/config/config.ts)
+- [regionFallbackExample.ts](file://src/examples/regionFallbackExample.ts) - *Updated in commit 7839892*
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts) - *Added in commit 90d221d*
+- [templateServiceExample.ts](file://src/examples/templateServiceExample.ts) - *Updated in commit e324432*
 </cite>
+
+## Update Summary
+- Added new section on **Multi-Region Fallback** with implementation details and code examples
+- Added new section on **Registry Authentication** for private Docker images
+- Updated **Template Service** section to reflect environment variable key change from 'name' to 'key'
+- Updated **Instance Management** section to include region fallback functionality
+- Added new Mermaid diagrams for region fallback and registry authentication workflows
+- Updated section sources to reflect new and modified files
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -22,6 +34,8 @@
 7. [Performance Optimization](#performance-optimization)
 8. [Security Considerations](#security-considerations)
 9. [Production Implementation Guidance](#production-implementation-guidance)
+10. [Multi-Region Fallback](#multi-region-fallback)
+11. [Registry Authentication](#registry-authentication)
 
 ## Introduction
 This guide provides comprehensive instructions for integrating client applications with the Novitai API. It covers implementation patterns for both Node.js and Python clients, based on the examples provided in the client-examples directory. The documentation details recommended libraries, authentication methods, and best practices for building robust, production-ready integrations that handle various operational scenarios including network failures, service interruptions, and security requirements.
@@ -117,7 +131,7 @@ Complete --> End([Success])
 Fail --> End
 ```
 
-**Diagram sources **
+**Diagram sources**
 - [create-instance.js](file://client-examples/nodejs/create-instance.js)
 - [monitoring.py](file://client-examples/python/monitoring.py)
 - [novitaApiService.ts](file://src/services/novitaApiService.ts)
@@ -153,7 +167,7 @@ Application->>Application : Update state
 Application->>Application : Trigger actions
 ```
 
-**Diagram sources **
+**Diagram sources**
 - [webhook-handler.js](file://client-examples/nodejs/webhook-handler.js)
 - [novitaClient.ts](file://src/clients/novitaClient.ts)
 
@@ -252,3 +266,125 @@ Maintain up-to-date documentation for your integration implementation. Regularly
 - [README.md](file://client-examples/README.md)
 - [create-instance.js](file://client-examples/nodejs/create-instance.js)
 - [novita_client.py](file://client-examples/python/novita_client.py)
+
+## Multi-Region Fallback
+
+The Novitai API supports multi-region fallback functionality to improve availability and reliability when creating GPU instances. This feature automatically tries multiple regions in priority order when creating instances, ensuring better success rates even when specific regions have limited availability.
+
+### Default Region Configuration
+The system has a default region configuration with priority ordering:
+- **AS-SGP-02** (priority 1)
+- **CN-HK-01** (priority 2)
+- **AS-IN-01** (priority 3)
+
+When creating an instance, the system will try these regions in order until an available product is found.
+
+### Preferred Region Override
+You can specify a preferred region that will be tried first, regardless of its default priority:
+
+```typescript
+const { product, regionUsed } = await productService.getOptimalProductWithFallback(
+  'RTX 4090 24GB', 
+  'AS-SGP-02'  // Preferred region
+);
+```
+
+### Custom Region Priority
+For advanced use cases, you can define a custom region configuration with your own priority order:
+
+```typescript
+const customRegions: RegionConfig[] = [
+  { id: 'as-in-1', name: 'AS-IN-01', priority: 1 },      // Try India first
+  { id: 'cn-hongkong-1', name: 'CN-HK-01', priority: 2 }, // Then Hong Kong
+  { id: 'as-sgp-2', name: 'AS-SGP-02', priority: 3 }     // Finally Singapore
+];
+
+const { product, regionUsed } = await productService.getOptimalProductWithFallback(
+  'RTX 4090 24GB',
+  undefined,
+  customRegions
+);
+```
+
+### Fallback Workflow
+The multi-region fallback follows a specific logic flow:
+
+```mermaid
+flowchart TD
+A[Start] --> B{Region Ordering}
+B --> C[Sort by priority]
+C --> D{Preferred Region?}
+D --> |Yes| E[Move to front]
+D --> |No| F[Use default order]
+E --> G[Sequential Attempts]
+F --> G
+G --> H{Region Available?}
+H --> |Yes| I[Use Product]
+H --> |No| J{More Regions?}
+J --> |Yes| K[Try Next Region]
+K --> G
+J --> |No| L[All Regions Failed]
+L --> M[Throw Comprehensive Error]
+I --> N[Success]
+```
+
+**Diagram sources**
+- [regionFallbackExample.ts](file://src/examples/regionFallbackExample.ts#L1-L91)
+- [productService.ts](file://src/services/productService.ts#L144-L235)
+
+**Section sources**
+- [regionFallbackExample.ts](file://src/examples/regionFallbackExample.ts)
+- [productService.ts](file://src/services/productService.ts)
+
+## Registry Authentication
+
+The Novitai API supports registry authentication for creating instances with private Docker images. This feature allows secure access to private container registries without exposing credentials in templates.
+
+### Template Configuration
+When defining a template that uses a private image, specify the imageAuth ID instead of storing credentials directly:
+
+```javascript
+const templateWithAuth = {
+  id: 'custom-template',
+  name: 'Private PyTorch Environment',
+  imageUrl: 'registry.company.com/ai/pytorch:latest',
+  imageAuth: 'registry_auth_123', // This ID will be used to fetch credentials
+  ports: [
+    { port: 8888, type: 'http', name: 'jupyter' },
+    { port: 22, type: 'tcp', name: 'ssh' }
+  ],
+  envs: [
+    { name: 'JUPYTER_TOKEN', value: 'secure_token' },
+    { name: 'CUDA_VISIBLE_DEVICES', value: '0' }
+  ],
+  description: 'Custom PyTorch environment with private image'
+};
+```
+
+### Authentication Workflow
+The registry authentication follows a secure workflow:
+
+```mermaid
+sequenceDiagram
+participant Client as "Client Application"
+participant TemplateService as "TemplateService"
+participant NovitaApiService as "NovitaApiService"
+participant Registry as "Private Registry"
+Client->>TemplateService : Create instance with template
+TemplateService->>NovitaApiService : getRegistryAuth('registry_auth_123')
+NovitaApiService->>NovitaApiService : Fetch all registry auths
+NovitaApiService->>NovitaApiService : Find auth by ID
+NovitaApiService-->>TemplateService : Return username/password
+TemplateService->>NovitaApiService : createInstance() with credentials
+NovitaApiService->>Registry : Pull image with credentials
+Registry-->>NovitaApiService : Image pulled successfully
+NovitaApiService-->>Client : Instance created
+```
+
+**Diagram sources**
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts#L1-L97)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L275)
+
+**Section sources**
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts)
