@@ -43,6 +43,15 @@ export interface Config {
     readonly rateLimitWindowMs: number;
     readonly rateLimitMaxRequests: number;
   };
+  readonly instanceListing: {
+    readonly enableComprehensiveListing: boolean;
+    readonly defaultIncludeNovitaOnly: boolean;
+    readonly defaultSyncLocalState: boolean;
+    readonly comprehensiveCacheTtl: number;
+    readonly novitaApiCacheTtl: number;
+    readonly enableFallbackToLocal: boolean;
+    readonly novitaApiTimeout: number;
+  };
 }
 
 /**
@@ -146,6 +155,15 @@ class ConfigLoader {
         enableHelmet: envVars.ENABLE_HELMET,
         rateLimitWindowMs: envVars.RATE_LIMIT_WINDOW_MS,
         rateLimitMaxRequests: envVars.RATE_LIMIT_MAX_REQUESTS,
+      },
+      instanceListing: {
+        enableComprehensiveListing: envVars.ENABLE_COMPREHENSIVE_LISTING,
+        defaultIncludeNovitaOnly: envVars.DEFAULT_INCLUDE_NOVITA_ONLY,
+        defaultSyncLocalState: envVars.DEFAULT_SYNC_LOCAL_STATE,
+        comprehensiveCacheTtl: envVars.COMPREHENSIVE_CACHE_TTL,
+        novitaApiCacheTtl: envVars.NOVITA_API_CACHE_TTL,
+        enableFallbackToLocal: envVars.ENABLE_FALLBACK_TO_LOCAL,
+        novitaApiTimeout: envVars.NOVITA_API_TIMEOUT,
       },
     };
   }
@@ -261,6 +279,44 @@ class ConfigLoader {
         .max(1000)
         .default(100)
         .description('Maximum requests per rate limit window (10-1000)'),
+      
+      // Enhanced Instance Listing Configuration
+      ENABLE_COMPREHENSIVE_LISTING: Joi.boolean()
+        .default(true)
+        .description('Enable comprehensive instance listing with Novita.ai integration'),
+      
+      DEFAULT_INCLUDE_NOVITA_ONLY: Joi.boolean()
+        .default(true)
+        .description('Default value for including Novita-only instances in comprehensive listing'),
+      
+      DEFAULT_SYNC_LOCAL_STATE: Joi.boolean()
+        .default(false)
+        .description('Default value for syncing local state with Novita.ai data'),
+      
+      COMPREHENSIVE_CACHE_TTL: Joi.number()
+        .integer()
+        .min(10)
+        .max(600)
+        .default(30)
+        .description('Cache TTL for comprehensive instance results in seconds (10-600)'),
+      
+      NOVITA_API_CACHE_TTL: Joi.number()
+        .integer()
+        .min(30)
+        .max(1800)
+        .default(60)
+        .description('Cache TTL for Novita.ai API responses in seconds (30-1800)'),
+      
+      ENABLE_FALLBACK_TO_LOCAL: Joi.boolean()
+        .default(true)
+        .description('Enable fallback to local data when Novita.ai API is unavailable'),
+      
+      NOVITA_API_TIMEOUT: Joi.number()
+        .integer()
+        .min(5000)
+        .max(60000)
+        .default(15000)
+        .description('Timeout for Novita.ai API calls in milliseconds (5000-60000)'),
     }).unknown(true); // Allow unknown environment variables
   }
 
@@ -296,6 +352,7 @@ class ConfigLoader {
       hasWebhookSecret: !!config.webhook.secret,
       defaults: config.defaults,
       security: config.security,
+      instanceListing: config.instanceListing,
     };
   }
 }
@@ -386,6 +443,15 @@ function createTestConfig(): Config {
       enableHelmet: true,
       rateLimitWindowMs: 900000,
       rateLimitMaxRequests: 100,
+    },
+    instanceListing: {
+      enableComprehensiveListing: true,
+      defaultIncludeNovitaOnly: true,
+      defaultSyncLocalState: false,
+      comprehensiveCacheTtl: 30,
+      novitaApiCacheTtl: 60,
+      enableFallbackToLocal: true,
+      novitaApiTimeout: 15000,
     },
   };
 }

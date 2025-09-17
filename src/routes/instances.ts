@@ -4,6 +4,7 @@ import { validateCreateInstance, validateInstanceId } from '../types/validation'
 import { createContextLogger, LogContext } from '../utils/logger';
 import { asyncHandler } from '../utils/errorHandler';
 import { NovitaApiClientError } from '../types/api';
+import { config } from '../config/config';
 
 const router = Router();
 
@@ -100,6 +101,11 @@ router.get('/:instanceId', asyncHandler(async (req: Request, res: Response): Pro
 /**
  * GET /api/instances
  * List all managed instances
+ * 
+ * Query parameters:
+ * - source: 'all' | 'local' | 'novita' (default: 'local')
+ * - includeNovitaOnly: boolean (default: false)
+ * - syncLocalState: boolean (default: false)
  */
 router.get('/', asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const requestId = req.headers['x-request-id'] as string;
@@ -113,17 +119,114 @@ router.get('/', asyncHandler(async (req: Request, res: Response): Promise<void> 
 
   const contextLogger = createContextLogger(context);
 
+  // Parse query parameters with configuration defaults
+  const source = (req.query.source as string) || 'all';
+  const includeNovitaOnly = req.query.includeNovitaOnly !== undefined 
+    ? req.query.includeNovitaOnly === 'true' 
+    : config.instanceListing.defaultIncludeNovitaOnly;
+  const syncLocalState = req.query.syncLocalState !== undefined
+    ? req.query.syncLocalState === 'true'
+    : config.instanceListing.defaultSyncLocalState;
+
   contextLogger.debug('List instances request received', {
+    source,
+    includeNovitaOnly,
+    syncLocalState,
     query: req.query
   });
 
-  // Get all instances
   const startTime = Date.now();
-  const result = await instanceService.listInstances();
+  let result;
+
+  if (source === 'all' || source === 'comprehensive') {
+    // Check if comprehensive listing is enabled
+    if (!config.instanceListing.enableComprehensiveListing) {
+      contextLogger.warn('Comprehensive listing requested but disabled in configuration');
+      // Fallback to local listing
+      result = await instanceService.listInstances();
+    } else {
+      // Use comprehensive listing with Novita.ai integration
+      result = await instanceService.listInstancesComprehensive({
+        includeNovitaOnly,
+        syncLocalState
+      });
+    }
+  } else {
+    // Use traditional local-only listing
+    result = await instanceService.listInstances();
+  }
+  
   const duration = Date.now() - startTime;
 
   contextLogger.info('Instances listed successfully', {
+    source,
     count: result.total,
+    duration
+  });
+
+  res.json(result);
+}));
+
+/**
+ * GET /api/instances/comprehensive
+ * List instances with comprehensive data from both local state and Novita.ai API
+ * 
+ * Query parameters:
+ * - includeNovitaOnly: boolean (default: true)
+ * - syncLocalState: boolean (default: false)
+ */
+router.get('/comprehensive', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'list_instances_comprehensive'
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  // Parse query parameters with configuration defaults
+  const includeNovitaOnly = req.query.includeNovitaOnly !== undefined
+    ? req.query.includeNovitaOnly !== 'false' // Default to true unless explicitly false
+    : config.instanceListing.defaultIncludeNovitaOnly;
+  const syncLocalState = req.query.syncLocalState !== undefined
+    ? req.query.syncLocalState === 'true'
+    : config.instanceListing.defaultSyncLocalState;
+
+  // Check if comprehensive listing is enabled
+  if (!config.instanceListing.enableComprehensiveListing) {
+    contextLogger.warn('Comprehensive listing endpoint called but disabled in configuration');
+    res.status(404).json({
+      error: {
+        code: 'FEATURE_DISABLED',
+        message: 'Comprehensive instance listing is disabled',
+        timestamp: new Date().toISOString(),
+        requestId
+      }
+    });
+    return;
+  }
+
+  contextLogger.debug('Comprehensive instances request received', {
+    includeNovitaOnly,
+    syncLocalState,
+    query: req.query
+  });
+
+  // Get comprehensive instance list
+  const startTime = Date.now();
+  const result = await instanceService.listInstancesComprehensive({
+    includeNovitaOnly,
+    syncLocalState
+  });
+  const duration = Date.now() - startTime;
+
+  contextLogger.info('Comprehensive instances listed successfully', {
+    totalCount: result.total,
+    sources: result.sources,
+    performance: result.performance,
     duration
   });
 

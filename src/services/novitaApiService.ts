@@ -15,7 +15,8 @@ import {
   CircuitBreakerError,
   TimeoutError,
   RegistryAuth,
-  RegistryAuthsResponse
+  RegistryAuthsResponse,
+  NovitaInstanceResponse
 } from '../types/api';
 import { log } from 'console';
 
@@ -369,7 +370,7 @@ export class NovitaApiService {
   }
 
   /**
-   * List all instances with pagination
+   * List all instances with pagination using the correct Novita.ai API endpoint
    */
   async listInstances(options?: {
     page?: number;
@@ -383,49 +384,40 @@ export class NovitaApiService {
       if (options?.pageSize) params.page_size = options.pageSize.toString();
       if (options?.status) params.status = options.status;
 
-      const response = await novitaClient.get<any>(
+      // Use the correct Novita.ai API endpoint for listing instances
+      const response = await novitaClient.get<{ instances: NovitaInstanceResponse[] }>(
         '/v1/gpu/instances',
         { params }
       );
 
-      // The API returns the instances data directly, not wrapped in a success/data structure
-      const responseData = response.data;
-      
-      if (!responseData) {
-        return { instances: [], total: 0, page: 1, pageSize: 10 };
-      }
+      logger.debug('Raw Novita.ai instances API response:', {
+        responseDataStructure: Object.keys(response.data),
+        instancesCount: response.data.instances?.length || 0
+      });
 
-      // Transform instances if they exist
-      const instances = responseData.instances || responseData.data || [];
-      const transformedInstances: InstanceResponse[] = instances.map((instanceData: any) => ({
-        id: instanceData.id,
-        name: instanceData.name,
-        status: instanceData.status as InstanceStatus,
-        productId: instanceData.productId,
-        region: instanceData.clusterName || instanceData.clusterId || 'Unknown',
-        gpuNum: parseInt(instanceData.gpuNum) || 1,
-        rootfsSize: instanceData.rootfsSize || 0,
-        billingMode: instanceData.billingMode || 'spot',
-        createdAt: instanceData.createdAt ? new Date(parseInt(instanceData.createdAt) * 1000).toISOString() : new Date().toISOString(),
-        portMappings: instanceData.portMappings || []
-      }));
+      // The API returns instances directly in the instances array
+      const novitaInstances = response.data.instances || [];
+      
+      // Transform Novita response to our format
+      const transformedInstances = this.transformNovitaInstances(novitaInstances);
 
       const result: NovitaListInstancesResponse = {
         instances: transformedInstances,
-        total: responseData.total || transformedInstances.length,
-        page: responseData.page || options?.page || 1,
-        pageSize: responseData.pageSize || options?.pageSize || 10
+        total: novitaInstances.length,
+        page: options?.page || 1,
+        pageSize: options?.pageSize || 10
       };
 
-      logger.info('Instances listed successfully', {
+      logger.info('Instances listed from Novita.ai successfully', {
         count: transformedInstances.length,
         total: result.total,
-        page: result.page
+        page: result.page,
+        endpoint: '/gpu-instance/openapi/v1/gpu/instances'
       });
 
       return result;
     } catch (error) {
-      throw this.handleApiError(error, 'Failed to list instances');
+      throw this.handleApiError(error, 'Failed to list instances from Novita.ai');
     }
   }
 
@@ -516,6 +508,52 @@ export class NovitaApiService {
       circuitBreakerState: novitaClient.getCircuitBreakerState(),
       queueStatus: novitaClient.getQueueStatus()
     };
+  }
+
+  /**
+   * Transform Novita instances from raw API response to our InstanceResponse format
+   */
+  private transformNovitaInstances(novitaInstances: NovitaInstanceResponse[]): InstanceResponse[] {
+    return novitaInstances.map((novitaInstance) => {
+      // Create base object with required fields
+      const transformed: InstanceResponse = {
+        id: novitaInstance.id,
+        name: novitaInstance.name,
+        status: novitaInstance.status as InstanceStatus,
+        productId: novitaInstance.productId,
+        region: novitaInstance.clusterName || novitaInstance.clusterId || 'Unknown',
+        gpuNum: parseInt(novitaInstance.gpuNum) || 1,
+        rootfsSize: novitaInstance.rootfsSize || 0,
+        billingMode: novitaInstance.billingMode || 'spot',
+        createdAt: novitaInstance.createdAt || new Date().toISOString(),
+        portMappings: novitaInstance.portMappings?.map(port => ({
+          port: port.port,
+          endpoint: '', // Will be filled by connection info if available
+          type: port.type
+        })) || []
+      };
+      
+      // Add optional fields using Object.assign to avoid exactOptionalPropertyTypes issues
+      const optionalFields: Partial<InstanceResponse> = {};
+      
+      if (novitaInstance.clusterId) optionalFields.clusterId = novitaInstance.clusterId;
+      if (novitaInstance.clusterName) optionalFields.clusterName = novitaInstance.clusterName;
+      if (novitaInstance.productName) optionalFields.productName = novitaInstance.productName;
+      if (novitaInstance.cpuNum) optionalFields.cpuNum = novitaInstance.cpuNum;
+      if (novitaInstance.memory) optionalFields.memory = novitaInstance.memory;
+      if (novitaInstance.imageUrl) optionalFields.imageUrl = novitaInstance.imageUrl;
+      if (novitaInstance.imageAuthId) optionalFields.imageAuthId = novitaInstance.imageAuthId;
+      if (novitaInstance.command) optionalFields.command = novitaInstance.command;
+      if (novitaInstance.volumeMounts) optionalFields.volumeMounts = novitaInstance.volumeMounts;
+      if (novitaInstance.statusError) optionalFields.statusError = novitaInstance.statusError;
+      if (novitaInstance.envs) optionalFields.envs = novitaInstance.envs;
+      if (novitaInstance.kind) optionalFields.kind = novitaInstance.kind;
+      if (novitaInstance.endTime) optionalFields.endTime = novitaInstance.endTime;
+      if (novitaInstance.spotStatus) optionalFields.spotStatus = novitaInstance.spotStatus;
+      if (novitaInstance.spotReclaimTime) optionalFields.spotReclaimTime = novitaInstance.spotReclaimTime;
+      
+      return Object.assign(transformed, optionalFields);
+    });
   }
 
   /**

@@ -3,11 +3,14 @@ import { productService } from './productService';
 import { templateService } from './templateService';
 import { jobQueueService } from './jobQueueService';
 import { novitaApiService } from './novitaApiService';
+import { config } from '../config/config';
 import {
   CreateInstanceRequest,
   CreateInstanceResponse,
   InstanceDetails,
   ListInstancesResponse,
+  EnhancedInstanceDetails,
+  EnhancedListInstancesResponse,
   InstanceState,
   InstanceStatus,
   NovitaCreateInstanceRequest,
@@ -30,6 +33,20 @@ export class InstanceService {
   private readonly instanceStateCache = cacheManager.getCache<InstanceState>('instance-states', {
     maxSize: 1000,
     defaultTtl: 60 * 1000, // 1 minute for instance states
+    cleanupIntervalMs: 2 * 60 * 1000 // Cleanup every 2 minutes
+  });
+  
+  // Merged results cache for comprehensive listings
+  private readonly mergedInstancesCache = cacheManager.getCache<EnhancedInstanceDetails[]>('merged-instances', {
+    maxSize: 100,
+    defaultTtl: config.instanceListing.comprehensiveCacheTtl * 1000, // Convert seconds to milliseconds
+    cleanupIntervalMs: 60 * 1000 // Cleanup every minute
+  });
+  
+  // Novita API response cache
+  private readonly novitaApiCache = cacheManager.getCache<InstanceResponse[]>('novita-api-instances', {
+    maxSize: 100,
+    defaultTtl: config.instanceListing.novitaApiCacheTtl * 1000, // Convert seconds to milliseconds
     cleanupIntervalMs: 2 * 60 * 1000 // Cleanup every 2 minutes
   });
   
@@ -244,6 +261,93 @@ export class InstanceService {
   }
 
   /**
+   * List instances with data from both local state and Novita.ai API
+   */
+  async listInstancesComprehensive(options?: {
+    includeNovitaOnly?: boolean;
+    syncLocalState?: boolean;
+  }): Promise<EnhancedListInstancesResponse> {
+    try {
+      const startTime = Date.now();
+      
+      // Check cache first
+      const cacheKey = `comprehensive_${JSON.stringify(options || {})}`;
+      const cachedResult = this.mergedInstancesCache.get(cacheKey);
+      if (cachedResult) {
+        logger.debug('Returning cached comprehensive instance list', { count: cachedResult.length });
+        return {
+          instances: cachedResult,
+          total: cachedResult.length,
+          sources: this.calculateSourceCounts(cachedResult),
+          performance: {
+            totalRequestTime: 0, // Cache hit
+            novitaApiTime: 0,
+            localDataTime: 0,
+            mergeProcessingTime: 0,
+            cacheHitRatio: this.mergedInstancesCache.getHitRatio()
+          }
+        };
+      }
+      
+      // Fetch from both sources in parallel
+      const localStartTime = Date.now();
+      const localInstancesPromise = this.getLocalInstances();
+      
+      const novitaStartTime = Date.now();
+      const novitaInstancesPromise = this.getNovitaInstances().catch((error: Error) => {
+        logger.warn('Failed to fetch instances from Novita.ai, using local only', { error: error.message });
+        return [];
+      });
+
+      const [localInstances, novitaInstances] = await Promise.all([
+        localInstancesPromise,
+        novitaInstancesPromise
+      ]);
+      
+      const localDataTime = Date.now() - localStartTime;
+      const novitaApiTime = Date.now() - novitaStartTime;
+
+      // Merge and reconcile data
+      const mergeStartTime = Date.now();
+      const mergedInstances = this.mergeInstanceData(localInstances, novitaInstances, options?.includeNovitaOnly);
+      const mergeProcessingTime = Date.now() - mergeStartTime;
+      
+      // Optionally sync local state with Novita data
+      if (options?.syncLocalState) {
+        await this.syncLocalStateWithNovita(novitaInstances);
+      }
+
+      // Cache the result
+      this.mergedInstancesCache.set(cacheKey, mergedInstances);
+
+      const totalRequestTime = Date.now() - startTime;
+      
+      logger.info('Listed instances comprehensively', {
+        localCount: localInstances.length,
+        novitaCount: novitaInstances.length,
+        mergedCount: mergedInstances.length,
+        processingTimeMs: totalRequestTime
+      });
+
+      return {
+        instances: mergedInstances,
+        total: mergedInstances.length,
+        sources: this.calculateSourceCounts(mergedInstances),
+        performance: {
+          totalRequestTime,
+          novitaApiTime,
+          localDataTime,
+          mergeProcessingTime,
+          cacheHitRatio: this.mergedInstancesCache.getHitRatio()
+        }
+      };
+    } catch (error) {
+      logger.error('Failed to list instances comprehensively', { error: (error as Error).message });
+      throw error;
+    }
+  }
+
+  /**
    * Update instance state (used by job workers)
    */
   updateInstanceState(instanceId: string, updates: Partial<InstanceState>): void {
@@ -273,6 +377,249 @@ export class InstanceService {
    */
   getInstanceState(instanceId: string): InstanceState | undefined {
     return this.instanceStates.get(instanceId);
+  }
+
+  /**
+   * Merge local and Novita instance data with conflict resolution
+   */
+  private mergeInstanceData(
+    localInstances: InstanceDetails[], 
+    novitaInstances: InstanceResponse[],
+    includeNovitaOnly: boolean = true
+  ): EnhancedInstanceDetails[] {
+    const mergedMap = new Map<string, EnhancedInstanceDetails>();
+    
+    // Add local instances first
+    localInstances.forEach(localInstance => {
+      const enhanced: EnhancedInstanceDetails = {
+        ...localInstance,
+        source: 'local',
+        dataConsistency: 'consistent',
+        lastSyncedAt: new Date().toISOString()
+      };
+      mergedMap.set(localInstance.id, enhanced);
+    });
+
+    // Process Novita instances
+    novitaInstances.forEach(novitaInstance => {
+      const localMatch = this.findLocalInstanceMatch(novitaInstance, localInstances);
+      
+      if (localMatch) {
+        // Merge data for matched instances
+        const existing = mergedMap.get(localMatch.id)!;
+        const merged = this.mergeMatchedInstance(existing, novitaInstance);
+        mergedMap.set(localMatch.id, merged);
+      } else if (includeNovitaOnly) {
+        // Add Novita-only instances if enabled
+        const novitaOnly = this.transformNovitaToEnhanced(novitaInstance);
+        mergedMap.set(novitaInstance.id, novitaOnly);
+      }
+    });
+
+    // Convert to array and sort
+    const mergedInstances = Array.from(mergedMap.values());
+    return mergedInstances.sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }
+
+  /**
+   * Find local instance that matches Novita instance
+   */
+  private findLocalInstanceMatch(
+    novitaInstance: InstanceResponse, 
+    localInstances: InstanceDetails[]
+  ): InstanceDetails | null {
+    // Try to match by Novita instance ID stored in local state
+    const localState = Array.from(this.instanceStates.values());
+    const stateMatch = localState.find(state => state.novitaInstanceId === novitaInstance.id);
+    
+    if (stateMatch) {
+      return localInstances.find(local => local.id === stateMatch.id) || null;
+    }
+
+    // Fallback: match by name and creation time (approximate)
+    return localInstances.find(local => 
+      local.name === novitaInstance.name &&
+      Math.abs(new Date(local.createdAt).getTime() - new Date(novitaInstance.createdAt).getTime()) < 60000 // 1 minute tolerance
+    ) || null;
+  }
+
+  /**
+   * Merge matched local and Novita instance data
+   */
+  private mergeMatchedInstance(
+    localInstance: EnhancedInstanceDetails,
+    novitaInstance: InstanceResponse
+  ): EnhancedInstanceDetails {
+    const localStateTime = new Date(localInstance.createdAt).getTime();
+    const novitaStateTime = new Date(novitaInstance.createdAt).getTime();
+    
+    let dataConsistency: EnhancedInstanceDetails['dataConsistency'] = 'consistent';
+    
+    // Determine data consistency
+    if (localInstance.status !== novitaInstance.status) {
+      dataConsistency = localStateTime > novitaStateTime ? 'local-newer' : 'novita-newer';
+    }
+
+    // Build base merged instance
+    const merged: EnhancedInstanceDetails = {
+      ...localInstance,
+      // Prefer Novita.ai data for most fields as it's authoritative
+      status: novitaInstance.status,
+      region: novitaInstance.region,
+      portMappings: novitaInstance.portMappings || localInstance.portMappings,
+      
+      // Metadata
+      source: 'merged',
+      dataConsistency,
+      lastSyncedAt: new Date().toISOString()
+    };
+
+    // Add optional Novita.ai fields only if they exist
+    if (novitaInstance.clusterId) merged.clusterId = novitaInstance.clusterId;
+    if (novitaInstance.clusterName) merged.clusterName = novitaInstance.clusterName;
+    if (novitaInstance.productName) merged.productName = novitaInstance.productName;
+    if (novitaInstance.cpuNum) merged.cpuNum = novitaInstance.cpuNum;
+    if (novitaInstance.memory) merged.memory = novitaInstance.memory;
+    if (novitaInstance.imageUrl) merged.imageUrl = novitaInstance.imageUrl;
+    if (novitaInstance.imageAuthId) merged.imageAuthId = novitaInstance.imageAuthId;
+    if (novitaInstance.command) merged.command = novitaInstance.command;
+    if (novitaInstance.volumeMounts) merged.volumeMounts = novitaInstance.volumeMounts;
+    if (novitaInstance.statusError) merged.statusError = novitaInstance.statusError;
+    if (novitaInstance.envs) merged.envs = novitaInstance.envs;
+    if (novitaInstance.kind) merged.kind = novitaInstance.kind;
+    if (novitaInstance.endTime) merged.endTime = novitaInstance.endTime;
+    if (novitaInstance.spotStatus) merged.spotStatus = novitaInstance.spotStatus;
+    if (novitaInstance.spotReclaimTime) merged.spotReclaimTime = novitaInstance.spotReclaimTime;
+
+    return merged;
+  }
+
+  /**
+   * Transform Novita instance to enhanced format
+   */
+  private transformNovitaToEnhanced(novitaInstance: InstanceResponse): EnhancedInstanceDetails {
+    // Build base instance with required fields
+    const enhanced: EnhancedInstanceDetails = {
+      id: novitaInstance.id,
+      name: novitaInstance.name,
+      status: novitaInstance.status,
+      gpuNum: novitaInstance.gpuNum,
+      region: novitaInstance.region,
+      portMappings: novitaInstance.portMappings || [],
+      createdAt: novitaInstance.createdAt,
+      
+      // Metadata
+      source: 'novita',
+      dataConsistency: 'consistent',
+      lastSyncedAt: new Date().toISOString()
+    };
+    
+    // Add optional fields from Novita only if they exist
+    if (novitaInstance.clusterId) enhanced.clusterId = novitaInstance.clusterId;
+    if (novitaInstance.clusterName) enhanced.clusterName = novitaInstance.clusterName;
+    if (novitaInstance.productName) enhanced.productName = novitaInstance.productName;
+    if (novitaInstance.cpuNum) enhanced.cpuNum = novitaInstance.cpuNum;
+    if (novitaInstance.memory) enhanced.memory = novitaInstance.memory;
+    if (novitaInstance.imageUrl) enhanced.imageUrl = novitaInstance.imageUrl;
+    if (novitaInstance.imageAuthId) enhanced.imageAuthId = novitaInstance.imageAuthId;
+    if (novitaInstance.command) enhanced.command = novitaInstance.command;
+    if (novitaInstance.volumeMounts) enhanced.volumeMounts = novitaInstance.volumeMounts;
+    if (novitaInstance.statusError) enhanced.statusError = novitaInstance.statusError;
+    if (novitaInstance.envs) enhanced.envs = novitaInstance.envs;
+    if (novitaInstance.kind) enhanced.kind = novitaInstance.kind;
+    if (novitaInstance.endTime) enhanced.endTime = novitaInstance.endTime;
+    if (novitaInstance.spotStatus) enhanced.spotStatus = novitaInstance.spotStatus;
+    if (novitaInstance.spotReclaimTime) enhanced.spotReclaimTime = novitaInstance.spotReclaimTime;
+    
+    return enhanced;
+  }
+
+  /**
+   * Sync local state with Novita instance data
+   */
+  private async syncLocalStateWithNovita(novitaInstances: InstanceResponse[]): Promise<void> {
+    const syncPromises = novitaInstances.map(async (novitaInstance) => {
+      const localState = Array.from(this.instanceStates.values())
+        .find(state => state.novitaInstanceId === novitaInstance.id);
+      
+      if (localState && localState.status !== novitaInstance.status) {
+        this.updateInstanceState(localState.id, {
+          status: novitaInstance.status,
+          timestamps: {
+            ...localState.timestamps
+          }
+        });
+        
+        logger.debug('Synced local state with Novita', {
+          instanceId: localState.id,
+          novitaInstanceId: novitaInstance.id,
+          oldStatus: localState.status,
+          newStatus: novitaInstance.status
+        });
+      }
+    });
+    
+    await Promise.allSettled(syncPromises);
+  }
+
+  /**
+   * Get local instances only
+   */
+  private async getLocalInstances(): Promise<InstanceDetails[]> {
+    const instances: InstanceDetails[] = [];
+    
+    for (const [instanceId, instanceState] of this.instanceStates.entries()) {
+      try {
+        const instanceDetails = this.mapInstanceStateToDetails(instanceState);
+        instances.push(instanceDetails);
+      } catch (error) {
+        logger.warn('Failed to process local instance state', {
+          instanceId,
+          error: (error as Error).message
+        });
+      }
+    }
+    
+    return instances;
+  }
+
+  /**
+   * Get Novita instances only with caching
+   */
+  private async getNovitaInstances(): Promise<InstanceResponse[]> {
+    try {
+      // Check cache first
+      const cachedInstances = this.novitaApiCache.get('all');
+      if (cachedInstances) {
+        logger.debug('Using cached Novita instances', { count: cachedInstances.length });
+        return cachedInstances;
+      }
+      
+      const response = await novitaApiService.listInstances();
+      const instances = response.instances;
+      
+      // Cache the result
+      this.novitaApiCache.set('all', instances);
+      
+      logger.info('Fetched instances from Novita.ai', { count: instances.length });
+      return instances;
+    } catch (error) {
+      logger.error('Failed to fetch instances from Novita.ai', { error: (error as Error).message });
+      throw error;
+    }
+  }
+
+  /**
+   * Calculate source distribution counts
+   */
+  private calculateSourceCounts(instances: EnhancedInstanceDetails[]) {
+    return {
+      local: instances.filter(i => i.source === 'local').length,
+      novita: instances.filter(i => i.source === 'novita').length,
+      merged: instances.filter(i => i.source === 'merged').length
+    };
   }
 
   /**

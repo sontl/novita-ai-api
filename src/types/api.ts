@@ -44,9 +44,66 @@ export interface InstanceDetails {
   readyAt?: string;
 }
 
+// Enhanced instance details with comprehensive data
+export interface EnhancedInstanceDetails extends InstanceDetails {
+  // Source indicators
+  source: 'local' | 'novita' | 'merged';
+  dataConsistency: 'consistent' | 'local-newer' | 'novita-newer' | 'conflicted';
+  
+  // Additional Novita.ai fields
+  clusterId?: string;
+  clusterName?: string;
+  productName?: string;
+  cpuNum?: string;
+  memory?: string;
+  imageUrl?: string;
+  imageAuthId?: string;
+  command?: string;
+  volumeMounts?: Array<{
+    type: string;
+    size: string;
+    id: string;
+    mountPath: string;
+  }>;
+  statusError?: {
+    state: string;
+    message: string;
+  };
+  envs?: Array<{
+    key: string;
+    value: string;
+  }>;
+  kind?: string;
+  endTime?: string;
+  spotStatus?: string;
+  spotReclaimTime?: string;
+  
+  // Metadata
+  lastSyncedAt?: string;
+  syncErrors?: string[];
+}
+
 export interface ListInstancesResponse {
   instances: InstanceDetails[];
   total: number;
+}
+
+// Enhanced response for comprehensive listing
+export interface EnhancedListInstancesResponse {
+  instances: EnhancedInstanceDetails[];
+  total: number;
+  sources: {
+    local: number;
+    novita: number;
+    merged: number;
+  };
+  performance?: {
+    totalRequestTime: number;
+    novitaApiTime: number;
+    localDataTime: number;
+    mergeProcessingTime: number;
+    cacheHitRatio: number;
+  };
 }
 
 export interface HealthCheckResponse {
@@ -149,6 +206,48 @@ export interface NovitaCreateInstanceRequest {
   billingMode?: 'onDemand' | 'monthly' | 'spot';
 }
 
+// Novita.ai raw API response structure for instances
+export interface NovitaInstanceResponse {
+  id: string;
+  name: string;
+  clusterId: string;
+  clusterName: string;
+  status: string;
+  imageUrl: string;
+  imageAuthId?: string;
+  command?: string;
+  cpuNum: string;
+  memory: string;
+  gpuNum: string;
+  portMappings: Array<{
+    port: number;
+    type: string;
+  }>;
+  productId: string;
+  productName: string;
+  rootfsSize: number;
+  volumeMounts?: Array<{
+    type: string;
+    size: string;
+    id: string;
+    mountPath: string;
+  }>;
+  statusError?: {
+    state: string;
+    message: string;
+  };
+  envs: Array<{
+    key: string;
+    value: string;
+  }>;
+  kind: string;
+  billingMode: string;
+  endTime?: string;
+  spotStatus?: string;
+  spotReclaimTime?: string;
+  createdAt: string;
+}
+
 export interface Tool {
   name: string;
   port: string;
@@ -182,6 +281,33 @@ export interface InstanceResponse {
     endpoint: string;
     type: string;
   }>;
+  // Extended Novita.ai API fields
+  clusterId?: string;
+  clusterName?: string;
+  productName?: string;
+  cpuNum?: string;
+  memory?: string;
+  imageUrl?: string;
+  imageAuthId?: string;
+  command?: string;
+  volumeMounts?: Array<{
+    type: string;
+    size: string;
+    id: string;
+    mountPath: string;
+  }>;
+  statusError?: {
+    state: string;
+    message: string;
+  };
+  envs?: Array<{
+    key: string;
+    value: string;
+  }>;
+  kind?: string;
+  endTime?: string;
+  spotStatus?: string;
+  spotReclaimTime?: string;
 }
 
 export enum InstanceStatus {
