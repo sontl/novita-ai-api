@@ -280,20 +280,15 @@ export class NovitaApiService {
    */
   async startInstance(instanceId: string): Promise<InstanceResponse> {
     try {
-      const response = await novitaClient.post<NovitaApiResponse<InstanceResponse>>(
+      const response = await novitaClient.post<any>(
         '/v1/gpu/instance/start',
         { instanceId }
       );
 
-      if (!response.data.success) {
-        throw new NovitaApiClientError(
-          response.data.error?.message || 'Failed to start instance',
-          response.status,
-          response.data.error?.code
-        );
-      }
-
-      if (!response.data.data) {
+      // The API returns the instance data directly, not wrapped in a success/data structure
+      const instanceData = response.data;
+      
+      if (!instanceData || !instanceData.id) {
         throw new NovitaApiClientError(
           'Invalid response: missing instance data',
           500,
@@ -301,12 +296,26 @@ export class NovitaApiService {
         );
       }
 
+      // Transform the raw API response to match our InstanceResponse interface
+      const transformedInstance: InstanceResponse = {
+        id: instanceData.id,
+        name: instanceData.name,
+        status: instanceData.status as InstanceStatus,
+        productId: instanceData.productId,
+        region: instanceData.clusterName || instanceData.clusterId || 'Unknown',
+        gpuNum: parseInt(instanceData.gpuNum) || 1,
+        rootfsSize: instanceData.rootfsSize || 0,
+        billingMode: instanceData.billingMode || 'spot',
+        createdAt: instanceData.createdAt ? new Date(parseInt(instanceData.createdAt) * 1000).toISOString() : new Date().toISOString(),
+        portMappings: instanceData.portMappings || []
+      };
+
       logger.info('Instance start initiated', {
-        instanceId: response.data.data.id,
-        status: response.data.data.status
+        instanceId: transformedInstance.id,
+        status: transformedInstance.status
       });
 
-      return response.data.data;
+      return transformedInstance;
     } catch (error) {
       throw this.handleApiError(error, 'Failed to start instance');
     }
@@ -317,19 +326,14 @@ export class NovitaApiService {
    */
   async getInstance(instanceId: string): Promise<InstanceResponse> {
     try {
-      const response = await novitaClient.get<NovitaApiResponse<InstanceResponse>>(
+      const response = await novitaClient.get<any>(
         `/v1/gpu/instance?instanceId=${instanceId}`
       );
 
-      if (!response.data.success) {
-        throw new NovitaApiClientError(
-          response.data.error?.message || 'Failed to fetch instance',
-          response.status,
-          response.data.error?.code
-        );
-      }
-
-      if (!response.data.data) {
+      // The API returns the instance data directly, not wrapped in a success/data structure
+      const instanceData = response.data;
+      
+      if (!instanceData || !instanceData.id) {
         throw new NovitaApiClientError(
           `Instance not found: ${instanceId}`,
           404,
@@ -337,7 +341,28 @@ export class NovitaApiService {
         );
       }
 
-      return response.data.data;
+      // Transform the raw API response to match our InstanceResponse interface
+      const transformedInstance: InstanceResponse = {
+        id: instanceData.id,
+        name: instanceData.name,
+        status: instanceData.status as InstanceStatus,
+        productId: instanceData.productId,
+        region: instanceData.clusterName || instanceData.clusterId || 'Unknown',
+        gpuNum: parseInt(instanceData.gpuNum) || 1,
+        rootfsSize: instanceData.rootfsSize || 0,
+        billingMode: instanceData.billingMode || 'spot',
+        createdAt: instanceData.createdAt ? new Date(parseInt(instanceData.createdAt) * 1000).toISOString() : new Date().toISOString(),
+        portMappings: instanceData.portMappings || []
+      };
+
+      logger.info('Instance fetched successfully', {
+        instanceId: transformedInstance.id,
+        name: transformedInstance.name,
+        status: transformedInstance.status,
+        region: transformedInstance.region
+      });
+
+      return transformedInstance;
     } catch (error) {
       throw this.handleApiError(error, 'Failed to fetch instance');
     }
@@ -358,20 +383,47 @@ export class NovitaApiService {
       if (options?.pageSize) params.page_size = options.pageSize.toString();
       if (options?.status) params.status = options.status;
 
-      const response = await novitaClient.get<NovitaApiResponse<NovitaListInstancesResponse>>(
+      const response = await novitaClient.get<any>(
         '/v1/gpu/instances',
         { params }
       );
 
-      if (!response.data.success) {
-        throw new NovitaApiClientError(
-          response.data.error?.message || 'Failed to list instances',
-          response.status,
-          response.data.error?.code
-        );
+      // The API returns the instances data directly, not wrapped in a success/data structure
+      const responseData = response.data;
+      
+      if (!responseData) {
+        return { instances: [], total: 0, page: 1, pageSize: 10 };
       }
 
-      return response.data.data || { instances: [], total: 0, page: 1, pageSize: 10 };
+      // Transform instances if they exist
+      const instances = responseData.instances || responseData.data || [];
+      const transformedInstances: InstanceResponse[] = instances.map((instanceData: any) => ({
+        id: instanceData.id,
+        name: instanceData.name,
+        status: instanceData.status as InstanceStatus,
+        productId: instanceData.productId,
+        region: instanceData.clusterName || instanceData.clusterId || 'Unknown',
+        gpuNum: parseInt(instanceData.gpuNum) || 1,
+        rootfsSize: instanceData.rootfsSize || 0,
+        billingMode: instanceData.billingMode || 'spot',
+        createdAt: instanceData.createdAt ? new Date(parseInt(instanceData.createdAt) * 1000).toISOString() : new Date().toISOString(),
+        portMappings: instanceData.portMappings || []
+      }));
+
+      const result: NovitaListInstancesResponse = {
+        instances: transformedInstances,
+        total: responseData.total || transformedInstances.length,
+        page: responseData.page || options?.page || 1,
+        pageSize: responseData.pageSize || options?.pageSize || 10
+      };
+
+      logger.info('Instances listed successfully', {
+        count: transformedInstances.length,
+        total: result.total,
+        page: result.page
+      });
+
+      return result;
     } catch (error) {
       throw this.handleApiError(error, 'Failed to list instances');
     }
@@ -382,20 +434,15 @@ export class NovitaApiService {
    */
   async stopInstance(instanceId: string): Promise<InstanceResponse> {
     try {
-      const response = await novitaClient.post<NovitaApiResponse<InstanceResponse>>(
+      const response = await novitaClient.post<any>(
         '/v1/gpu/instance/stop',
         { instanceId }
       );
 
-      if (!response.data.success) {
-        throw new NovitaApiClientError(
-          response.data.error?.message || 'Failed to stop instance',
-          response.status,
-          response.data.error?.code
-        );
-      }
-
-      if (!response.data.data) {
+      // The API returns the instance data directly, not wrapped in a success/data structure
+      const instanceData = response.data;
+      
+      if (!instanceData || !instanceData.id) {
         throw new NovitaApiClientError(
           'Invalid response: missing instance data',
           500,
@@ -403,12 +450,26 @@ export class NovitaApiService {
         );
       }
 
+      // Transform the raw API response to match our InstanceResponse interface
+      const transformedInstance: InstanceResponse = {
+        id: instanceData.id,
+        name: instanceData.name,
+        status: instanceData.status as InstanceStatus,
+        productId: instanceData.productId,
+        region: instanceData.clusterName || instanceData.clusterId || 'Unknown',
+        gpuNum: parseInt(instanceData.gpuNum) || 1,
+        rootfsSize: instanceData.rootfsSize || 0,
+        billingMode: instanceData.billingMode || 'spot',
+        createdAt: instanceData.createdAt ? new Date(parseInt(instanceData.createdAt) * 1000).toISOString() : new Date().toISOString(),
+        portMappings: instanceData.portMappings || []
+      };
+
       logger.info('Instance stop initiated', {
-        instanceId: response.data.data.id,
-        status: response.data.data.status
+        instanceId: transformedInstance.id,
+        status: transformedInstance.status
       });
 
-      return response.data.data;
+      return transformedInstance;
     } catch (error) {
       throw this.handleApiError(error, 'Failed to stop instance');
     }
@@ -419,16 +480,18 @@ export class NovitaApiService {
    */
   async deleteInstance(instanceId: string): Promise<void> {
     try {
-      const response = await novitaClient.post<NovitaApiResponse<void>>(
+      const response = await novitaClient.post<any>(
         '/v1/gpu/instance/delete',
         { instanceId }
       );
 
-      if (!response.data.success) {
+      // The API returns a direct response, not wrapped in a success/data structure
+      // For delete operations, we mainly check if the request was successful (status 200/204)
+      if (response.status < 200 || response.status >= 300) {
         throw new NovitaApiClientError(
-          response.data.error?.message || 'Failed to delete instance',
+          'Failed to delete instance - unexpected response status',
           response.status,
-          response.data.error?.code
+          'DELETE_FAILED'
         );
       }
 
