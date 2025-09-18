@@ -524,4 +524,445 @@ describe('WebhookClient', () => {
       );
     });
   });
+
+  describe('Health Check Webhook Notifications', () => {
+    describe('sendHealthCheckStartedNotification', () => {
+      it('should send health check started notification', async () => {
+        mockAxiosInstance.post.mockResolvedValueOnce({
+          status: 200,
+          data: { success: true }
+        });
+
+        const healthCheck = {
+          status: 'in_progress' as const,
+          endpoints: [
+            {
+              port: 8080,
+              endpoint: 'http://example.com:8080',
+              type: 'http',
+              status: 'pending' as const
+            }
+          ],
+          startedAt: '2023-01-01T00:00:00.000Z'
+        };
+
+        await webhookClient.sendHealthCheckStartedNotification(
+          'https://example.com/webhook',
+          'test-instance',
+          {
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 5000,
+            healthCheck
+          }
+        );
+
+        expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+          'https://example.com/webhook',
+          {
+            instanceId: 'test-instance',
+            status: 'health_checking',
+            timestamp: expect.any(String),
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 5000,
+            healthCheck,
+            reason: 'Health checks started for application endpoints'
+          },
+          {
+            headers: {
+              'X-Webhook-Signature': expect.any(String),
+              'X-Webhook-Timestamp': expect.any(String)
+            }
+          }
+        );
+      });
+    });
+
+    describe('sendReadyNotification', () => {
+      it('should send ready notification with health check results', async () => {
+        mockAxiosInstance.post.mockResolvedValueOnce({
+          status: 200,
+          data: { success: true }
+        });
+
+        const healthCheck = {
+          status: 'completed' as const,
+          overallStatus: 'healthy' as const,
+          endpoints: [
+            {
+              port: 8080,
+              endpoint: 'http://example.com:8080',
+              type: 'http',
+              status: 'healthy' as const,
+              lastChecked: '2023-01-01T00:01:00.000Z',
+              responseTime: 150
+            }
+          ],
+          startedAt: '2023-01-01T00:00:00.000Z',
+          completedAt: '2023-01-01T00:01:00.000Z',
+          totalResponseTime: 150
+        };
+
+        await webhookClient.sendReadyNotification(
+          'https://example.com/webhook',
+          'test-instance',
+          {
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 60000,
+            healthCheck
+          }
+        );
+
+        expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+          'https://example.com/webhook',
+          {
+            instanceId: 'test-instance',
+            status: 'ready',
+            timestamp: expect.any(String),
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 60000,
+            healthCheck,
+            reason: 'Instance is ready - all health checks passed'
+          },
+          {
+            headers: {
+              'X-Webhook-Signature': expect.any(String),
+              'X-Webhook-Timestamp': expect.any(String)
+            }
+          }
+        );
+      });
+    });
+
+    describe('sendHealthCheckFailedNotification', () => {
+      it('should send health check failed notification', async () => {
+        mockAxiosInstance.post.mockResolvedValueOnce({
+          status: 200,
+          data: { success: true }
+        });
+
+        const healthCheck = {
+          status: 'failed' as const,
+          overallStatus: 'unhealthy' as const,
+          endpoints: [
+            {
+              port: 8080,
+              endpoint: 'http://example.com:8080',
+              type: 'http',
+              status: 'unhealthy' as const,
+              lastChecked: '2023-01-01T00:01:00.000Z',
+              error: 'Connection refused',
+              responseTime: 0
+            }
+          ],
+          startedAt: '2023-01-01T00:00:00.000Z',
+          completedAt: '2023-01-01T00:01:00.000Z',
+          totalResponseTime: 0
+        };
+
+        await webhookClient.sendHealthCheckFailedNotification(
+          'https://example.com/webhook',
+          'test-instance',
+          'Health checks failed after timeout',
+          {
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 300000,
+            healthCheck
+          }
+        );
+
+        expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+          'https://example.com/webhook',
+          {
+            instanceId: 'test-instance',
+            status: 'failed',
+            timestamp: expect.any(String),
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 300000,
+            healthCheck,
+            error: 'Health checks failed after timeout',
+            reason: 'Health checks failed - instance not ready'
+          },
+          {
+            headers: {
+              'X-Webhook-Signature': expect.any(String),
+              'X-Webhook-Timestamp': expect.any(String)
+            }
+          }
+        );
+      });
+    });
+
+    describe('sendHealthCheckNotification', () => {
+      it('should send comprehensive health check notification for health_checking status', async () => {
+        mockAxiosInstance.post.mockResolvedValueOnce({
+          status: 200,
+          data: { success: true }
+        });
+
+        const healthCheckResult = {
+          overallStatus: 'partial' as const,
+          endpoints: [
+            {
+              port: 8080,
+              endpoint: 'http://example.com:8080',
+              type: 'http',
+              status: 'healthy' as const,
+              lastChecked: new Date('2023-01-01T00:01:00.000Z'),
+              responseTime: 150
+            },
+            {
+              port: 8081,
+              endpoint: 'http://example.com:8081',
+              type: 'http',
+              status: 'pending' as const
+            }
+          ],
+          checkedAt: new Date('2023-01-01T00:01:00.000Z'),
+          totalResponseTime: 150
+        };
+
+        await webhookClient.sendHealthCheckNotification(
+          'https://example.com/webhook',
+          'test-instance',
+          'health_checking',
+          {
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 30000,
+            healthCheckResult,
+            healthCheckStatus: 'in_progress',
+            healthCheckStartedAt: new Date('2023-01-01T00:00:00.000Z')
+          }
+        );
+
+        expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+          'https://example.com/webhook',
+          {
+            instanceId: 'test-instance',
+            status: 'health_checking',
+            timestamp: expect.any(String),
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 30000,
+            healthCheck: {
+              status: 'in_progress',
+              overallStatus: 'partial',
+              endpoints: [
+                {
+                  port: 8080,
+                  endpoint: 'http://example.com:8080',
+                  type: 'http',
+                  status: 'healthy',
+                  lastChecked: '2023-01-01T00:01:00.000Z',
+                  responseTime: 150,
+                  error: undefined
+                },
+                {
+                  port: 8081,
+                  endpoint: 'http://example.com:8081',
+                  type: 'http',
+                  status: 'pending',
+                  lastChecked: undefined,
+                  responseTime: undefined,
+                  error: undefined
+                }
+              ],
+              startedAt: '2023-01-01T00:00:00.000Z',
+              completedAt: undefined,
+              totalResponseTime: 150
+            },
+            reason: 'Health checks started for application endpoints'
+          },
+          {
+            headers: {
+              'X-Webhook-Signature': expect.any(String),
+              'X-Webhook-Timestamp': expect.any(String)
+            }
+          }
+        );
+      });
+
+      it('should send comprehensive health check notification for ready status', async () => {
+        mockAxiosInstance.post.mockResolvedValueOnce({
+          status: 200,
+          data: { success: true }
+        });
+
+        const healthCheckResult = {
+          overallStatus: 'healthy' as const,
+          endpoints: [
+            {
+              port: 8080,
+              endpoint: 'http://example.com:8080',
+              type: 'http',
+              status: 'healthy' as const,
+              lastChecked: new Date('2023-01-01T00:01:00.000Z'),
+              responseTime: 150
+            }
+          ],
+          checkedAt: new Date('2023-01-01T00:01:00.000Z'),
+          totalResponseTime: 150
+        };
+
+        await webhookClient.sendHealthCheckNotification(
+          'https://example.com/webhook',
+          'test-instance',
+          'ready',
+          {
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 60000,
+            healthCheckResult,
+            healthCheckStatus: 'completed',
+            healthCheckStartedAt: new Date('2023-01-01T00:00:00.000Z'),
+            healthCheckCompletedAt: new Date('2023-01-01T00:01:00.000Z')
+          }
+        );
+
+        expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+          'https://example.com/webhook',
+          {
+            instanceId: 'test-instance',
+            status: 'ready',
+            timestamp: expect.any(String),
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 60000,
+            healthCheck: {
+              status: 'completed',
+              overallStatus: 'healthy',
+              endpoints: [
+                {
+                  port: 8080,
+                  endpoint: 'http://example.com:8080',
+                  type: 'http',
+                  status: 'healthy',
+                  lastChecked: '2023-01-01T00:01:00.000Z',
+                  responseTime: 150,
+                  error: undefined
+                }
+              ],
+              startedAt: '2023-01-01T00:00:00.000Z',
+              completedAt: '2023-01-01T00:01:00.000Z',
+              totalResponseTime: 150
+            },
+            reason: 'Instance is ready - all health checks passed'
+          },
+          {
+            headers: {
+              'X-Webhook-Signature': expect.any(String),
+              'X-Webhook-Timestamp': expect.any(String)
+            }
+          }
+        );
+      });
+
+      it('should send comprehensive health check notification for failed status', async () => {
+        mockAxiosInstance.post.mockResolvedValueOnce({
+          status: 200,
+          data: { success: true }
+        });
+
+        const healthCheckResult = {
+          overallStatus: 'unhealthy' as const,
+          endpoints: [
+            {
+              port: 8080,
+              endpoint: 'http://example.com:8080',
+              type: 'http',
+              status: 'unhealthy' as const,
+              lastChecked: new Date('2023-01-01T00:05:00.000Z'),
+              error: 'Connection timeout',
+              responseTime: 0
+            }
+          ],
+          checkedAt: new Date('2023-01-01T00:05:00.000Z'),
+          totalResponseTime: 0
+        };
+
+        await webhookClient.sendHealthCheckNotification(
+          'https://example.com/webhook',
+          'test-instance',
+          'failed',
+          {
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 300000,
+            healthCheckResult,
+            healthCheckStatus: 'failed',
+            healthCheckStartedAt: new Date('2023-01-01T00:00:00.000Z'),
+            healthCheckCompletedAt: new Date('2023-01-01T00:05:00.000Z'),
+            error: 'Health check timeout exceeded'
+          }
+        );
+
+        expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+          'https://example.com/webhook',
+          {
+            instanceId: 'test-instance',
+            status: 'failed',
+            timestamp: expect.any(String),
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 300000,
+            healthCheck: {
+              status: 'failed',
+              overallStatus: 'unhealthy',
+              endpoints: [
+                {
+                  port: 8080,
+                  endpoint: 'http://example.com:8080',
+                  type: 'http',
+                  status: 'unhealthy',
+                  lastChecked: '2023-01-01T00:05:00.000Z',
+                  error: 'Connection timeout',
+                  responseTime: 0
+                }
+              ],
+              startedAt: '2023-01-01T00:00:00.000Z',
+              completedAt: '2023-01-01T00:05:00.000Z',
+              totalResponseTime: 0
+            },
+            error: 'Health check timeout exceeded',
+            reason: 'Health check timeout exceeded'
+          },
+          {
+            headers: {
+              'X-Webhook-Signature': expect.any(String),
+              'X-Webhook-Timestamp': expect.any(String)
+            }
+          }
+        );
+      });
+
+      it('should handle notification without health check data', async () => {
+        mockAxiosInstance.post.mockResolvedValueOnce({
+          status: 200,
+          data: { success: true }
+        });
+
+        await webhookClient.sendHealthCheckNotification(
+          'https://example.com/webhook',
+          'test-instance',
+          'health_checking',
+          {
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 30000
+          }
+        );
+
+        expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+          'https://example.com/webhook',
+          {
+            instanceId: 'test-instance',
+            status: 'health_checking',
+            timestamp: expect.any(String),
+            novitaInstanceId: 'novita-123',
+            elapsedTime: 30000,
+            reason: 'Health checks started for application endpoints'
+          },
+          {
+            headers: {
+              'X-Webhook-Signature': expect.any(String),
+              'X-Webhook-Timestamp': expect.any(String)
+            }
+          }
+        );
+      });
+    });
+  });
 });

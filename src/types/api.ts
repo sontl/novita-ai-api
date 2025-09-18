@@ -315,6 +315,8 @@ export enum InstanceStatus {
   CREATED = 'created',
   STARTING = 'starting',
   RUNNING = 'running',
+  HEALTH_CHECKING = 'health_checking',
+  READY = 'ready',
   STOPPING = 'stopping',
   STOPPED = 'stopped',
   FAILED = 'failed',
@@ -326,6 +328,32 @@ export interface NovitaListInstancesResponse {
   total: number;
   page: number;
   pageSize: number;
+}
+
+// Health Check Types
+export interface HealthCheckConfig {
+  timeoutMs: number;
+  retryAttempts: number;
+  retryDelayMs: number;
+  maxWaitTimeMs: number;
+  targetPort?: number; // If specified, only check this port
+}
+
+export interface EndpointHealthCheck {
+  port: number;
+  endpoint: string;
+  type: string;
+  status: 'pending' | 'healthy' | 'unhealthy';
+  lastChecked?: Date;
+  error?: string;
+  responseTime?: number;
+}
+
+export interface HealthCheckResult {
+  overallStatus: 'healthy' | 'unhealthy' | 'partial';
+  endpoints: EndpointHealthCheck[];
+  checkedAt: Date;
+  totalResponseTime: number;
 }
 
 // Internal Instance State Model
@@ -353,6 +381,13 @@ export interface InstanceState {
   };
   webhookUrl?: string;
   lastError?: string;
+  healthCheck?: {
+    status: 'pending' | 'in_progress' | 'completed' | 'failed';
+    config: HealthCheckConfig;
+    results: HealthCheckResult[];
+    startedAt?: Date;
+    completedAt?: Date;
+  };
 }
 
 // Job Queue Models

@@ -54,6 +54,7 @@ export interface MonitorInstanceJobPayload {
   webhookUrl?: string;
   startTime: Date;
   maxWaitTime: number; // in milliseconds
+  healthCheckConfig?: import('./api').HealthCheckConfig;
 }
 
 export interface SendWebhookJobPayload {

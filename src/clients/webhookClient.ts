@@ -6,6 +6,7 @@ import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { config } from '../config/config';
+import { HealthCheckResult, EndpointHealthCheck } from '../types/api';
 
 export interface WebhookRequest {
   url: string;
@@ -17,11 +18,28 @@ export interface WebhookRequest {
 export interface WebhookNotificationPayload {
   instanceId: string;
   novitaInstanceId?: string;
-  status: 'running' | 'failed' | 'timeout';
+  status: 'running' | 'failed' | 'timeout' | 'ready' | 'health_checking';
   timestamp: string;
   elapsedTime?: number;
   error?: string;
   data?: any;
+  healthCheck?: {
+    status: 'pending' | 'in_progress' | 'completed' | 'failed';
+    overallStatus?: 'healthy' | 'unhealthy' | 'partial';
+    endpoints?: Array<{
+      port: number;
+      endpoint: string;
+      type: string;
+      status: 'pending' | 'healthy' | 'unhealthy';
+      lastChecked?: string;
+      error?: string;
+      responseTime?: number;
+    }>;
+    startedAt?: string;
+    completedAt?: string;
+    totalResponseTime?: number;
+  };
+  reason?: string;
 }
 
 export class WebhookClient {
@@ -48,16 +66,75 @@ export class WebhookClient {
   }
 
   /**
+   * Convert HealthCheckResult to webhook format
+   */
+  private formatHealthCheckForWebhook(
+    healthCheckResult: HealthCheckResult,
+    status: 'pending' | 'in_progress' | 'completed' | 'failed',
+    startedAt?: Date,
+    completedAt?: Date
+  ): {
+    status: 'pending' | 'in_progress' | 'completed' | 'failed';
+    overallStatus: 'healthy' | 'unhealthy' | 'partial';
+    endpoints: Array<{
+      port: number;
+      endpoint: string;
+      type: string;
+      status: 'pending' | 'healthy' | 'unhealthy';
+      lastChecked?: string;
+      error?: string;
+      responseTime?: number;
+    }>;
+    startedAt?: string;
+    completedAt?: string;
+    totalResponseTime: number;
+  } {
+    return {
+      status,
+      overallStatus: healthCheckResult.overallStatus,
+      endpoints: healthCheckResult.endpoints.map(endpoint => ({
+        port: endpoint.port,
+        endpoint: endpoint.endpoint,
+        type: endpoint.type,
+        status: endpoint.status,
+        ...(endpoint.lastChecked && { lastChecked: endpoint.lastChecked.toISOString() }),
+        ...(endpoint.error && { error: endpoint.error }),
+        ...(endpoint.responseTime !== undefined && { responseTime: endpoint.responseTime })
+      })),
+      ...(startedAt && { startedAt: startedAt.toISOString() }),
+      ...(completedAt && { completedAt: completedAt.toISOString() }),
+      totalResponseTime: healthCheckResult.totalResponseTime
+    };
+  }
+
+  /**
    * Create standardized webhook notification payload
    */
   createNotificationPayload(
     instanceId: string,
-    status: 'running' | 'failed' | 'timeout',
+    status: 'running' | 'failed' | 'timeout' | 'ready' | 'health_checking',
     options: {
       novitaInstanceId?: string;
       elapsedTime?: number;
       error?: string;
       data?: any;
+      healthCheck?: {
+        status: 'pending' | 'in_progress' | 'completed' | 'failed';
+        overallStatus?: 'healthy' | 'unhealthy' | 'partial';
+        endpoints?: Array<{
+          port: number;
+          endpoint: string;
+          type: string;
+          status: 'pending' | 'healthy' | 'unhealthy';
+          lastChecked?: string;
+          error?: string;
+          responseTime?: number;
+        }>;
+        startedAt?: string;
+        completedAt?: string;
+        totalResponseTime?: number;
+      };
+      reason?: string;
     } = {}
   ): WebhookNotificationPayload {
     return {
@@ -67,7 +144,9 @@ export class WebhookClient {
       ...(options.novitaInstanceId && { novitaInstanceId: options.novitaInstanceId }),
       ...(options.elapsedTime !== undefined && { elapsedTime: options.elapsedTime }),
       ...(options.error && { error: options.error }),
-      ...(options.data && { data: options.data })
+      ...(options.data && { data: options.data }),
+      ...(options.healthCheck && { healthCheck: options.healthCheck }),
+      ...(options.reason && { reason: options.reason })
     };
   }
 
@@ -224,6 +303,203 @@ export class WebhookClient {
     const payload = this.createNotificationPayload(instanceId, 'timeout', {
       ...options,
       error: `Instance startup timeout after ${options.elapsedTime}ms`
+    });
+    
+    const request: WebhookRequest = {
+      url,
+      payload
+    };
+    
+    if (options.secret) {
+      request.secret = options.secret;
+    }
+    
+    await this.sendWebhook(request);
+  }
+
+  /**
+   * Send health check started notification webhook
+   */
+  async sendHealthCheckStartedNotification(
+    url: string,
+    instanceId: string,
+    options: {
+      novitaInstanceId?: string;
+      elapsedTime?: number;
+      healthCheck?: {
+        status: 'pending' | 'in_progress' | 'completed' | 'failed';
+        endpoints?: Array<{
+          port: number;
+          endpoint: string;
+          type: string;
+          status: 'pending' | 'healthy' | 'unhealthy';
+        }>;
+        startedAt?: string;
+      };
+      secret?: string;
+    } = {}
+  ): Promise<void> {
+    const payload = this.createNotificationPayload(instanceId, 'health_checking', {
+      ...options,
+      reason: 'Health checks started for application endpoints'
+    });
+    
+    const request: WebhookRequest = {
+      url,
+      payload
+    };
+    
+    if (options.secret) {
+      request.secret = options.secret;
+    }
+    
+    await this.sendWebhook(request);
+  }
+
+  /**
+   * Send ready notification webhook (after successful health checks)
+   */
+  async sendReadyNotification(
+    url: string,
+    instanceId: string,
+    options: {
+      novitaInstanceId?: string;
+      elapsedTime?: number;
+      data?: any;
+      healthCheck?: {
+        status: 'completed';
+        overallStatus: 'healthy';
+        endpoints?: Array<{
+          port: number;
+          endpoint: string;
+          type: string;
+          status: 'healthy';
+          lastChecked?: string;
+          responseTime?: number;
+        }>;
+        startedAt?: string;
+        completedAt?: string;
+        totalResponseTime?: number;
+      };
+      secret?: string;
+    } = {}
+  ): Promise<void> {
+    const payload = this.createNotificationPayload(instanceId, 'ready', {
+      ...options,
+      reason: 'Instance is ready - all health checks passed'
+    });
+    
+    const request: WebhookRequest = {
+      url,
+      payload
+    };
+    
+    if (options.secret) {
+      request.secret = options.secret;
+    }
+    
+    await this.sendWebhook(request);
+  }
+
+  /**
+   * Send health check failed notification webhook
+   */
+  async sendHealthCheckFailedNotification(
+    url: string,
+    instanceId: string,
+    error: string,
+    options: {
+      novitaInstanceId?: string;
+      elapsedTime?: number;
+      healthCheck?: {
+        status: 'failed';
+        overallStatus?: 'unhealthy' | 'partial';
+        endpoints?: Array<{
+          port: number;
+          endpoint: string;
+          type: string;
+          status: 'pending' | 'healthy' | 'unhealthy';
+          lastChecked?: string;
+          error?: string;
+          responseTime?: number;
+        }>;
+        startedAt?: string;
+        completedAt?: string;
+        totalResponseTime?: number;
+      };
+      secret?: string;
+    } = {}
+  ): Promise<void> {
+    const payload = this.createNotificationPayload(instanceId, 'failed', {
+      ...options,
+      error,
+      reason: 'Health checks failed - instance not ready'
+    });
+    
+    const request: WebhookRequest = {
+      url,
+      payload
+    };
+    
+    if (options.secret) {
+      request.secret = options.secret;
+    }
+    
+    await this.sendWebhook(request);
+  }
+
+  /**
+   * Send health check notification with comprehensive health check data
+   */
+  async sendHealthCheckNotification(
+    url: string,
+    instanceId: string,
+    status: 'health_checking' | 'ready' | 'failed',
+    options: {
+      novitaInstanceId?: string;
+      elapsedTime?: number;
+      data?: any;
+      healthCheckResult?: HealthCheckResult;
+      healthCheckStatus?: 'pending' | 'in_progress' | 'completed' | 'failed';
+      healthCheckStartedAt?: Date;
+      healthCheckCompletedAt?: Date;
+      error?: string;
+      secret?: string;
+    } = {}
+  ): Promise<void> {
+    let healthCheckData;
+    let reason: string;
+
+    if (options.healthCheckResult && options.healthCheckStatus) {
+      healthCheckData = this.formatHealthCheckForWebhook(
+        options.healthCheckResult,
+        options.healthCheckStatus,
+        options.healthCheckStartedAt,
+        options.healthCheckCompletedAt
+      );
+    }
+
+    switch (status) {
+      case 'health_checking':
+        reason = 'Health checks started for application endpoints';
+        break;
+      case 'ready':
+        reason = 'Instance is ready - all health checks passed';
+        break;
+      case 'failed':
+        reason = options.error || 'Health checks failed - instance not ready';
+        break;
+      default:
+        reason = 'Health check status update';
+    }
+
+    const payload = this.createNotificationPayload(instanceId, status, {
+      ...(options.novitaInstanceId && { novitaInstanceId: options.novitaInstanceId }),
+      ...(options.elapsedTime !== undefined && { elapsedTime: options.elapsedTime }),
+      ...(options.data && { data: options.data }),
+      ...(healthCheckData && { healthCheck: healthCheckData }),
+      ...(options.error && { error: options.error }),
+      reason
     });
     
     const request: WebhookRequest = {

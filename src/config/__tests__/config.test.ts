@@ -17,7 +17,7 @@ describe('Configuration Management', () => {
     // Reset configuration before each test
     resetConfig();
     // Reset environment variables and ensure NODE_ENV is test
-    process.env = { ...originalEnv, NODE_ENV: 'test' };
+    process.env = { ...originalEnv, NODE_ENV: 'test', FORCE_CONFIG_VALIDATION: 'true' };
     // Mock console.error to suppress output during tests
     console.error = jest.fn();
     // Mock process.exit to prevent test termination
@@ -338,6 +338,80 @@ describe('Configuration Management', () => {
       expect(config.security.enableHelmet).toBe(false);
       expect(config.security.rateLimitWindowMs).toBe(300000);
       expect(config.security.rateLimitMaxRequests).toBe(50);
+    });
+  });
+
+  describe('Health Check Configuration', () => {
+    it('should load health check settings with defaults', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+      };
+
+      const config = loadConfig();
+
+      expect(config.healthCheck.defaultTimeoutMs).toBe(10000);
+      expect(config.healthCheck.defaultRetryAttempts).toBe(3);
+      expect(config.healthCheck.defaultRetryDelayMs).toBe(2000);
+      expect(config.healthCheck.defaultMaxWaitTimeMs).toBe(300000);
+    });
+
+    it('should load custom health check settings', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        HEALTH_CHECK_TIMEOUT_MS: '15000',
+        HEALTH_CHECK_RETRY_ATTEMPTS: '5',
+        HEALTH_CHECK_RETRY_DELAY_MS: '3000',
+        HEALTH_CHECK_MAX_WAIT_TIME_MS: '600000',
+      };
+
+      const config = loadConfig();
+
+      expect(config.healthCheck.defaultTimeoutMs).toBe(15000);
+      expect(config.healthCheck.defaultRetryAttempts).toBe(5);
+      expect(config.healthCheck.defaultRetryDelayMs).toBe(3000);
+      expect(config.healthCheck.defaultMaxWaitTimeMs).toBe(600000);
+    });
+
+    it('should throw ConfigValidationError for invalid health check timeout', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        HEALTH_CHECK_TIMEOUT_MS: '500', // Below minimum
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+
+    it('should throw ConfigValidationError for invalid health check retry attempts', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        HEALTH_CHECK_RETRY_ATTEMPTS: '15', // Above maximum
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+
+    it('should throw ConfigValidationError for invalid health check retry delay', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        HEALTH_CHECK_RETRY_DELAY_MS: '100', // Below minimum
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+
+    it('should throw ConfigValidationError for invalid health check max wait time', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        HEALTH_CHECK_MAX_WAIT_TIME_MS: '10000', // Below minimum
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
     });
   });
 

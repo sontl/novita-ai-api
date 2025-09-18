@@ -16,7 +16,10 @@ import {
   NovitaCreateInstanceRequest,
   InstanceResponse,
   NovitaApiClientError,
-  JobType
+  JobType,
+  Port,
+  HealthCheckConfig,
+  HealthCheckResult
 } from '../types/api';
 import { JobPriority, CreateInstanceJobPayload } from '../types/job';
 import { cacheManager } from './cacheService';
@@ -356,6 +359,11 @@ export class InstanceService {
       throw new Error(`Instance state not found: ${instanceId}`);
     }
 
+    // Handle status transitions with timestamp updates
+    if (updates.status && updates.status !== instanceState.status) {
+      this.handleStatusTransition(instanceState, updates.status);
+    }
+
     // Merge updates
     Object.assign(instanceState, updates);
 
@@ -368,7 +376,8 @@ export class InstanceService {
     logger.debug('Instance state updated', {
       instanceId,
       status: instanceState.status,
-      novitaInstanceId: instanceState.novitaInstanceId
+      novitaInstanceId: instanceState.novitaInstanceId,
+      healthCheckStatus: instanceState.healthCheck?.status
     });
   }
 
@@ -729,7 +738,7 @@ export class InstanceService {
       status: instanceState.status,
       gpuNum: instanceState.configuration.gpuNum,
       region: instanceState.configuration.region,
-      portMappings: [],
+      portMappings: this.mapPortsToPortMappings(instanceState.configuration.ports),
       createdAt: instanceState.timestamps.created.toISOString()
     };
 
@@ -738,6 +747,17 @@ export class InstanceService {
     }
 
     return details;
+  }
+
+  /**
+   * Map Port[] to portMappings format
+   */
+  private mapPortsToPortMappings(ports: Port[]): Array<{port: number; endpoint: string; type: string}> {
+    return ports.map(port => ({
+      port: port.port,
+      endpoint: `http://localhost:${port.port}`, // Default endpoint format
+      type: port.type
+    }));
   }
 
 
@@ -858,6 +878,221 @@ export class InstanceService {
     }
     
     return removed;
+  }
+
+  /**
+   * Handle status transitions with appropriate timestamp updates
+   */
+  private handleStatusTransition(instanceState: InstanceState, newStatus: InstanceStatus): void {
+    const now = new Date();
+    
+    switch (newStatus) {
+      case InstanceStatus.STARTING:
+        if (!instanceState.timestamps.started) {
+          instanceState.timestamps.started = now;
+        }
+        break;
+      case InstanceStatus.HEALTH_CHECKING:
+        if (instanceState.healthCheck) {
+          instanceState.healthCheck.status = 'in_progress';
+          instanceState.healthCheck.startedAt = now;
+        }
+        break;
+      case InstanceStatus.READY:
+        if (!instanceState.timestamps.ready) {
+          instanceState.timestamps.ready = now;
+        }
+        if (instanceState.healthCheck) {
+          instanceState.healthCheck.status = 'completed';
+          instanceState.healthCheck.completedAt = now;
+        }
+        break;
+      case InstanceStatus.FAILED:
+        instanceState.timestamps.failed = now;
+        if (instanceState.healthCheck && instanceState.healthCheck.status === 'in_progress') {
+          instanceState.healthCheck.status = 'failed';
+          instanceState.healthCheck.completedAt = now;
+        }
+        break;
+    }
+
+    logger.debug('Status transition handled', {
+      instanceId: instanceState.id,
+      oldStatus: instanceState.status,
+      newStatus,
+      timestamp: now.toISOString()
+    });
+  }
+
+  /**
+   * Initialize health check for an instance
+   */
+  initializeHealthCheck(instanceId: string, config: HealthCheckConfig): void {
+    const instanceState = this.instanceStates.get(instanceId);
+    if (!instanceState) {
+      throw new Error(`Instance state not found: ${instanceId}`);
+    }
+
+    instanceState.healthCheck = {
+      status: 'pending',
+      config,
+      results: []
+    };
+
+    // Update state cache
+    this.instanceStateCache.set(instanceId, instanceState);
+
+    logger.debug('Health check initialized', {
+      instanceId,
+      config: {
+        timeoutMs: config.timeoutMs,
+        retryAttempts: config.retryAttempts,
+        maxWaitTimeMs: config.maxWaitTimeMs,
+        targetPort: config.targetPort
+      }
+    });
+  }
+
+  /**
+   * Update health check progress and results
+   */
+  updateHealthCheckProgress(instanceId: string, result: HealthCheckResult): void {
+    const instanceState = this.instanceStates.get(instanceId);
+    if (!instanceState || !instanceState.healthCheck) {
+      throw new Error(`Instance state or health check not found: ${instanceId}`);
+    }
+
+    // Add the new result
+    instanceState.healthCheck.results.push(result);
+
+    // Keep only the last 10 results to prevent memory bloat
+    if (instanceState.healthCheck.results.length > 10) {
+      instanceState.healthCheck.results = instanceState.healthCheck.results.slice(-10);
+    }
+
+    // Update state cache
+    this.instanceStateCache.set(instanceId, instanceState);
+
+    logger.debug('Health check progress updated', {
+      instanceId,
+      overallStatus: result.overallStatus,
+      endpointsChecked: result.endpoints.length,
+      healthyEndpoints: result.endpoints.filter(e => e.status === 'healthy').length,
+      totalResponseTime: result.totalResponseTime
+    });
+  }
+
+  /**
+   * Get health check status for an instance
+   */
+  getHealthCheckStatus(instanceId: string): {
+    status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'not_configured';
+    config?: HealthCheckConfig;
+    latestResult?: HealthCheckResult;
+    startedAt?: Date;
+    completedAt?: Date;
+    duration?: number;
+  } {
+    const instanceState = this.instanceStates.get(instanceId);
+    if (!instanceState) {
+      throw new Error(`Instance state not found: ${instanceId}`);
+    }
+
+    if (!instanceState.healthCheck) {
+      return { status: 'not_configured' };
+    }
+
+    const healthCheck = instanceState.healthCheck;
+    const latestResult = healthCheck.results.length > 0 
+      ? healthCheck.results[healthCheck.results.length - 1] 
+      : undefined;
+
+    let duration: number | undefined;
+    if (healthCheck.startedAt) {
+      const endTime = healthCheck.completedAt || new Date();
+      duration = endTime.getTime() - healthCheck.startedAt.getTime();
+    }
+
+    const result: {
+      status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'not_configured';
+      config?: HealthCheckConfig;
+      latestResult?: HealthCheckResult;
+      startedAt?: Date;
+      completedAt?: Date;
+      duration?: number;
+    } = {
+      status: healthCheck.status
+    };
+
+    if (healthCheck.config) result.config = healthCheck.config;
+    if (latestResult) result.latestResult = latestResult;
+    if (healthCheck.startedAt) result.startedAt = healthCheck.startedAt;
+    if (healthCheck.completedAt) result.completedAt = healthCheck.completedAt;
+    if (duration !== undefined) result.duration = duration;
+
+    return result;
+  }
+
+  /**
+   * Get detailed health check history for an instance
+   */
+  getHealthCheckHistory(instanceId: string): HealthCheckResult[] {
+    const instanceState = this.instanceStates.get(instanceId);
+    if (!instanceState || !instanceState.healthCheck) {
+      return [];
+    }
+
+    return [...instanceState.healthCheck.results]; // Return a copy
+  }
+
+  /**
+   * Check if instance is ready (has completed health checks successfully)
+   */
+  isInstanceReady(instanceId: string): boolean {
+    const instanceState = this.instanceStates.get(instanceId);
+    if (!instanceState) {
+      return false;
+    }
+
+    return instanceState.status === InstanceStatus.READY;
+  }
+
+  /**
+   * Check if instance is in health checking phase
+   */
+  isInstanceHealthChecking(instanceId: string): boolean {
+    const instanceState = this.instanceStates.get(instanceId);
+    if (!instanceState) {
+      return false;
+    }
+
+    return instanceState.status === InstanceStatus.HEALTH_CHECKING;
+  }
+
+  /**
+   * Get instances by status (useful for monitoring)
+   */
+  getInstancesByStatus(status: InstanceStatus): InstanceState[] {
+    return Array.from(this.instanceStates.values())
+      .filter(instance => instance.status === status);
+  }
+
+  /**
+   * Get instances that are currently health checking
+   */
+  getHealthCheckingInstances(): InstanceState[] {
+    return this.getInstancesByStatus(InstanceStatus.HEALTH_CHECKING);
+  }
+
+  /**
+   * Get instances that have failed health checks
+   */
+  getFailedHealthCheckInstances(): InstanceState[] {
+    return Array.from(this.instanceStates.values())
+      .filter(instance => 
+        instance.healthCheck?.status === 'failed' || 
+        (instance.status === InstanceStatus.FAILED && instance.healthCheck)
+      );
   }
 }
 

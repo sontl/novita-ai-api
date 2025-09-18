@@ -52,6 +52,12 @@ export interface Config {
     readonly enableFallbackToLocal: boolean;
     readonly novitaApiTimeout: number;
   };
+  readonly healthCheck: {
+    readonly defaultTimeoutMs: number;
+    readonly defaultRetryAttempts: number;
+    readonly defaultRetryDelayMs: number;
+    readonly defaultMaxWaitTimeMs: number;
+  };
 }
 
 /**
@@ -164,6 +170,12 @@ class ConfigLoader {
         novitaApiCacheTtl: envVars.NOVITA_API_CACHE_TTL,
         enableFallbackToLocal: envVars.ENABLE_FALLBACK_TO_LOCAL,
         novitaApiTimeout: envVars.NOVITA_API_TIMEOUT,
+      },
+      healthCheck: {
+        defaultTimeoutMs: envVars.HEALTH_CHECK_TIMEOUT_MS,
+        defaultRetryAttempts: envVars.HEALTH_CHECK_RETRY_ATTEMPTS,
+        defaultRetryDelayMs: envVars.HEALTH_CHECK_RETRY_DELAY_MS,
+        defaultMaxWaitTimeMs: envVars.HEALTH_CHECK_MAX_WAIT_TIME_MS,
       },
     };
   }
@@ -317,6 +329,35 @@ class ConfigLoader {
         .max(60000)
         .default(15000)
         .description('Timeout for Novita.ai API calls in milliseconds (5000-60000)'),
+      
+      // Health Check Configuration
+      HEALTH_CHECK_TIMEOUT_MS: Joi.number()
+        .integer()
+        .min(1000)
+        .max(60000)
+        .default(10000)
+        .description('Health check HTTP request timeout in milliseconds (1000-60000)'),
+      
+      HEALTH_CHECK_RETRY_ATTEMPTS: Joi.number()
+        .integer()
+        .min(1)
+        .max(10)
+        .default(3)
+        .description('Number of retry attempts for failed health checks (1-10)'),
+      
+      HEALTH_CHECK_RETRY_DELAY_MS: Joi.number()
+        .integer()
+        .min(500)
+        .max(30000)
+        .default(2000)
+        .description('Delay between health check retry attempts in milliseconds (500-30000)'),
+      
+      HEALTH_CHECK_MAX_WAIT_TIME_MS: Joi.number()
+        .integer()
+        .min(30000)
+        .max(1800000)
+        .default(300000)
+        .description('Maximum total wait time for health checks in milliseconds (30000-1800000)'),
     }).unknown(true); // Allow unknown environment variables
   }
 
@@ -353,6 +394,7 @@ class ConfigLoader {
       defaults: config.defaults,
       security: config.security,
       instanceListing: config.instanceListing,
+      healthCheck: config.healthCheck,
     };
   }
 }
@@ -412,7 +454,7 @@ export function getConfigSummary(): Record<string, any> {
 }
 
 // Load configuration immediately (fail-fast behavior) - except in test environment
-export const config = process.env.NODE_ENV === 'test' ? 
+export const config = process.env.NODE_ENV === 'test' && !process.env.FORCE_CONFIG_VALIDATION ? 
   createTestConfig() : 
   loadConfig();
 
@@ -452,6 +494,12 @@ function createTestConfig(): Config {
       novitaApiCacheTtl: 60,
       enableFallbackToLocal: true,
       novitaApiTimeout: 15000,
+    },
+    healthCheck: {
+      defaultTimeoutMs: 10000,
+      defaultRetryAttempts: 3,
+      defaultRetryDelayMs: 2000,
+      defaultMaxWaitTimeMs: 300000,
     },
   };
 }
