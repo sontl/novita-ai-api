@@ -3,6 +3,7 @@ import { errorHandler, notFoundHandler, ErrorCategory } from '../errorHandler';
 import { 
   ValidationError, 
   InstanceNotFoundError, 
+  InstanceNotStartableError,
   ServiceError,
   ErrorCode 
 } from '../../utils/errorHandler';
@@ -100,7 +101,7 @@ describe('Error Handler Middleware', () => {
     });
 
     it('should handle InstanceNotFoundError correctly', () => {
-      const error = new InstanceNotFoundError('test-instance-123');
+      const error = new InstanceNotFoundError('test-instance-123', 'id');
       
       errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
       
@@ -109,6 +110,23 @@ describe('Error Handler Middleware', () => {
         expect.objectContaining({
           error: expect.objectContaining({
             code: ErrorCode.INSTANCE_NOT_FOUND,
+            requestId: 'test-req-id'
+          })
+        })
+      );
+      expect(mockContextLogger.warn).toHaveBeenCalled();
+    });
+
+    it('should handle InstanceNotStartableError correctly', () => {
+      const error = new InstanceNotStartableError('test-instance-123', 'running', 'Instance is already running');
+      
+      errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
+      
+      expect(statusSpy).toHaveBeenCalledWith(400);
+      expect(jsonSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: expect.objectContaining({
+            code: ErrorCode.INSTANCE_NOT_STARTABLE,
             requestId: 'test-req-id'
           })
         })

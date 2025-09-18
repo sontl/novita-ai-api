@@ -512,6 +512,89 @@ describe('Configuration Management', () => {
     });
   });
 
+  describe('Instance Startup Configuration', () => {
+    it('should load instance startup settings with defaults', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+      };
+
+      const config = loadConfig();
+
+      expect(config.instanceStartup.defaultMaxWaitTime).toBe(600000); // 10 minutes
+      expect(config.instanceStartup.defaultHealthCheckConfig.timeoutMs).toBe(10000);
+      expect(config.instanceStartup.defaultHealthCheckConfig.retryAttempts).toBe(3);
+      expect(config.instanceStartup.defaultHealthCheckConfig.retryDelayMs).toBe(2000);
+      expect(config.instanceStartup.defaultHealthCheckConfig.maxWaitTimeMs).toBe(300000);
+      expect(config.instanceStartup.enableNameBasedLookup).toBe(true);
+      expect(config.instanceStartup.operationTimeoutMs).toBe(900000); // 15 minutes
+    });
+
+    it('should load custom instance startup settings', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        INSTANCE_STARTUP_MAX_WAIT_TIME: '1200000',
+        INSTANCE_STARTUP_HEALTH_CHECK_TIMEOUT_MS: '15000',
+        INSTANCE_STARTUP_HEALTH_CHECK_RETRY_ATTEMPTS: '5',
+        INSTANCE_STARTUP_HEALTH_CHECK_RETRY_DELAY_MS: '3000',
+        INSTANCE_STARTUP_HEALTH_CHECK_MAX_WAIT_TIME_MS: '600000',
+        INSTANCE_STARTUP_ENABLE_NAME_LOOKUP: 'false',
+        INSTANCE_STARTUP_OPERATION_TIMEOUT_MS: '1800000',
+      };
+
+      const config = loadConfig();
+
+      expect(config.instanceStartup.defaultMaxWaitTime).toBe(1200000);
+      expect(config.instanceStartup.defaultHealthCheckConfig.timeoutMs).toBe(15000);
+      expect(config.instanceStartup.defaultHealthCheckConfig.retryAttempts).toBe(5);
+      expect(config.instanceStartup.defaultHealthCheckConfig.retryDelayMs).toBe(3000);
+      expect(config.instanceStartup.defaultHealthCheckConfig.maxWaitTimeMs).toBe(600000);
+      expect(config.instanceStartup.enableNameBasedLookup).toBe(false);
+      expect(config.instanceStartup.operationTimeoutMs).toBe(1800000);
+    });
+
+    it('should throw ConfigValidationError for invalid startup max wait time', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        INSTANCE_STARTUP_MAX_WAIT_TIME: '30000', // Below minimum
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+
+    it('should throw ConfigValidationError for invalid startup health check timeout', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        INSTANCE_STARTUP_HEALTH_CHECK_TIMEOUT_MS: '500', // Below minimum
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+
+    it('should throw ConfigValidationError for invalid startup health check retry attempts', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        INSTANCE_STARTUP_HEALTH_CHECK_RETRY_ATTEMPTS: '15', // Above maximum
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+
+    it('should throw ConfigValidationError for invalid startup operation timeout', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        INSTANCE_STARTUP_OPERATION_TIMEOUT_MS: '30000', // Below minimum
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+  });
+
   describe('Edge Cases', () => {
     it('should handle string boolean values correctly', () => {
       process.env = {

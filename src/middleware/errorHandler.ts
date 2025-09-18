@@ -10,6 +10,7 @@ import {
 import { 
   ValidationError, 
   InstanceNotFoundError, 
+  InstanceNotStartableError,
   ServiceError,
   ErrorCode 
 } from '../utils/errorHandler';
@@ -55,6 +56,16 @@ const classifyError = (error: Error): {
     return {
       statusCode: 404,
       errorCode: ErrorCode.INSTANCE_NOT_FOUND,
+      category: ErrorCategory.CLIENT_ERROR,
+      isRetryable: false
+    };
+  }
+
+  // Instance not startable errors
+  if (error instanceof InstanceNotStartableError) {
+    return {
+      statusCode: 400,
+      errorCode: ErrorCode.INSTANCE_NOT_STARTABLE,
       category: ErrorCategory.CLIENT_ERROR,
       isRetryable: false
     };
@@ -274,6 +285,7 @@ const getSafeErrorMessage = (error: Error, statusCode: number): string => {
     // Allow user-facing error messages
     if (error instanceof ValidationError || 
         error instanceof InstanceNotFoundError ||
+        error instanceof InstanceNotStartableError ||
         error instanceof RateLimitError ||
         statusCode < 500) {
       return error.message;

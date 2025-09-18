@@ -67,6 +67,17 @@ export interface Config {
     readonly retryFailedMigrations: boolean;
     readonly logLevel: string;
   };
+  readonly instanceStartup: {
+    readonly defaultMaxWaitTime: number;
+    readonly defaultHealthCheckConfig: {
+      readonly timeoutMs: number;
+      readonly retryAttempts: number;
+      readonly retryDelayMs: number;
+      readonly maxWaitTimeMs: number;
+    };
+    readonly enableNameBasedLookup: boolean;
+    readonly operationTimeoutMs: number;
+  };
 }
 
 /**
@@ -199,6 +210,17 @@ class ConfigLoader {
         dryRunMode: envVars.MIGRATION_DRY_RUN,
         retryFailedMigrations: envVars.MIGRATION_RETRY_FAILED,
         logLevel: envVars.MIGRATION_LOG_LEVEL,
+      },
+      instanceStartup: {
+        defaultMaxWaitTime: envVars.INSTANCE_STARTUP_MAX_WAIT_TIME,
+        defaultHealthCheckConfig: {
+          timeoutMs: envVars.INSTANCE_STARTUP_HEALTH_CHECK_TIMEOUT_MS,
+          retryAttempts: envVars.INSTANCE_STARTUP_HEALTH_CHECK_RETRY_ATTEMPTS,
+          retryDelayMs: envVars.INSTANCE_STARTUP_HEALTH_CHECK_RETRY_DELAY_MS,
+          maxWaitTimeMs: envVars.INSTANCE_STARTUP_HEALTH_CHECK_MAX_WAIT_TIME_MS,
+        },
+        enableNameBasedLookup: envVars.INSTANCE_STARTUP_ENABLE_NAME_LOOKUP,
+        operationTimeoutMs: envVars.INSTANCE_STARTUP_OPERATION_TIMEOUT_MS,
       },
     };
   }
@@ -420,6 +442,53 @@ class ConfigLoader {
         .valid('error', 'warn', 'info', 'debug')
         .default('info')
         .description('Migration-specific log level'),
+      
+      // Instance Startup Configuration
+      INSTANCE_STARTUP_MAX_WAIT_TIME: Joi.number()
+        .integer()
+        .min(60000)
+        .max(1800000)
+        .default(600000)
+        .description('Default maximum wait time for instance startup in milliseconds (60000-1800000)'),
+      
+      INSTANCE_STARTUP_HEALTH_CHECK_TIMEOUT_MS: Joi.number()
+        .integer()
+        .min(1000)
+        .max(60000)
+        .default(10000)
+        .description('Default health check timeout for startup operations in milliseconds (1000-60000)'),
+      
+      INSTANCE_STARTUP_HEALTH_CHECK_RETRY_ATTEMPTS: Joi.number()
+        .integer()
+        .min(1)
+        .max(10)
+        .default(3)
+        .description('Default number of health check retry attempts during startup (1-10)'),
+      
+      INSTANCE_STARTUP_HEALTH_CHECK_RETRY_DELAY_MS: Joi.number()
+        .integer()
+        .min(500)
+        .max(30000)
+        .default(2000)
+        .description('Default delay between health check retries during startup in milliseconds (500-30000)'),
+      
+      INSTANCE_STARTUP_HEALTH_CHECK_MAX_WAIT_TIME_MS: Joi.number()
+        .integer()
+        .min(30000)
+        .max(1800000)
+        .default(300000)
+        .description('Default maximum wait time for health checks during startup in milliseconds (30000-1800000)'),
+      
+      INSTANCE_STARTUP_ENABLE_NAME_LOOKUP: Joi.boolean()
+        .default(true)
+        .description('Enable instance lookup by name for startup operations'),
+      
+      INSTANCE_STARTUP_OPERATION_TIMEOUT_MS: Joi.number()
+        .integer()
+        .min(60000)
+        .max(3600000)
+        .default(900000)
+        .description('Timeout for startup operations in milliseconds (60000-3600000)'),
     }).unknown(true); // Allow unknown environment variables
   }
 
@@ -458,6 +527,7 @@ class ConfigLoader {
       instanceListing: config.instanceListing,
       healthCheck: config.healthCheck,
       migration: config.migration,
+      instanceStartup: config.instanceStartup,
     };
   }
 }
@@ -572,6 +642,17 @@ function createTestConfig(): Config {
       dryRunMode: false,
       retryFailedMigrations: true,
       logLevel: 'info',
+    },
+    instanceStartup: {
+      defaultMaxWaitTime: 600000, // 10 minutes
+      defaultHealthCheckConfig: {
+        timeoutMs: 10000,
+        retryAttempts: 3,
+        retryDelayMs: 2000,
+        maxWaitTimeMs: 300000,
+      },
+      enableNameBasedLookup: true,
+      operationTimeoutMs: 900000, // 15 minutes
     },
   };
 }

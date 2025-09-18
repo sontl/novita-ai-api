@@ -1,9 +1,8 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response } from 'express';
 import { instanceService } from '../services/instanceService';
-import { validateCreateInstance, validateInstanceId } from '../types/validation';
+import { validateCreateInstance, validateInstanceId, validateStartInstance } from '../types/validation';
 import { createContextLogger, LogContext } from '../utils/logger';
 import { asyncHandler } from '../utils/errorHandler';
-import { NovitaApiClientError } from '../types/api';
 import { config } from '../config/config';
 
 const router = Router();
@@ -231,6 +230,171 @@ router.get('/comprehensive', asyncHandler(async (req: Request, res: Response): P
   });
 
   res.json(result);
+}));
+
+/**
+ * POST /api/instances/:instanceId/start
+ * Start instance by ID
+ */
+router.post('/:instanceId/start', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+  const { instanceId } = req.params;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'start_instance_by_id',
+    instanceId
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Instance start request received (by ID)', {
+    instanceId,
+    requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+  });
+
+  // Validate instance ID
+  const instanceIdValidation = validateInstanceId(instanceId);
+  if (instanceIdValidation.error) {
+    contextLogger.warn('Invalid instance ID provided', {
+      validationError: instanceIdValidation.error.message
+    });
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError(instanceIdValidation.error.message, instanceIdValidation.error.details);
+  }
+
+  // Validate request body
+  const bodyValidation = validateStartInstance(req.body);
+  if (bodyValidation.error) {
+    contextLogger.warn('Instance start validation failed', {
+      validationErrors: bodyValidation.error.details
+    });
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError(bodyValidation.error.message, bodyValidation.error.details);
+  }
+
+  // Start instance by ID
+  const startTime = Date.now();
+  try {
+    const result = await instanceService.startInstance(
+      instanceIdValidation.value,
+      bodyValidation.value,
+      'id'
+    );
+    const duration = Date.now() - startTime;
+
+    contextLogger.info('Instance start initiated successfully', {
+      instanceId: result.instanceId,
+      novitaInstanceId: result.novitaInstanceId,
+      operationId: result.operationId,
+      status: result.status,
+      duration
+    });
+
+    res.status(202).json(result);
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    
+    // Enhanced error logging for startup operations
+    contextLogger.error('Instance start failed', {
+      instanceId: instanceIdValidation.value,
+      error: (error as Error).message,
+      errorType: (error as Error).name,
+      duration,
+      requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+    });
+
+    throw error;
+  }
+}));
+
+/**
+ * POST /api/instances/start
+ * Start instance by name (provided in request body)
+ */
+router.post('/start', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'start_instance_by_name'
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Instance start request received (by name)', {
+    requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+  });
+
+  // Validate request body
+  const bodyValidation = validateStartInstance(req.body);
+  if (bodyValidation.error) {
+    contextLogger.warn('Instance start validation failed', {
+      validationErrors: bodyValidation.error.details
+    });
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError(bodyValidation.error.message, bodyValidation.error.details);
+  }
+
+  // Ensure instanceName is provided for name-based starting
+  if (!bodyValidation.value.instanceName) {
+    contextLogger.warn('Instance name not provided for name-based start');
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError('Instance name is required for name-based starting', [{
+      field: 'instanceName',
+      message: 'Instance name is required for name-based starting',
+      value: undefined
+    }]);
+  }
+
+  // Add instanceName to context for logging
+  const contextWithName: LogContext = {
+    ...context,
+    instanceName: bodyValidation.value.instanceName
+  };
+  const contextLoggerWithName = createContextLogger(contextWithName);
+
+  // Start instance by name
+  const startTime = Date.now();
+  try {
+    const result = await instanceService.startInstance(
+      bodyValidation.value.instanceName,
+      bodyValidation.value,
+      'name'
+    );
+    const duration = Date.now() - startTime;
+
+    contextLoggerWithName.info('Instance start initiated successfully', {
+      instanceId: result.instanceId,
+      novitaInstanceId: result.novitaInstanceId,
+      operationId: result.operationId,
+      status: result.status,
+      duration
+    });
+
+    res.status(202).json(result);
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    
+    // Enhanced error logging for startup operations
+    contextLoggerWithName.error('Instance start by name failed', {
+      instanceName: bodyValidation.value.instanceName,
+      error: (error as Error).message,
+      errorType: (error as Error).name,
+      duration,
+      requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+    });
+
+    throw error;
+  }
 }));
 
 export { router as instancesRouter };

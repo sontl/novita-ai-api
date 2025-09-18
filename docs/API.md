@@ -36,6 +36,13 @@ Returns the health status of the API service and its dependencies.
     "novitaApi": "healthy",
     "cache": "healthy"
   },
+  "migrationService": {
+    "enabled": true,
+    "lastExecution": "2024-01-15T10:15:00.000Z",
+    "nextExecution": "2024-01-15T10:30:00.000Z",
+    "status": "healthy",
+    "recentErrors": 0
+  },
   "version": "1.0.0"
 }
 ```
@@ -220,6 +227,122 @@ Returns operational metrics for monitoring and observability.
 
 ---
 
+### Migration Management
+
+#### GET /api/migration/status
+
+Returns the current status of the spot instance migration service.
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "lastExecution": {
+    "startedAt": "2024-01-15T10:15:00.000Z",
+    "completedAt": "2024-01-15T10:16:30.000Z",
+    "duration": 90000,
+    "status": "completed"
+  },
+  "nextExecution": "2024-01-15T10:30:00.000Z",
+  "statistics": {
+    "totalExecutions": 48,
+    "successfulExecutions": 46,
+    "failedExecutions": 2,
+    "totalInstancesProcessed": 1250,
+    "totalMigrations": 23,
+    "averageExecutionTime": 85000
+  },
+  "configuration": {
+    "intervalMinutes": 15,
+    "maxConcurrent": 5,
+    "dryRunMode": false,
+    "retryFailed": true
+  }
+}
+```
+
+**Status Codes:**
+- `200 OK` - Migration status retrieved
+- `500 Internal Server Error` - Server error
+
+---
+
+#### POST /api/migration/trigger
+
+Manually triggers a migration job execution (for testing or immediate migration needs).
+
+**Request Body:**
+```json
+{
+  "dryRun": false,
+  "maxMigrations": 10
+}
+```
+
+**Request Parameters:**
+- `dryRun` (boolean, optional) - Run in dry-run mode without executing migrations
+- `maxMigrations` (number, optional) - Limit the number of migrations in this execution
+
+**Response:**
+```json
+{
+  "jobId": "migration-job-abc123",
+  "status": "queued",
+  "message": "Migration job queued for execution",
+  "estimatedStartTime": "2024-01-15T10:31:00.000Z"
+}
+```
+
+**Status Codes:**
+- `202 Accepted` - Migration job queued
+- `400 Bad Request` - Invalid request parameters
+- `409 Conflict` - Migration job already in progress
+- `500 Internal Server Error` - Server error
+
+---
+
+#### GET /api/migration/history
+
+Returns the history of recent migration job executions.
+
+**Query Parameters:**
+- `limit` (number, optional) - Maximum number of executions to return (default: 20, max: 100)
+- `offset` (number, optional) - Number of executions to skip (default: 0)
+- `status` (string, optional) - Filter by execution status (completed, failed, running)
+
+**Response:**
+```json
+{
+  "executions": [
+    {
+      "jobId": "migration-job-abc123",
+      "startedAt": "2024-01-15T10:15:00.000Z",
+      "completedAt": "2024-01-15T10:16:30.000Z",
+      "status": "completed",
+      "duration": 90000,
+      "summary": {
+        "totalInstances": 45,
+        "exitedInstances": 3,
+        "eligibleInstances": 2,
+        "migratedInstances": 2,
+        "skippedInstances": 1,
+        "errorCount": 0
+      },
+      "errors": []
+    }
+  ],
+  "total": 48,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+**Status Codes:**
+- `200 OK` - Migration history retrieved
+- `500 Internal Server Error` - Server error
+
+---
+
 ## Instance Status Values
 
 - `creating` - Instance is being created via Novita.ai API
@@ -227,6 +350,7 @@ Returns operational metrics for monitoring and observability.
 - `running` - Instance is fully operational and ready for use
 - `failed` - Instance creation or startup failed
 - `stopped` - Instance has been stopped
+- `exited` - Instance has been terminated (potentially eligible for migration)
 
 ## Webhook Notifications
 
@@ -266,6 +390,31 @@ When a webhook URL is provided, the service will send POST requests to notify ab
 }
 ```
 
+### Webhook Payload - Migration
+
+```json
+{
+  "event": "instance.migrated",
+  "instanceId": "inst-abc123",
+  "originalInstanceId": "inst-xyz789",
+  "status": "running",
+  "timestamp": "2024-01-15T10:45:00.000Z",
+  "migration": {
+    "reason": "spot_reclaim",
+    "triggeredBy": "automatic_migration",
+    "migrationTime": 45000
+  },
+  "instance": {
+    "id": "inst-abc123",
+    "name": "migrated-gpu-instance",
+    "connectionDetails": {
+      "ssh": "ssh root@inst-abc123.novita.ai",
+      "jupyter": "https://inst-abc123.novita.ai:8888"
+    }
+  }
+}
+```
+
 ## Error Responses
 
 All error responses follow a consistent format:
@@ -292,6 +441,8 @@ All error responses follow a consistent format:
 - `INSTANCE_NOT_FOUND` - Requested instance does not exist
 - `NOVITA_API_ERROR` - Error from Novita.ai API
 - `RATE_LIMIT_EXCEEDED` - API rate limit exceeded
+- `MIGRATION_ERROR` - Error during instance migration
+- `MIGRATION_JOB_CONFLICT` - Migration job already in progress
 - `INTERNAL_ERROR` - Internal server error
 
 ## Rate Limiting

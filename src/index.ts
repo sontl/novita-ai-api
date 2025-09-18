@@ -15,6 +15,9 @@ import { instancesRouter } from './routes/instances';
 import { metricsRouter } from './routes/metrics';
 import cacheRouter from './routes/cache';
 import { jobWorkerService } from './services/jobWorkerService';
+import { createMigrationScheduler } from './services/migrationScheduler';
+import { jobQueueService } from './services/jobQueueService';
+import { serviceRegistry } from './services/serviceRegistry';
 
 const app = express();
 
@@ -94,37 +97,47 @@ if (config.nodeEnv !== 'test') {
   jobWorkerService.start();
   logger.info('Job worker service started');
   
+  // Initialize and start migration scheduler
+  const migrationScheduler = createMigrationScheduler(config, jobQueueService);
+  serviceRegistry.registerMigrationScheduler(migrationScheduler);
+  migrationScheduler.start();
+  logger.info('Migration scheduler initialized', {
+    enabled: config.migration.enabled,
+    intervalMs: config.migration.scheduleIntervalMs
+  });
+  
   const server = app.listen(config.port, () => {
     logger.info(`Server running on port ${config.port}`);
     logger.info(`Environment: ${config.nodeEnv}`);
   });
 
-  // Graceful shutdown
-  process.on('SIGTERM', () => {
-    logger.info('SIGTERM received, shutting down gracefully');
-    jobWorkerService.shutdown(10000).then(() => {
+  // Graceful shutdown helper function
+  const gracefulShutdown = async (signal: string) => {
+    logger.info(`${signal} received, shutting down gracefully`);
+    
+    try {
+      // Shutdown migration scheduler first
+      await migrationScheduler.shutdown(10000);
+      logger.info('Migration scheduler shutdown complete');
+      
+      // Then shutdown job worker service
+      await jobWorkerService.shutdown(10000);
+      logger.info('Job worker service shutdown complete');
+      
+      // Finally close the server
       server.close(() => {
         logger.info('Process terminated');
         process.exit(0);
       });
-    }).catch((error) => {
-      logger.error('Error during shutdown', { error: error.message });
+    } catch (error) {
+      logger.error(`Error during ${signal} shutdown`, { error: (error as Error).message });
       process.exit(1);
-    });
-  });
+    }
+  };
 
-  process.on('SIGINT', () => {
-    logger.info('SIGINT received, shutting down gracefully');
-    jobWorkerService.shutdown(10000).then(() => {
-      server.close(() => {
-        logger.info('Process terminated');
-        process.exit(0);
-      });
-    }).catch((error) => {
-      logger.error('Error during shutdown', { error: error.message });
-      process.exit(1);
-    });
-  });
+  // Graceful shutdown
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 }
 
 export { app };

@@ -18,7 +18,51 @@ jest.mock('../../config/config', () => ({
       region: 'CN-HK-01',
       pollInterval: 30,
       maxRetryAttempts: 3,
-      requestTimeout: 30000
+      requestTimeout: 30000,
+      webhookTimeout: 10000,
+      cacheTimeout: 300,
+      maxConcurrentJobs: 10
+    },
+    security: {
+      enableCors: true,
+      enableHelmet: false,
+      rateLimitWindowMs: 60000,
+      rateLimitMaxRequests: 100
+    },
+    instanceListing: {
+      enableComprehensiveListing: false,
+      defaultIncludeNovitaOnly: false,
+      defaultSyncLocalState: false,
+      comprehensiveCacheTtl: 300,
+      novitaApiCacheTtl: 60,
+      enableFallbackToLocal: true,
+      novitaApiTimeout: 30000
+    },
+    healthCheck: {
+      defaultTimeoutMs: 30000,
+      defaultRetryAttempts: 3,
+      defaultRetryDelayMs: 2000,
+      defaultMaxWaitTimeMs: 600000
+    },
+    migration: {
+      enabled: false,
+      scheduleIntervalMs: 300000,
+      jobTimeoutMs: 600000,
+      maxConcurrentMigrations: 3,
+      dryRunMode: false,
+      retryFailedMigrations: true,
+      logLevel: 'info'
+    },
+    instanceStartup: {
+      defaultMaxWaitTime: 600000,
+      defaultHealthCheckConfig: {
+        timeoutMs: 30000,
+        retryAttempts: 3,
+        retryDelayMs: 2000,
+        maxWaitTimeMs: 600000
+      },
+      enableNameBasedLookup: true,
+      operationTimeoutMs: 1800000
     }
   }
 }));
@@ -28,7 +72,7 @@ jest.mock('../../services/instanceService');
 
 import { app } from '../../index';
 import { instanceService } from '../../services/instanceService';
-import { CreateInstanceResponse, InstanceDetails, ListInstancesResponse, NovitaApiClientError } from '../../types/api';
+import { CreateInstanceResponse, InstanceDetails, ListInstancesResponse, StartInstanceResponse, NovitaApiClientError, InstanceStatus } from '../../types/api';
 
 const mockInstanceService = instanceService as jest.Mocked<typeof instanceService>;
 
@@ -318,6 +362,228 @@ describe('Instances API Routes', () => {
         .expect(500);
 
       expect(response.body.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  describe('POST /api/instances/:instanceId/start', () => {
+    const mockStartResponse: StartInstanceResponse = {
+      instanceId: 'inst_123',
+      novitaInstanceId: 'novita_456',
+      status: InstanceStatus.STARTING,
+      message: 'Instance start initiated successfully',
+      operationId: 'op_789',
+      estimatedReadyTime: new Date(Date.now() + 5 * 60 * 1000).toISOString()
+    };
+
+    it('should start instance by ID successfully', async () => {
+      mockInstanceService.startInstance.mockResolvedValue(mockStartResponse);
+
+      const response = await request(app)
+        .post('/api/instances/inst_123/start')
+        .send({})
+        .expect(202);
+
+      expect(response.body).toEqual(mockStartResponse);
+      expect(mockInstanceService.startInstance).toHaveBeenCalledWith('inst_123', {}, 'id');
+    });
+
+    it('should start instance with custom health check config', async () => {
+      const requestBody = {
+        healthCheckConfig: {
+          timeoutMs: 15000,
+          retryAttempts: 5,
+          retryDelayMs: 3000,
+          maxWaitTimeMs: 900000
+        },
+        targetPort: 8080,
+        webhookUrl: 'https://example.com/webhook'
+      };
+
+      mockInstanceService.startInstance.mockResolvedValue(mockStartResponse);
+
+      const response = await request(app)
+        .post('/api/instances/inst_123/start')
+        .send(requestBody)
+        .expect(202);
+
+      expect(response.body).toEqual(mockStartResponse);
+      expect(mockInstanceService.startInstance).toHaveBeenCalledWith('inst_123', requestBody, 'id');
+    });
+
+    it('should return 400 for invalid instance ID format', async () => {
+      const response = await request(app)
+        .post('/api/instances/invalid@id/start')
+        .send({})
+        .expect(400);
+
+      expect(response.body.error.code).toBe('VALIDATION_ERROR');
+      expect(mockInstanceService.startInstance).not.toHaveBeenCalled();
+    });
+
+    it('should return 400 for invalid health check config', async () => {
+      const invalidRequest = {
+        healthCheckConfig: {
+          timeoutMs: 500, // Too small
+          retryAttempts: 15, // Too large
+          targetPort: 70000 // Invalid port
+        }
+      };
+
+      const response = await request(app)
+        .post('/api/instances/inst_123/start')
+        .send(invalidRequest)
+        .expect(400);
+
+      expect(response.body.error.code).toBe('VALIDATION_ERROR');
+      expect(mockInstanceService.startInstance).not.toHaveBeenCalled();
+    });
+
+    it('should handle instance not found error', async () => {
+      const notFoundError = new NovitaApiClientError(
+        'Instance not found: inst_999',
+        404,
+        'INSTANCE_NOT_FOUND'
+      );
+
+      mockInstanceService.startInstance.mockRejectedValue(notFoundError);
+
+      const response = await request(app)
+        .post('/api/instances/inst_999/start')
+        .send({})
+        .expect(404);
+
+      expect(response.body.error.code).toBe('INSTANCE_NOT_FOUND');
+    });
+
+    it('should handle instance not startable error', async () => {
+      const notStartableError = new NovitaApiClientError(
+        'Instance cannot be started: already running',
+        400,
+        'INSTANCE_NOT_STARTABLE'
+      );
+
+      mockInstanceService.startInstance.mockRejectedValue(notStartableError);
+
+      const response = await request(app)
+        .post('/api/instances/inst_123/start')
+        .send({})
+        .expect(400);
+
+      expect(response.body.error.code).toBe('INSTANCE_NOT_STARTABLE');
+    });
+  });
+
+  describe('POST /api/instances/start', () => {
+    const mockStartResponse: StartInstanceResponse = {
+      instanceId: 'inst_123',
+      novitaInstanceId: 'novita_456',
+      status: InstanceStatus.STARTING,
+      message: 'Instance start initiated successfully',
+      operationId: 'op_789',
+      estimatedReadyTime: new Date(Date.now() + 5 * 60 * 1000).toISOString()
+    };
+
+    it('should start instance by name successfully', async () => {
+      const requestBody = {
+        instanceName: 'test-instance'
+      };
+
+      mockInstanceService.startInstance.mockResolvedValue(mockStartResponse);
+
+      const response = await request(app)
+        .post('/api/instances/start')
+        .send(requestBody)
+        .expect(202);
+
+      expect(response.body).toEqual(mockStartResponse);
+      expect(mockInstanceService.startInstance).toHaveBeenCalledWith('test-instance', requestBody, 'name');
+    });
+
+    it('should start instance by name with custom config', async () => {
+      const requestBody = {
+        instanceName: 'test-instance',
+        healthCheckConfig: {
+          timeoutMs: 20000,
+          retryAttempts: 2,
+          retryDelayMs: 1000,
+          maxWaitTimeMs: 300000
+        },
+        targetPort: 3000,
+        webhookUrl: 'https://example.com/webhook'
+      };
+
+      mockInstanceService.startInstance.mockResolvedValue(mockStartResponse);
+
+      const response = await request(app)
+        .post('/api/instances/start')
+        .send(requestBody)
+        .expect(202);
+
+      expect(response.body).toEqual(mockStartResponse);
+      expect(mockInstanceService.startInstance).toHaveBeenCalledWith('test-instance', requestBody, 'name');
+    });
+
+    it('should return 400 when instanceName is missing', async () => {
+      const requestBody = {
+        healthCheckConfig: {
+          timeoutMs: 15000
+        }
+      };
+
+      const response = await request(app)
+        .post('/api/instances/start')
+        .send(requestBody)
+        .expect(400);
+
+      expect(response.body.error.code).toBe('VALIDATION_ERROR');
+      expect(response.body.error.message).toContain('Instance name is required');
+      expect(mockInstanceService.startInstance).not.toHaveBeenCalled();
+    });
+
+    it('should return 400 for invalid instance name format', async () => {
+      const requestBody = {
+        instanceName: 'invalid@name!'
+      };
+
+      const response = await request(app)
+        .post('/api/instances/start')
+        .send(requestBody)
+        .expect(400);
+
+      expect(response.body.error.code).toBe('VALIDATION_ERROR');
+      expect(mockInstanceService.startInstance).not.toHaveBeenCalled();
+    });
+
+    it('should handle instance not found by name error', async () => {
+      const notFoundError = new NovitaApiClientError(
+        'Instance not found: test-instance',
+        404,
+        'INSTANCE_NOT_FOUND'
+      );
+
+      mockInstanceService.startInstance.mockRejectedValue(notFoundError);
+
+      const response = await request(app)
+        .post('/api/instances/start')
+        .send({ instanceName: 'test-instance' })
+        .expect(404);
+
+      expect(response.body.error.code).toBe('INSTANCE_NOT_FOUND');
+    });
+
+    it('should return 400 for invalid webhook URL', async () => {
+      const requestBody = {
+        instanceName: 'test-instance',
+        webhookUrl: 'invalid-url'
+      };
+
+      const response = await request(app)
+        .post('/api/instances/start')
+        .send(requestBody)
+        .expect(400);
+
+      expect(response.body.error.code).toBe('VALIDATION_ERROR');
+      expect(mockInstanceService.startInstance).not.toHaveBeenCalled();
     });
   });
 

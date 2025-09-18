@@ -24,6 +24,22 @@ export interface CreateInstanceResponse {
   estimatedReadyTime?: string;
 }
 
+export interface StartInstanceRequest {
+  instanceName?: string; // For name-based starting
+  healthCheckConfig?: HealthCheckConfig;
+  targetPort?: number;
+  webhookUrl?: string;
+}
+
+export interface StartInstanceResponse {
+  instanceId: string;
+  novitaInstanceId: string;
+  status: InstanceStatus;
+  message: string;
+  operationId: string;
+  estimatedReadyTime?: string;
+}
+
 export interface InstanceDetails {
   id: string;
   name: string;
@@ -113,6 +129,7 @@ export interface HealthCheckResponse {
     novitaApi: 'up' | 'down';
     jobQueue: 'up' | 'down';
     cache: 'up' | 'down';
+    migrationService: 'up' | 'down';
   };
   uptime: number;
 }
@@ -137,6 +154,15 @@ export interface EnhancedHealthCheckResponse extends HealthCheckResponse {
     };
   };
   dependencies: Record<string, any>;
+  migrationService: {
+    enabled: boolean;
+    lastExecution?: string;
+    nextExecution?: string;
+    status: 'healthy' | 'unhealthy' | 'disabled';
+    recentErrors: number;
+    totalExecutions: number;
+    uptime: number;
+  };
 }
 
 export interface NovitaApiResponse<T = any> {
@@ -391,6 +417,23 @@ export interface InstanceState {
   };
 }
 
+export interface StartupOperation {
+  operationId: string;
+  instanceId: string;
+  novitaInstanceId: string;
+  status: 'initiated' | 'monitoring' | 'health_checking' | 'completed' | 'failed';
+  startedAt: Date;
+  phases: {
+    startRequested: Date;
+    instanceStarting?: Date;
+    instanceRunning?: Date;
+    healthCheckStarted?: Date;
+    healthCheckCompleted?: Date;
+    ready?: Date;
+  };
+  error?: string;
+}
+
 // Job Queue Models
 export enum JobType {
   CREATE_INSTANCE = 'create_instance',
@@ -416,6 +459,16 @@ export interface Job {
   processedAt?: Date;
   completedAt?: Date;
   error?: string;
+}
+
+export interface StartInstanceJobPayload {
+  instanceId: string;
+  novitaInstanceId: string;
+  webhookUrl?: string;
+  healthCheckConfig: HealthCheckConfig;
+  targetPort?: number;
+  startTime: Date;
+  maxWaitTime: number;
 }
 
 // Webhook payload types

@@ -456,6 +456,191 @@ else
 fi
 ```
 
+## Migration Service Monitoring
+
+### Migration-Specific Monitoring
+
+#### Migration Service Health Monitoring
+```bash
+#!/bin/bash
+# scripts/migration-health-check.sh
+
+echo "🔄 Migration Service Health Check"
+
+# Check migration service status
+MIGRATION_STATUS=$(curl -s http://localhost:3000/api/migration/status)
+ENABLED=$(echo "$MIGRATION_STATUS" | jq -r '.enabled')
+LAST_EXECUTION=$(echo "$MIGRATION_STATUS" | jq -r '.lastExecution.status')
+
+echo "Migration enabled: $ENABLED"
+echo "Last execution status: $LAST_EXECUTION"
+
+if [ "$ENABLED" = "true" ]; then
+    # Check if migration is running on schedule
+    NEXT_EXECUTION=$(echo "$MIGRATION_STATUS" | jq -r '.nextExecution')
+    CURRENT_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    
+    echo "Next execution: $NEXT_EXECUTION"
+    echo "Current time: $CURRENT_TIME"
+    
+    # Check for overdue executions (more than 20 minutes past schedule)
+    if [ "$NEXT_EXECUTION" != "null" ]; then
+        NEXT_EPOCH=$(date -d "$NEXT_EXECUTION" +%s 2>/dev/null || echo "0")
+        CURRENT_EPOCH=$(date +%s)
+        DELAY=$((CURRENT_EPOCH - NEXT_EPOCH))
+        
+        if [ $DELAY -gt 1200 ]; then  # 20 minutes
+            echo "⚠️  Migration execution is overdue by $((DELAY / 60)) minutes"
+        fi
+    fi
+    
+    # Check recent execution success rate
+    SUCCESS_RATE=$(echo "$MIGRATION_STATUS" | jq -r '.statistics.successfulExecutions / .statistics.totalExecutions * 100')
+    if (( $(echo "$SUCCESS_RATE < 90" | bc -l) )); then
+        echo "⚠️  Migration success rate is low: ${SUCCESS_RATE}%"
+    fi
+else
+    echo "ℹ️  Migration service is disabled"
+fi
+```
+
+#### Migration Performance Monitoring
+```bash
+#!/bin/bash
+# scripts/migration-performance.sh
+
+echo "📊 Migration Performance Analysis"
+
+# Get migration statistics
+MIGRATION_STATUS=$(curl -s http://localhost:3000/api/migration/status)
+STATS=$(echo "$MIGRATION_STATUS" | jq '.statistics')
+
+echo "Migration Statistics:"
+echo "$STATS" | jq '{
+    total_executions: .totalExecutions,
+    success_rate: (.successfulExecutions / .totalExecutions * 100),
+    total_instances_processed: .totalInstancesProcessed,
+    total_migrations_performed: .totalMigrations,
+    avg_execution_time_seconds: (.averageExecutionTime / 1000)
+}'
+
+# Check recent execution history for trends
+HISTORY=$(curl -s http://localhost:3000/api/migration/history?limit=10)
+echo "Recent Execution Trends:"
+echo "$HISTORY" | jq '.executions[] | {
+    jobId: .jobId,
+    status: .status,
+    duration_seconds: (.duration / 1000),
+    migrations_performed: .summary.migratedInstances,
+    error_count: .summary.errorCount
+}'
+
+# Alert on performance issues
+AVG_DURATION=$(echo "$STATS" | jq -r '.averageExecutionTime')
+if [ "$AVG_DURATION" != "null" ] && (( $(echo "$AVG_DURATION > 300000" | bc -l) )); then
+    echo "⚠️  Average execution time is high: $((AVG_DURATION / 1000)) seconds"
+fi
+
+MIGRATION_RATE=$(echo "$STATS" | jq -r '.totalMigrations / .totalInstancesProcessed * 100')
+if [ "$MIGRATION_RATE" != "null" ] && (( $(echo "$MIGRATION_RATE > 10" | bc -l) )); then
+    echo "⚠️  High migration rate detected: ${MIGRATION_RATE}% of instances are being migrated"
+fi
+```
+
+#### Spot Instance Monitoring
+```bash
+#!/bin/bash
+# scripts/spot-instance-monitoring.sh
+
+echo "🖥️ Spot Instance Status Monitoring"
+
+# Check for instances in exited state that might need migration
+INSTANCES=$(curl -s http://localhost:3000/api/instances)
+EXITED_COUNT=$(echo "$INSTANCES" | jq '[.instances[] | select(.status == "exited")] | length')
+
+echo "Instances in 'exited' state: $EXITED_COUNT"
+
+if [ "$EXITED_COUNT" -gt 0 ]; then
+    echo "Exited instances details:"
+    echo "$INSTANCES" | jq '.instances[] | select(.status == "exited") | {
+        id: .id,
+        name: .name,
+        region: .region,
+        exitedAt: .exitedAt
+    }'
+    
+    # Check if migration service is handling these
+    LAST_MIGRATION=$(curl -s http://localhost:3000/api/migration/status | jq -r '.lastExecution.completedAt')
+    if [ "$LAST_MIGRATION" != "null" ]; then
+        echo "Last migration execution: $LAST_MIGRATION"
+        
+        # Check if there are old exited instances that haven't been processed
+        CURRENT_TIME=$(date +%s)
+        LAST_MIGRATION_TIME=$(date -d "$LAST_MIGRATION" +%s 2>/dev/null || echo "0")
+        TIME_DIFF=$((CURRENT_TIME - LAST_MIGRATION_TIME))
+        
+        if [ $TIME_DIFF -gt 1800 ] && [ "$EXITED_COUNT" -gt 0 ]; then  # 30 minutes
+            echo "⚠️  Exited instances detected but no recent migration activity"
+        fi
+    fi
+fi
+```
+
+### Migration Metrics Dashboard
+
+#### Key Migration Metrics
+```bash
+#!/bin/bash
+# scripts/migration-dashboard.sh
+
+echo "🔄 Migration Service Dashboard"
+echo "=============================="
+
+# Service status
+MIGRATION_STATUS=$(curl -s http://localhost:3000/api/migration/status)
+echo "Service Status:"
+echo "$MIGRATION_STATUS" | jq '{
+    enabled: .enabled,
+    last_execution_status: .lastExecution.status,
+    next_execution: .nextExecution,
+    configuration: {
+        interval_minutes: .configuration.intervalMinutes,
+        max_concurrent: .configuration.maxConcurrent,
+        dry_run_mode: .configuration.dryRunMode
+    }
+}'
+
+echo ""
+echo "Performance Metrics:"
+echo "$MIGRATION_STATUS" | jq '{
+    total_executions: .statistics.totalExecutions,
+    success_rate_percent: (.statistics.successfulExecutions / .statistics.totalExecutions * 100),
+    total_instances_processed: .statistics.totalInstancesProcessed,
+    total_migrations_performed: .statistics.totalMigrations,
+    migration_rate_percent: (.statistics.totalMigrations / .statistics.totalInstancesProcessed * 100),
+    avg_execution_time_minutes: (.statistics.averageExecutionTime / 60000)
+}'
+
+# Recent activity
+echo ""
+echo "Recent Activity (Last 5 executions):"
+curl -s http://localhost:3000/api/migration/history?limit=5 | jq '.executions[] | {
+    job_id: .jobId,
+    started_at: .startedAt,
+    status: .status,
+    duration_minutes: (.duration / 60000),
+    summary: .summary
+}'
+
+# Current instance status
+echo ""
+echo "Current Instance Status:"
+curl -s http://localhost:3000/api/instances | jq '{
+    total_instances: (.instances | length),
+    by_status: (.instances | group_by(.status) | map({status: .[0].status, count: length}) | from_entries)
+}'
+```
+
 ## Monitoring and Alerting
 
 ### Alert Definitions
@@ -487,6 +672,18 @@ alerts:
     threshold: 3_consecutive_failures
     severity: critical
     action: page_oncall
+    
+  - name: migration_service_down
+    condition: migration_service_status != "healthy"
+    threshold: 2_consecutive_failures
+    severity: critical
+    action: page_oncall
+    
+  - name: migration_jobs_failing
+    condition: migration_failure_rate > 50%
+    window: 30_minutes
+    severity: critical
+    action: page_oncall
 ```
 
 #### Warning Alerts
@@ -512,6 +709,22 @@ alerts:
   - name: queue_depth_high
     condition: job_queue_depth > 50
     window: 10_minutes
+    severity: warning
+    action: notify_team
+    
+  - name: migration_execution_delayed
+    condition: time_since_last_migration > 20_minutes
+    severity: warning
+    action: notify_team
+    
+  - name: migration_execution_slow
+    condition: avg_migration_execution_time > 300000ms
+    window: 1_hour
+    severity: warning
+    action: notify_team
+    
+  - name: spot_instances_not_migrating
+    condition: exited_instances_count > 5 AND time_since_last_migration > 30_minutes
     severity: warning
     action: notify_team
 ```
@@ -552,6 +765,18 @@ curl -s http://localhost:3000/api/metrics | jq '{
     processing_jobs: .jobs.processing,
     completed_jobs: .jobs.completed,
     failed_jobs: .jobs.failed
+}'
+
+# Migration metrics
+echo "🔄 Migration Metrics:"
+curl -s http://localhost:3000/api/migration/status | jq '{
+    enabled: .enabled,
+    last_execution: .lastExecution.status,
+    next_execution: .nextExecution,
+    total_executions: .statistics.totalExecutions,
+    success_rate: (.statistics.successfulExecutions / .statistics.totalExecutions * 100),
+    total_migrations: .statistics.totalMigrations,
+    avg_execution_time: .statistics.averageExecutionTime
 }'
 
 # System metrics

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import {
   ValidationError,
   InstanceNotFoundError,
+  InstanceNotStartableError,
   ServiceError,
   ErrorCode,
   createErrorResponse,
@@ -35,10 +36,24 @@ describe('Error Handler Utilities', () => {
     });
 
     it('should create InstanceNotFoundError with instance ID', () => {
-      const error = new InstanceNotFoundError('test-123');
+      const error = new InstanceNotFoundError('test-123', 'id');
       
       expect(error.name).toBe('InstanceNotFoundError');
       expect(error.message).toContain('test-123');
+      expect(error.identifier).toBe('test-123');
+      expect(error.searchType).toBe('id');
+    });
+
+    it('should create InstanceNotStartableError with details', () => {
+      const error = new InstanceNotStartableError('test-123', 'running', 'Instance is already running');
+      
+      expect(error.name).toBe('InstanceNotStartableError');
+      expect(error.message).toContain('test-123');
+      expect(error.message).toContain('running');
+      expect(error.message).toContain('Instance is already running');
+      expect(error.instanceId).toBe('test-123');
+      expect(error.currentStatus).toBe('running');
+      expect(error.reason).toBe('Instance is already running');
     });
 
     it('should create ServiceError with custom properties', () => {
@@ -110,8 +125,13 @@ describe('Error Handler Utilities', () => {
     });
 
     it('should return 404 for InstanceNotFoundError', () => {
-      const error = new InstanceNotFoundError('test-123');
+      const error = new InstanceNotFoundError('test-123', 'id');
       expect(getHttpStatusCode(error)).toBe(404);
+    });
+
+    it('should return 400 for InstanceNotStartableError', () => {
+      const error = new InstanceNotStartableError('test-123', 'running', 'Instance is already running');
+      expect(getHttpStatusCode(error)).toBe(400);
     });
 
     it('should return 429 for RateLimitError', () => {
@@ -148,7 +168,8 @@ describe('Error Handler Utilities', () => {
   describe('Error Code Mapping', () => {
     it('should return correct error codes for different error types', () => {
       expect(getErrorCode(new ValidationError('', []))).toBe(ErrorCode.VALIDATION_ERROR);
-      expect(getErrorCode(new InstanceNotFoundError('test'))).toBe(ErrorCode.INSTANCE_NOT_FOUND);
+      expect(getErrorCode(new InstanceNotFoundError('test', 'id'))).toBe(ErrorCode.INSTANCE_NOT_FOUND);
+      expect(getErrorCode(new InstanceNotStartableError('test', 'running', 'reason'))).toBe(ErrorCode.INSTANCE_NOT_STARTABLE);
       expect(getErrorCode(new RateLimitError())).toBe(ErrorCode.RATE_LIMIT_EXCEEDED);
       expect(getErrorCode(new CircuitBreakerError())).toBe(ErrorCode.CIRCUIT_BREAKER_OPEN);
       expect(getErrorCode(new TimeoutError())).toBe(ErrorCode.REQUEST_TIMEOUT);
@@ -314,7 +335,7 @@ describe('Error Handler Utilities', () => {
     it('should return original message for user-facing errors in production', () => {
       process.env.NODE_ENV = 'production';
       const validationError = new ValidationError('Name is required', []);
-      const notFoundError = new InstanceNotFoundError('test-123');
+      const notFoundError = new InstanceNotFoundError('test-123', 'id');
       const rateLimitError = new RateLimitError();
       
       expect(getSafeErrorMessage(validationError)).toBe('Name is required');

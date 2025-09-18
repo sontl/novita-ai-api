@@ -25,7 +25,8 @@ import {
   NovitaCreateInstanceRequest,
   InstanceStatus,
   NovitaApiClientError,
-  HealthCheckResult
+  HealthCheckResult,
+  StartInstanceJobPayload
 } from '../types/api';
 import { JobPriority } from '../types/job';
 
@@ -49,6 +50,7 @@ export class JobWorkerService {
   private registerHandlers(): void {
     this.jobQueue.registerHandler(JobType.CREATE_INSTANCE, this.handleCreateInstance.bind(this));
     this.jobQueue.registerHandler(JobType.MONITOR_INSTANCE, this.handleMonitorInstance.bind(this));
+    this.jobQueue.registerHandler(JobType.MONITOR_STARTUP, this.handleMonitorStartup.bind(this));
     this.jobQueue.registerHandler(JobType.SEND_WEBHOOK, this.handleSendWebhook.bind(this));
     this.jobQueue.registerHandler(JobType.MIGRATE_SPOT_INSTANCES, this.handleMigrateSpotInstances.bind(this));
   }
@@ -482,11 +484,825 @@ export class JobWorkerService {
     }
   }
 
+  /**
+   * Handle startup monitoring job for instances started via the start API
+   */
+  private async handleMonitorStartup(job: Job): Promise<void> {
+    const payload = job.payload as StartInstanceJobPayload;
+    const elapsedTime = Date.now() - payload.startTime.getTime();
+    const remainingTime = this.getRemainingStartupTime(payload.startTime, payload.maxWaitTime);
+    
+    logger.info('Processing monitor startup job', {
+      jobId: job.id,
+      instanceId: payload.instanceId,
+      novitaInstanceId: payload.novitaInstanceId,
+      elapsedTime,
+      remainingTime
+    });
 
+    try {
+      // Check if startup timeout has been reached
+      if (this.hasStartupTimedOut(payload.startTime, payload.maxWaitTime)) {
+        await this.handleStartupMonitoringTimeout(payload);
+        return;
+      }
 
+      // Get current instance status from Novita.ai API
+      logger.debug('Checking instance status during startup monitoring', {
+        jobId: job.id,
+        instanceId: payload.instanceId,
+        novitaInstanceId: payload.novitaInstanceId,
+        elapsedTime,
+        remainingTime
+      });
 
+      const novitaInstance = await novitaApiService.getInstance(payload.novitaInstanceId);
+      
+      // Update our internal instance state with current status
+      instanceService.updateInstanceState(payload.instanceId, {
+        status: novitaInstance.status
+      });
 
+      logger.debug('Instance status check completed during startup monitoring', {
+        jobId: job.id,
+        instanceId: payload.instanceId,
+        novitaInstanceId: payload.novitaInstanceId,
+        status: novitaInstance.status,
+        elapsedTime
+      });
 
+      if (novitaInstance.status === InstanceStatus.RUNNING) {
+        // Update startup operation phase
+        const startupOperation = instanceService.getStartupOperation(payload.instanceId);
+        if (startupOperation) {
+          instanceService.updateStartupOperation(
+            payload.instanceId,
+            'monitoring',
+            'instanceRunning'
+          );
+        }
+
+        // Send startup progress webhook notification if configured
+        if (payload.webhookUrl && startupOperation) {
+          try {
+            await webhookClient.sendStartupProgressNotification(
+              payload.webhookUrl,
+              payload.instanceId,
+              'monitoring',
+              {
+                novitaInstanceId: payload.novitaInstanceId,
+                operationId: startupOperation.operationId,
+                startedAt: startupOperation.startedAt,
+                phases: {
+                  ...startupOperation.phases,
+                  instanceRunning: new Date()
+                },
+                currentStatus: 'running'
+              }
+            );
+          } catch (webhookError) {
+            logger.error('Failed to send startup progress webhook notification when instance running', {
+              instanceId: payload.instanceId,
+              webhookUrl: payload.webhookUrl,
+              error: webhookError instanceof Error ? webhookError.message : 'Unknown error'
+            });
+          }
+        }
+
+        // Instance is running, now perform health checks
+        await this.handleStartupHealthCheckPhase(payload, novitaInstance);
+      } else if (novitaInstance.status === InstanceStatus.FAILED) {
+        // Instance failed to start
+        const failureError = new Error(`Instance failed to start with status: ${novitaInstance.status}`);
+        await this.handleStartupMonitoringFailure(payload, failureError);
+        throw failureError;
+      } else {
+        // Instance still starting, reschedule monitoring with delay
+        logger.debug('Instance still starting, rescheduling startup monitoring', {
+          jobId: job.id,
+          instanceId: payload.instanceId,
+          novitaInstanceId: payload.novitaInstanceId,
+          status: novitaInstance.status,
+          nextCheckIn: this.pollIntervalMs
+        });
+
+        // Wait for configured poll interval before next check
+        setTimeout(async () => {
+          try {
+            await this.jobQueue.addJob(
+              JobType.MONITOR_STARTUP,
+              payload,
+              JobPriority.HIGH
+            );
+          } catch (error) {
+            logger.error('Failed to reschedule startup monitoring job', {
+              instanceId: payload.instanceId,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          }
+        }, this.pollIntervalMs);
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorName = error instanceof Error ? error.name : 'UnknownError';
+      
+      // Enhanced error logging with detailed context
+      logger.error('Startup monitoring job failed', {
+        jobId: job.id,
+        instanceId: payload.instanceId,
+        novitaInstanceId: payload.novitaInstanceId,
+        error: errorMessage,
+        errorType: errorName,
+        elapsedTime,
+        startTime: payload.startTime,
+        maxWaitTime: payload.maxWaitTime,
+        healthCheckConfig: payload.healthCheckConfig,
+        phase: 'monitoring'
+      });
+
+      // Determine error severity and type
+      const { 
+        isRetryableStartupError, 
+        getStartupErrorSuggestion,
+        createStartupErrorContext 
+      } = await import('../utils/errorHandler');
+      
+      const isRetryable = isRetryableStartupError(error as Error);
+      const suggestion = getStartupErrorSuggestion(error as Error);
+      const errorContext = createStartupErrorContext(
+        payload.instanceId,
+        instanceService.getStartupOperation(payload.instanceId)?.operationId,
+        'monitoring',
+        elapsedTime
+      );
+
+      // Log additional context for debugging
+      logger.error('Startup monitoring error context', {
+        ...errorContext,
+        isRetryable,
+        suggestion,
+        errorDetails: error instanceof Error ? {
+          stack: error.stack,
+          cause: (error as any).cause
+        } : undefined
+      });
+
+      // Handle the failure using our centralized handler
+      await this.handleStartupMonitoringFailure(payload, error instanceof Error ? error : new Error('Unknown startup monitoring error'));
+      throw error;
+    }
+  }
+
+  /**
+   * Handle health check phase during startup monitoring
+   */
+  private async handleStartupHealthCheckPhase(payload: StartInstanceJobPayload, novitaInstance: any): Promise<void> {
+    const currentState = instanceService.getInstanceState(payload.instanceId);
+    
+    // Check if we're already in health checking phase
+    const isAlreadyHealthChecking = currentState?.status === InstanceStatus.HEALTH_CHECKING;
+    
+    if (!isAlreadyHealthChecking) {
+      // Transition to health checking status
+      logger.info('Instance running during startup, starting health check phase', {
+        instanceId: payload.instanceId,
+        novitaInstanceId: payload.novitaInstanceId,
+        portMappings: novitaInstance.portMappings?.length || 0
+      });
+
+      instanceService.updateInstanceState(payload.instanceId, {
+        status: InstanceStatus.HEALTH_CHECKING,
+        healthCheck: {
+          status: 'in_progress',
+          config: payload.healthCheckConfig,
+          results: [],
+          startedAt: new Date()
+        }
+      });
+
+      // Update startup operation phase
+      const startupOperation = instanceService.getStartupOperation(payload.instanceId);
+      if (startupOperation) {
+        instanceService.updateStartupOperation(
+          payload.instanceId,
+          'health_checking',
+          'healthCheckStarted'
+        );
+      }
+
+      // Send startup progress webhook notification if configured
+      if (payload.webhookUrl && startupOperation) {
+        try {
+          await webhookClient.sendStartupProgressNotification(
+            payload.webhookUrl,
+            payload.instanceId,
+            'health_checking',
+            {
+              novitaInstanceId: payload.novitaInstanceId,
+              operationId: startupOperation.operationId,
+              startedAt: startupOperation.startedAt,
+              phases: {
+                ...startupOperation.phases,
+                healthCheckStarted: new Date()
+              },
+              currentStatus: 'health_checking'
+            }
+          );
+        } catch (webhookError) {
+          logger.error('Failed to send startup progress webhook notification during health check phase', {
+            instanceId: payload.instanceId,
+            webhookUrl: payload.webhookUrl,
+            error: webhookError instanceof Error ? webhookError.message : 'Unknown error'
+          });
+        }
+      }
+    }
+
+    // Check if health check timeout has been reached
+    const healthCheckStartTime = currentState?.healthCheck?.startedAt || new Date();
+    
+    if (this.hasStartupHealthCheckTimedOut(healthCheckStartTime, payload.healthCheckConfig.maxWaitTimeMs)) {
+      await this.handleStartupHealthCheckTimeout(payload);
+      return;
+    }
+
+    // Perform health checks if instance has port mappings
+    if (novitaInstance.portMappings && novitaInstance.portMappings.length > 0) {
+      try {
+        // Filter port mappings based on targetPort if specified
+        let portMappings = novitaInstance.portMappings.map((pm: any) => ({
+          port: pm.port,
+          endpoint: pm.endpoint,
+          type: pm.type || 'http'
+        }));
+
+        // If targetPort is specified, only check that specific port
+        if (payload.targetPort) {
+          portMappings = portMappings.filter((pm: any) => pm.port === payload.targetPort);
+          
+          if (portMappings.length === 0) {
+            logger.warn('Target port not found in instance port mappings', {
+              instanceId: payload.instanceId,
+              targetPort: payload.targetPort,
+              availablePorts: novitaInstance.portMappings.map((pm: any) => pm.port)
+            });
+          }
+        }
+
+        logger.debug('Performing health checks during startup', {
+          instanceId: payload.instanceId,
+          novitaInstanceId: payload.novitaInstanceId,
+          endpoints: portMappings.length,
+          targetPort: payload.targetPort,
+          config: payload.healthCheckConfig
+        });
+
+        const healthCheckResult = await healthCheckerService.performHealthChecks(
+          portMappings,
+          payload.healthCheckConfig
+        );
+
+        // Update instance state with health check results
+        const updatedState = instanceService.getInstanceState(payload.instanceId);
+        const existingResults = updatedState?.healthCheck?.results || [];
+        
+        instanceService.updateInstanceState(payload.instanceId, {
+          healthCheck: {
+            status: 'in_progress',
+            config: payload.healthCheckConfig,
+            results: [...existingResults, healthCheckResult],
+            startedAt: healthCheckStartTime
+          }
+        });
+
+        if (healthCheckResult.overallStatus === 'healthy') {
+          // All endpoints are healthy, mark instance as ready
+          await this.handleStartupHealthCheckSuccess(payload, novitaInstance, healthCheckResult);
+          // Job is complete, return without rescheduling
+          return;
+        } else {
+          // Some endpoints are still unhealthy, continue monitoring
+          logger.debug('Health checks not yet complete during startup, rescheduling', {
+            instanceId: payload.instanceId,
+            overallStatus: healthCheckResult.overallStatus,
+            healthyEndpoints: healthCheckResult.endpoints.filter(e => e.status === 'healthy').length,
+            totalEndpoints: healthCheckResult.endpoints.length,
+            nextCheckIn: this.pollIntervalMs
+          });
+
+          // Wait for configured poll interval before next health check
+          setTimeout(async () => {
+            try {
+              await this.jobQueue.addJob(
+                JobType.MONITOR_STARTUP,
+                payload,
+                JobPriority.HIGH
+              );
+            } catch (error) {
+              logger.error('Failed to reschedule startup health check monitoring job', {
+                instanceId: payload.instanceId,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              });
+            }
+          }, this.pollIntervalMs);
+        }
+
+      } catch (error) {
+        const healthCheckElapsedTime = Date.now() - healthCheckStartTime.getTime();
+        const isHealthCheckError = error instanceof Error && error.name === 'HealthCheckError';
+        const errorDetails = isHealthCheckError ? (error as any).toLogObject?.() : undefined;
+        
+        // Enhanced error logging with startup context
+        logger.error('Health check execution failed during startup', {
+          instanceId: payload.instanceId,
+          novitaInstanceId: payload.novitaInstanceId,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          errorType: error instanceof Error ? error.constructor.name : 'Unknown',
+          errorCode: (error as any)?.code,
+          isHealthCheckError,
+          healthCheckElapsedTime,
+          portMappingsCount: novitaInstance.portMappings?.length || 0,
+          targetPort: payload.targetPort,
+          healthCheckConfig: payload.healthCheckConfig,
+          startupElapsedTime: Date.now() - payload.startTime.getTime(),
+          ...(errorDetails && { healthCheckErrorDetails: errorDetails })
+        });
+
+        // Import enhanced error handling utilities
+        const { 
+          HealthCheckFailedError, 
+          HealthCheckTimeoutError,
+          isRetryableStartupError,
+          getStartupErrorSuggestion 
+        } = await import('../utils/errorHandler');
+
+        // Determine error characteristics
+        const isRetryable = isHealthCheckError ? (error as any).isRetryable : isRetryableStartupError(error as Error);
+        const errorSeverity = isHealthCheckError ? (error as any).severity : 'high';
+        const suggestion = getStartupErrorSuggestion(error as Error);
+        
+        // Transform error into more specific health check error
+        let transformedError: Error;
+        if (error instanceof Error && error.message.includes('timeout')) {
+          transformedError = new HealthCheckTimeoutError(
+            payload.instanceId,
+            payload.healthCheckConfig.maxWaitTimeMs,
+            novitaInstance.portMappings?.length || 0
+          );
+        } else {
+          transformedError = new HealthCheckFailedError(
+            payload.instanceId,
+            novitaInstance.portMappings?.length || 0,
+            novitaInstance.portMappings?.length || 0,
+            error instanceof Error ? error.message : 'Unknown error'
+          );
+        }
+        
+        // Update health check status based on error severity
+        const shouldFailInstance = errorSeverity === 'critical' || !isRetryable;
+        
+        if (shouldFailInstance) {
+          logger.error('Health check failed with critical error during startup, marking instance as failed', {
+            instanceId: payload.instanceId,
+            errorSeverity,
+            isRetryable,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+
+          // Update instance state to failed for critical errors
+          try {
+            instanceService.updateInstanceState(payload.instanceId, {
+              status: InstanceStatus.FAILED,
+              lastError: error instanceof Error ? error.message : 'Health check failed with critical error',
+              timestamps: {
+                created: currentState?.timestamps.created || new Date(),
+                ...(currentState?.timestamps.started && { started: currentState.timestamps.started }),
+                ...(currentState?.timestamps.ready && { ready: currentState.timestamps.ready }),
+                failed: new Date()
+              },
+              healthCheck: {
+                status: 'failed',
+                config: payload.healthCheckConfig,
+                results: currentState?.healthCheck?.results || [],
+                startedAt: healthCheckStartTime,
+                completedAt: new Date()
+              }
+            });
+          } catch (stateUpdateError) {
+            logger.error('Failed to update instance state during startup health check error handling', {
+              instanceId: payload.instanceId,
+              error: stateUpdateError instanceof Error ? stateUpdateError.message : 'Unknown error',
+              originalError: error instanceof Error ? error.message : 'Unknown error'
+            });
+          }
+
+          // Send health check failed webhook notification if configured
+          if (payload.webhookUrl) {
+            try {
+              await webhookClient.sendHealthCheckNotification(
+                payload.webhookUrl,
+                payload.instanceId,
+                'failed',
+                {
+                  novitaInstanceId: payload.novitaInstanceId,
+                  elapsedTime: Date.now() - payload.startTime.getTime(),
+                  error: `${error instanceof Error ? error.message : 'Health check failed'} (type: startup_health_check_critical_error)`,
+                  healthCheckStatus: 'failed',
+                  healthCheckStartedAt: healthCheckStartTime,
+                  healthCheckCompletedAt: new Date(),
+                  data: {
+                    errorSeverity,
+                    isRetryable,
+                    healthCheckElapsedTime
+                  }
+                }
+              );
+            } catch (webhookError) {
+              logger.error('Failed to send startup health check failed webhook notification', {
+                instanceId: payload.instanceId,
+                webhookUrl: payload.webhookUrl,
+                error: webhookError instanceof Error ? webhookError.message : 'Unknown error'
+              });
+            }
+          }
+
+          throw error;
+        } else {
+          // For non-critical errors, continue monitoring with delay
+          logger.warn('Health check failed with retryable error during startup, continuing monitoring', {
+            instanceId: payload.instanceId,
+            errorSeverity,
+            isRetryable,
+            error: error instanceof Error ? error.message : 'Unknown error',
+            nextCheckIn: this.pollIntervalMs
+          });
+
+          // Wait for configured poll interval before next health check
+          setTimeout(async () => {
+            try {
+              await this.jobQueue.addJob(
+                JobType.MONITOR_STARTUP,
+                payload,
+                JobPriority.HIGH
+              );
+            } catch (error) {
+              logger.error('Failed to reschedule startup monitoring after retryable health check error', {
+                instanceId: payload.instanceId,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              });
+            }
+          }, this.pollIntervalMs);
+        }
+      }
+    } else {
+      // No port mappings available, mark instance as ready without health checks
+      logger.info('No port mappings available for health checks during startup, marking instance as ready', {
+        instanceId: payload.instanceId,
+        novitaInstanceId: payload.novitaInstanceId
+      });
+
+      await this.handleStartupHealthCheckSuccess(payload, novitaInstance, null);
+    }
+  }
+
+  /**
+   * Handle successful health checks during startup monitoring
+   */
+  private async handleStartupHealthCheckSuccess(payload: StartInstanceJobPayload, novitaInstance: any, healthCheckResult: HealthCheckResult | null): Promise<void> {
+    logger.info('Startup health checks completed successfully, marking instance as ready', {
+      instanceId: payload.instanceId,
+      novitaInstanceId: payload.novitaInstanceId,
+      elapsedTime: Date.now() - payload.startTime.getTime(),
+      healthCheckResult: healthCheckResult ? {
+        overallStatus: healthCheckResult.overallStatus,
+        healthyEndpoints: healthCheckResult.endpoints.filter(e => e.status === 'healthy').length,
+        totalEndpoints: healthCheckResult.endpoints.length
+      } : 'no_health_checks'
+    });
+
+    // Update instance state to ready
+    const currentState = instanceService.getInstanceState(payload.instanceId);
+    instanceService.updateInstanceState(payload.instanceId, {
+      status: InstanceStatus.READY,
+      timestamps: {
+        created: currentState?.timestamps.created || new Date(),
+        ...(currentState?.timestamps.started && { started: currentState.timestamps.started }),
+        ready: new Date(),
+        ...(currentState?.timestamps.failed && { failed: currentState.timestamps.failed })
+      },
+      ...(healthCheckResult && {
+        healthCheck: {
+          status: 'completed',
+          config: payload.healthCheckConfig,
+          results: [...(currentState?.healthCheck?.results || []), healthCheckResult],
+          startedAt: currentState?.healthCheck?.startedAt || new Date(),
+          completedAt: new Date()
+        }
+      })
+    });
+
+    // Update startup operation to completed
+    const startupOperation = instanceService.getStartupOperation(payload.instanceId);
+    if (startupOperation) {
+      instanceService.updateStartupOperation(
+        payload.instanceId,
+        'completed',
+        'ready'
+      );
+    }
+
+    // Send startup completed webhook notification if configured
+    if (payload.webhookUrl && startupOperation) {
+      try {
+        await webhookClient.sendStartupCompletedNotification(
+          payload.webhookUrl,
+          payload.instanceId,
+          {
+            novitaInstanceId: payload.novitaInstanceId,
+            operationId: startupOperation.operationId,
+            startedAt: startupOperation.startedAt,
+            completedAt: new Date(),
+            phases: {
+              ...startupOperation.phases,
+              ...(healthCheckResult && { healthCheckCompleted: new Date() }),
+              ready: new Date()
+            },
+            ...(healthCheckResult && { healthCheckResult }),
+            data: {
+              healthCheckStatus: healthCheckResult ? 'completed' : 'skipped',
+              portMappings: novitaInstance.portMappings
+            }
+          }
+        );
+
+        logger.info('Startup completed webhook notification sent', {
+          instanceId: payload.instanceId,
+          operationId: startupOperation.operationId,
+          webhookUrl: payload.webhookUrl
+        });
+      } catch (webhookError) {
+        logger.error('Failed to send startup completed webhook notification', {
+          instanceId: payload.instanceId,
+          webhookUrl: payload.webhookUrl,
+          error: webhookError instanceof Error ? webhookError.message : 'Unknown error'
+        });
+      }
+    }
+  }
+
+  /**
+   * Handle startup timeout for startup monitoring jobs
+   */
+  private async handleStartupMonitoringTimeout(payload: StartInstanceJobPayload): Promise<void> {
+    const elapsedTime = Date.now() - payload.startTime.getTime();
+    const timeoutError = `Instance startup timeout after ${payload.maxWaitTime}ms`;
+    
+    // Enhanced timeout logging with detailed context
+    logger.error('Instance startup timed out during startup monitoring', {
+      instanceId: payload.instanceId,
+      novitaInstanceId: payload.novitaInstanceId,
+      maxWaitTime: payload.maxWaitTime,
+      elapsedTime,
+      startTime: payload.startTime,
+      healthCheckConfig: payload.healthCheckConfig,
+      targetPort: payload.targetPort,
+      webhookUrl: payload.webhookUrl ? '[CONFIGURED]' : undefined,
+      phase: 'startup_monitoring_timeout'
+    });
+
+    // Update instance state to failed
+    const currentState = instanceService.getInstanceState(payload.instanceId);
+    instanceService.updateInstanceState(payload.instanceId, {
+      status: InstanceStatus.FAILED,
+      lastError: timeoutError,
+      timestamps: {
+        created: currentState?.timestamps.created || new Date(),
+        ...(currentState?.timestamps.started && { started: currentState.timestamps.started }),
+        ...(currentState?.timestamps.ready && { ready: currentState.timestamps.ready }),
+        failed: new Date()
+      }
+    });
+
+    // Update startup operation to failed
+    const startupOperation = instanceService.getStartupOperation(payload.instanceId);
+    if (startupOperation) {
+      instanceService.updateStartupOperation(
+        payload.instanceId,
+        'failed',
+        undefined,
+        timeoutError
+      );
+    }
+
+    // Send startup failed webhook notification if configured
+    if (payload.webhookUrl && startupOperation) {
+      try {
+        await webhookClient.sendStartupFailedNotification(
+          payload.webhookUrl,
+          payload.instanceId,
+          timeoutError,
+          {
+            novitaInstanceId: payload.novitaInstanceId,
+            operationId: startupOperation.operationId,
+            startedAt: startupOperation.startedAt,
+            failedAt: new Date(),
+            phases: startupOperation.phases,
+            failurePhase: 'timeout'
+          }
+        );
+
+        logger.info('Startup timeout webhook notification sent', {
+          instanceId: payload.instanceId,
+          operationId: startupOperation.operationId,
+          webhookUrl: payload.webhookUrl
+        });
+      } catch (webhookError) {
+        logger.error('Failed to send startup timeout webhook notification', {
+          instanceId: payload.instanceId,
+          webhookUrl: payload.webhookUrl,
+          error: webhookError instanceof Error ? webhookError.message : 'Unknown error'
+        });
+      }
+    }
+  }
+
+  /**
+   * Handle startup failure for startup monitoring jobs
+   */
+  private async handleStartupMonitoringFailure(payload: StartInstanceJobPayload, error: Error): Promise<void> {
+    const elapsedTime = Date.now() - payload.startTime.getTime();
+    
+    // Enhanced failure logging with detailed context and error analysis
+    logger.error('Instance startup failed during startup monitoring', {
+      instanceId: payload.instanceId,
+      novitaInstanceId: payload.novitaInstanceId,
+      error: error.message,
+      errorType: error.name,
+      errorStack: error.stack,
+      elapsedTime,
+      startTime: payload.startTime,
+      maxWaitTime: payload.maxWaitTime,
+      healthCheckConfig: payload.healthCheckConfig,
+      targetPort: payload.targetPort,
+      webhookUrl: payload.webhookUrl ? '[CONFIGURED]' : undefined,
+      phase: 'startup_monitoring_failure',
+      // Additional error context
+      errorCode: (error as any)?.code,
+      errorStatusCode: (error as any)?.statusCode,
+      isRetryable: await this.isStartupErrorRetryable(error)
+    });
+
+    // Update instance state to failed
+    const currentState = instanceService.getInstanceState(payload.instanceId);
+    instanceService.updateInstanceState(payload.instanceId, {
+      status: InstanceStatus.FAILED,
+      lastError: error.message,
+      timestamps: {
+        created: currentState?.timestamps.created || new Date(),
+        ...(currentState?.timestamps.started && { started: currentState.timestamps.started }),
+        ...(currentState?.timestamps.ready && { ready: currentState.timestamps.ready }),
+        failed: new Date()
+      }
+    });
+
+    // Update startup operation to failed
+    const startupOperation = instanceService.getStartupOperation(payload.instanceId);
+    if (startupOperation) {
+      instanceService.updateStartupOperation(
+        payload.instanceId,
+        'failed',
+        undefined,
+        error.message
+      );
+    }
+
+    // Send startup failed webhook notification if configured
+    if (payload.webhookUrl && startupOperation) {
+      try {
+        await webhookClient.sendStartupFailedNotification(
+          payload.webhookUrl,
+          payload.instanceId,
+          error.message,
+          {
+            novitaInstanceId: payload.novitaInstanceId,
+            operationId: startupOperation.operationId,
+            startedAt: startupOperation.startedAt,
+            failedAt: new Date(),
+            phases: startupOperation.phases,
+            failurePhase: 'startup'
+          }
+        );
+
+        logger.info('Startup failed webhook notification sent', {
+          instanceId: payload.instanceId,
+          operationId: startupOperation.operationId,
+          webhookUrl: payload.webhookUrl
+        });
+      } catch (webhookError) {
+        logger.error('Failed to send startup failed webhook notification', {
+          instanceId: payload.instanceId,
+          webhookUrl: payload.webhookUrl,
+          error: webhookError instanceof Error ? webhookError.message : 'Unknown error'
+        });
+      }
+    }
+  }
+
+  /**
+   * Check if a startup error is retryable
+   */
+  private async isStartupErrorRetryable(error: Error): Promise<boolean> {
+    const { isRetryableStartupError } = await import('../utils/errorHandler');
+    return isRetryableStartupError(error);
+  }
+
+  /**
+   * Handle health check timeout during startup monitoring
+   */
+  private async handleStartupHealthCheckTimeout(payload: StartInstanceJobPayload): Promise<void> {
+    const timeoutError = `Health check timeout after ${payload.healthCheckConfig.maxWaitTimeMs}ms during startup`;
+    
+    logger.error('Health check timed out during startup monitoring', {
+      instanceId: payload.instanceId,
+      novitaInstanceId: payload.novitaInstanceId,
+      healthCheckMaxWaitTime: payload.healthCheckConfig.maxWaitTimeMs,
+      startTime: payload.startTime
+    });
+
+    // Update instance state to failed
+    const currentState = instanceService.getInstanceState(payload.instanceId);
+    instanceService.updateInstanceState(payload.instanceId, {
+      status: InstanceStatus.FAILED,
+      lastError: timeoutError,
+      timestamps: {
+        created: currentState?.timestamps.created || new Date(),
+        ...(currentState?.timestamps.started && { started: currentState.timestamps.started }),
+        ...(currentState?.timestamps.ready && { ready: currentState.timestamps.ready }),
+        failed: new Date()
+      },
+      healthCheck: {
+        status: 'failed',
+        config: payload.healthCheckConfig,
+        results: currentState?.healthCheck?.results || [],
+        startedAt: currentState?.healthCheck?.startedAt || new Date(),
+        completedAt: new Date()
+      }
+    });
+
+    // Update startup operation to failed
+    const startupOperation = instanceService.getStartupOperation(payload.instanceId);
+    if (startupOperation) {
+      instanceService.updateStartupOperation(
+        payload.instanceId,
+        'failed',
+        undefined,
+        timeoutError
+      );
+    }
+
+    // Send startup failed webhook notification if configured
+    if (payload.webhookUrl && startupOperation) {
+      try {
+        await webhookClient.sendStartupFailedNotification(
+          payload.webhookUrl,
+          payload.instanceId,
+          timeoutError,
+          {
+            novitaInstanceId: payload.novitaInstanceId,
+            operationId: startupOperation.operationId,
+            startedAt: startupOperation.startedAt,
+            failedAt: new Date(),
+            phases: startupOperation.phases,
+            failurePhase: 'timeout',
+            ...(currentState?.healthCheck?.results?.[currentState.healthCheck.results.length - 1] && {
+              healthCheckResult: currentState.healthCheck.results[currentState.healthCheck.results.length - 1]
+            })
+          }
+        );
+
+        logger.info('Startup timeout webhook notification sent', {
+          instanceId: payload.instanceId,
+          operationId: startupOperation.operationId,
+          webhookUrl: payload.webhookUrl
+        });
+      } catch (webhookError) {
+        logger.error('Failed to send startup timeout webhook notification', {
+          instanceId: payload.instanceId,
+          webhookUrl: payload.webhookUrl,
+          error: webhookError instanceof Error ? webhookError.message : 'Unknown error'
+        });
+      }
+    }
+  }
+
+  /**
+   * Check if startup health check has timed out
+   */
+  private hasStartupHealthCheckTimedOut(startTime: Date, maxWaitTime: number): boolean {
+    const elapsedTime = Date.now() - startTime.getTime();
+    return elapsedTime > maxWaitTime;
+  }
 
   /**
    * Check if instance startup has timed out

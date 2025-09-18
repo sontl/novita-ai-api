@@ -5,6 +5,7 @@
 export enum JobType {
   CREATE_INSTANCE = 'create_instance',
   MONITOR_INSTANCE = 'monitor_instance',
+  MONITOR_STARTUP = 'monitor_startup',
   SEND_WEBHOOK = 'send_webhook',
   MIGRATE_SPOT_INSTANCES = 'migrate_spot_instances'
 }

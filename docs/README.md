@@ -13,6 +13,7 @@ The Novita GPU Instance API is a TypeScript/Node.js service that provides automa
 
 ### Configuration and Operations
 - **[Configuration Reference](./CONFIGURATION.md)** - Complete environment variable reference
+- **[Migration Guide](./MIGRATION.md)** - Spot instance auto-migration system
 - **[Troubleshooting Guide](./TROUBLESHOOTING.md)** - Common issues and solutions
 - **[Operations Runbook](./OPERATIONS.md)** - Monitoring, maintenance, and incident response
 
@@ -60,6 +61,7 @@ curl -X POST http://localhost:3000/api/instances \
 - Create GPU instances with minimal configuration
 - Automatic instance startup and monitoring
 - Optimal pricing selection (lowest spot price)
+- Spot instance auto-migration for minimal downtime
 - Webhook notifications when instances are ready
 
 ### 🔧 Production Ready
@@ -89,6 +91,8 @@ curl -X POST http://localhost:3000/api/instances \
 | GET | `/api/instances/{id}` | Get instance status |
 | GET | `/api/instances` | List all instances |
 | GET | `/api/metrics` | Service metrics |
+| GET | `/api/migration/status` | Migration service status |
+| POST | `/api/migration/trigger` | Trigger manual migration |
 
 ## Architecture
 
@@ -136,6 +140,10 @@ DEFAULT_REGION=CN-HK-01
 # Logging Configuration
 LOG_LEVEL=info
 LOG_FORMAT=json
+
+# Migration Configuration
+MIGRATION_ENABLED=true
+MIGRATION_INTERVAL_MINUTES=15
 ```
 
 See the [Configuration Reference](./CONFIGURATION.md) for complete details.
@@ -237,6 +245,7 @@ See the [Troubleshooting Guide](./TROUBLESHOOTING.md) for detailed solutions.
 - [API Reference](./API.md) - Complete API documentation
 - [Deployment Guide](./DEPLOYMENT.md) - Production deployment
 - [Configuration Reference](./CONFIGURATION.md) - All configuration options
+- [Migration Guide](./MIGRATION.md) - Spot instance auto-migration
 - [Operations Runbook](./OPERATIONS.md) - Monitoring and maintenance
 
 ### Getting Help

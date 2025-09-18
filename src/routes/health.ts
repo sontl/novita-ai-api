@@ -5,6 +5,7 @@ import { jobQueueService } from '../services/jobQueueService';
 import { instanceService } from '../services/instanceService';
 import { metricsService } from '../services/metricsService';
 import { HealthCheckResponse, EnhancedHealthCheckResponse } from '../types/api';
+import { serviceRegistry } from '../services/serviceRegistry';
 
 const router = Router();
 
@@ -15,9 +16,10 @@ router.get('/', async (req: Request, res: Response) => {
     logger.debug('Health check requested', { requestId });
 
     // Check service dependencies with detailed information
-    const [services, dependencyDetails] = await Promise.all([
+    const [services, dependencyDetails, migrationServiceDetails] = await Promise.all([
       checkServiceHealth(),
-      checkDependencyDetails()
+      checkDependencyDetails(),
+      checkMigrationServiceDetails()
     ]);
     
     // Get performance metrics
@@ -52,7 +54,8 @@ router.get('/', async (req: Request, res: Response) => {
           loadAverage: systemMetrics.cpu.loadAverage.map(load => Math.round(load * 100) / 100)
         }
       },
-      dependencies: dependencyDetails
+      dependencies: dependencyDetails,
+      migrationService: migrationServiceDetails
     };
 
     // Add additional debug information in development
@@ -89,7 +92,8 @@ router.get('/', async (req: Request, res: Response) => {
       services: {
         novitaApi: 'down',
         jobQueue: 'down',
-        cache: 'down'
+        cache: 'down',
+        migrationService: 'down'
       },
       uptime: process.uptime()
     };
@@ -105,13 +109,15 @@ async function checkServiceHealth(): Promise<HealthCheckResponse['services']> {
   const checks = await Promise.allSettled([
     checkNovitaApiHealth(),
     checkJobQueueHealth(),
-    checkCacheHealth()
+    checkCacheHealth(),
+    checkMigrationServiceHealth()
   ]);
 
   return {
     novitaApi: checks[0].status === 'fulfilled' && checks[0].value ? 'up' : 'down',
     jobQueue: checks[1].status === 'fulfilled' && checks[1].value ? 'up' : 'down',
-    cache: checks[2].status === 'fulfilled' && checks[2].value ? 'up' : 'down'
+    cache: checks[2].status === 'fulfilled' && checks[2].value ? 'up' : 'down',
+    migrationService: checks[3].status === 'fulfilled' && checks[3].value ? 'up' : 'down'
   };
 }
 
@@ -282,6 +288,79 @@ async function checkCacheHealthDetailed(): Promise<any> {
       status: 'down',
       error: (error as Error).message,
       lastChecked: new Date().toISOString()
+    };
+  }
+}
+
+/**
+ * Check migration service health
+ */
+async function checkMigrationServiceHealth(): Promise<boolean> {
+  try {
+    const migrationScheduler = serviceRegistry.getMigrationScheduler();
+    if (!migrationScheduler) {
+      // Migration scheduler not registered
+      return false;
+    }
+    
+    return migrationScheduler.isHealthy();
+  } catch (error) {
+    logger.debug('Migration service health check failed', {
+      error: (error as Error).message
+    });
+    return false;
+  }
+}
+
+/**
+ * Check detailed migration service information
+ */
+async function checkMigrationServiceDetails(): Promise<EnhancedHealthCheckResponse['migrationService']> {
+  try {
+    const migrationScheduler = serviceRegistry.getMigrationScheduler();
+    
+    if (!migrationScheduler) {
+      // Migration scheduler not registered
+      return {
+        enabled: false,
+        status: 'disabled',
+        recentErrors: 0,
+        totalExecutions: 0,
+        uptime: 0
+      };
+    }
+    
+    const healthDetails = migrationScheduler.getHealthDetails();
+    const status = healthDetails.status;
+    
+    const result: EnhancedHealthCheckResponse['migrationService'] = {
+      enabled: status.isEnabled,
+      status: healthDetails.healthy ? 'healthy' : 'unhealthy',
+      recentErrors: status.failedExecutions,
+      totalExecutions: status.totalExecutions,
+      uptime: status.uptime
+    };
+    
+    if (status.lastExecution) {
+      result.lastExecution = status.lastExecution.toISOString();
+    }
+    
+    if (status.nextExecution) {
+      result.nextExecution = status.nextExecution.toISOString();
+    }
+    
+    return result;
+  } catch (error) {
+    logger.debug('Migration service detailed health check failed', {
+      error: (error as Error).message
+    });
+    
+    return {
+      enabled: false,
+      status: 'unhealthy',
+      recentErrors: 0,
+      totalExecutions: 0,
+      uptime: 0
     };
   }
 }

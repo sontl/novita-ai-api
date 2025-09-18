@@ -618,6 +618,246 @@ docker inspect novita-api | jq '.[0].Config.Healthcheck'
    docker-compose exec novita-api curl -I https://api.novita.ai
    ```
 
+## Migration Service Issues
+
+### Migration Jobs Not Running
+
+**Symptoms:**
+- No migration activity in logs
+- Migration status shows "never executed"
+- Spot instances remain in "exited" state
+
+**Diagnosis:**
+```bash
+# Check migration service status
+curl http://localhost:3000/api/migration/status
+
+# Check migration configuration
+docker-compose exec novita-api env | grep MIGRATION
+
+# Check scheduler logs
+docker-compose logs novita-api | grep -i migration
+```
+
+**Solutions:**
+
+1. **Migration Disabled**
+   ```bash
+   # Enable migration in configuration
+   echo "MIGRATION_ENABLED=true" >> .env
+   docker-compose restart novita-api
+   ```
+
+2. **Invalid Configuration**
+   ```bash
+   # Check configuration validation
+   docker-compose logs novita-api | grep -i "migration.*config"
+   
+   # Fix common configuration issues
+   echo "MIGRATION_INTERVAL_MINUTES=15" >> .env  # Must be 1-60
+   echo "MIGRATION_MAX_CONCURRENT=5" >> .env     # Must be 1-20
+   ```
+
+3. **Scheduler Not Starting**
+   ```bash
+   # Check for scheduler initialization errors
+   docker-compose logs novita-api | grep -i "scheduler"
+   
+   # Restart service to reinitialize scheduler
+   docker-compose restart novita-api
+   ```
+
+### Migration Jobs Failing
+
+**Symptoms:**
+- Migration jobs start but fail consistently
+- High error count in migration metrics
+- Instances not being migrated despite being eligible
+
+**Diagnosis:**
+```bash
+# Check recent migration execution history
+curl http://localhost:3000/api/migration/history | jq '.executions[0]'
+
+# Check for API errors
+docker-compose logs novita-api | grep -E "migration.*error|migration.*fail"
+
+# Test Novita API connectivity
+curl -H "Authorization: Bearer $NOVITA_API_KEY" \
+     https://api.novita.ai/gpu-instance/openapi/v1/gpu/instances
+```
+
+**Solutions:**
+
+1. **API Authentication Issues**
+   ```bash
+   # Verify API key is valid
+   curl -H "Authorization: Bearer $NOVITA_API_KEY" \
+        https://api.novita.ai/gpu-instance/openapi/v1/gpu/instances
+   
+   # Update API key if expired
+   echo "NOVITA_API_KEY=new_api_key_here" >> .env
+   ```
+
+2. **API Rate Limiting**
+   ```bash
+   # Reduce migration frequency
+   echo "MIGRATION_INTERVAL_MINUTES=30" >> .env
+   
+   # Reduce concurrent migrations
+   echo "MIGRATION_MAX_CONCURRENT=3" >> .env
+   ```
+
+3. **Network Connectivity Issues**
+   ```bash
+   # Test network connectivity to Novita API
+   docker-compose exec novita-api ping -c 3 api.novita.ai
+   
+   # Check for proxy configuration if needed
+   echo "HTTP_PROXY=http://proxy.company.com:8080" >> .env
+   ```
+
+### Migration Performance Issues
+
+**Symptoms:**
+- Migration jobs taking too long to complete
+- Job timeouts occurring frequently
+- High resource usage during migration
+
+**Diagnosis:**
+```bash
+# Check migration execution times
+curl http://localhost:3000/api/migration/history | \
+  jq '.executions[] | {jobId, duration, instanceCount: .summary.totalInstances}'
+
+# Monitor resource usage during migration
+docker stats novita-api
+
+# Check for concurrent job conflicts
+curl http://localhost:3000/api/metrics | jq '.jobs'
+```
+
+**Solutions:**
+
+1. **Increase Job Timeout**
+   ```bash
+   # Allow more time for migration jobs
+   echo "MIGRATION_JOB_TIMEOUT_MS=1200000" >> .env  # 20 minutes
+   ```
+
+2. **Optimize Concurrency**
+   ```bash
+   # Reduce concurrent migrations to avoid overwhelming API
+   echo "MIGRATION_MAX_CONCURRENT=3" >> .env
+   
+   # Or increase if system can handle more
+   echo "MIGRATION_MAX_CONCURRENT=8" >> .env
+   ```
+
+3. **Batch Size Optimization**
+   ```bash
+   # Process fewer instances per job (if supported)
+   # This would require application-level configuration
+   ```
+
+### Incorrect Migration Behavior
+
+**Symptoms:**
+- Instances being migrated when they shouldn't be
+- Eligible instances being skipped
+- Migration logic not following expected rules
+
+**Diagnosis:**
+```bash
+# Enable debug logging for migration
+echo "MIGRATION_LOG_LEVEL=debug" >> .env
+docker-compose restart novita-api
+
+# Trigger a test migration to see detailed logs
+curl -X POST http://localhost:3000/api/migration/trigger \
+     -H "Content-Type: application/json" \
+     -d '{"dryRun": true}'
+
+# Check migration decision logic in logs
+docker-compose logs novita-api | grep -A 5 -B 5 "eligibility"
+```
+
+**Solutions:**
+
+1. **Use Dry Run Mode for Testing**
+   ```bash
+   # Enable dry run to test logic without actual migrations
+   echo "MIGRATION_DRY_RUN=true" >> .env
+   docker-compose restart novita-api
+   
+   # Trigger test migration
+   curl -X POST http://localhost:3000/api/migration/trigger
+   ```
+
+2. **Verify Instance Status Logic**
+   ```bash
+   # Check instance status directly from Novita API
+   curl -H "Authorization: Bearer $NOVITA_API_KEY" \
+        https://api.novita.ai/gpu-instance/openapi/v1/gpu/instances/INSTANCE_ID
+   
+   # Compare with migration service logic
+   docker-compose logs novita-api | grep "INSTANCE_ID"
+   ```
+
+3. **Review Migration Criteria**
+   ```bash
+   # Check that instances meet migration criteria:
+   # - status: "exited"
+   # - spotReclaimTime: not "0"
+   # - spotStatus: present
+   ```
+
+### Migration Monitoring Issues
+
+**Symptoms:**
+- Missing migration metrics
+- Inaccurate migration status
+- No visibility into migration operations
+
+**Diagnosis:**
+```bash
+# Check migration service status endpoint
+curl http://localhost:3000/api/migration/status
+
+# Verify metrics collection
+curl http://localhost:3000/api/metrics | jq '.migration // "Migration metrics not found"'
+
+# Check health check integration
+curl http://localhost:3000/health | jq '.migrationService // "Migration service not in health check"'
+```
+
+**Solutions:**
+
+1. **Enable Migration Metrics**
+   ```bash
+   # Ensure migration service is properly integrated
+   docker-compose restart novita-api
+   
+   # Check for metrics initialization errors
+   docker-compose logs novita-api | grep -i "metrics"
+   ```
+
+2. **Configure Monitoring Integration**
+   ```bash
+   # Enable detailed logging for monitoring
+   echo "MIGRATION_LOG_LEVEL=info" >> .env
+   echo "LOG_LEVEL=info" >> .env
+   ```
+
+3. **Verify Service Integration**
+   ```bash
+   # Check that migration service is registered in health checks
+   curl http://localhost:3000/health | jq '.migrationService'
+   
+   # If missing, restart service to reinitialize
+   docker-compose restart novita-api
+   ```
+
 ## Docker and Container Issues
 
 ### Container Build Failures
@@ -739,8 +979,17 @@ curl -s http://localhost:3000/health | jq .
 echo "=== Metrics ==="
 curl -s http://localhost:3000/api/metrics | jq .
 
+echo "=== Migration Status ==="
+curl -s http://localhost:3000/api/migration/status | jq .
+
+echo "=== Recent Migration History ==="
+curl -s http://localhost:3000/api/migration/history?limit=5 | jq .
+
 echo "=== Environment Variables ==="
-docker-compose exec novita-api env | grep -E '^(NOVITA|PORT|LOG|WEBHOOK)'
+docker-compose exec novita-api env | grep -E '^(NOVITA|PORT|LOG|WEBHOOK|MIGRATION)'
+
+echo "=== Migration-Specific Logs ==="
+docker-compose logs novita-api | grep -i migration | tail -20
 ```
 
 ### Support Channels

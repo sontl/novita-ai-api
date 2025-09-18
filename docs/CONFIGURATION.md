@@ -319,21 +319,94 @@ The Novita GPU Instance API uses environment variables for configuration. This d
 
 ### Health Check Configuration
 
-#### HEALTH_CHECK_TIMEOUT
+#### HEALTH_CHECK_TIMEOUT_MS
 - **Type**: Number (milliseconds)
 - **Required**: No
-- **Default**: `5000`
+- **Default**: `10000`
 - **Description**: Timeout for dependency health checks
-- **Example**: `HEALTH_CHECK_TIMEOUT=10000`
-- **Range**: 1000-30000
+- **Example**: `HEALTH_CHECK_TIMEOUT_MS=15000`
+- **Range**: 1000-60000
 
-#### HEALTH_CHECK_INTERVAL
+#### HEALTH_CHECK_RETRY_ATTEMPTS
+- **Type**: Number
+- **Required**: No
+- **Default**: `3`
+- **Description**: Number of retry attempts for failed health checks
+- **Example**: `HEALTH_CHECK_RETRY_ATTEMPTS=5`
+- **Range**: 1-10
+
+#### HEALTH_CHECK_RETRY_DELAY_MS
 - **Type**: Number (milliseconds)
 - **Required**: No
-- **Default**: `30000`
-- **Description**: Interval for internal health checks
-- **Example**: `HEALTH_CHECK_INTERVAL=60000`
-- **Range**: 5000-300000
+- **Default**: `2000`
+- **Description**: Delay between health check retry attempts
+- **Example**: `HEALTH_CHECK_RETRY_DELAY_MS=5000`
+- **Range**: 500-30000
+
+#### HEALTH_CHECK_MAX_WAIT_TIME_MS
+- **Type**: Number (milliseconds)
+- **Required**: No
+- **Default**: `300000` (5 minutes)
+- **Description**: Maximum total wait time for health checks
+- **Example**: `HEALTH_CHECK_MAX_WAIT_TIME_MS=600000`
+- **Range**: 30000-1800000
+
+### Migration Configuration
+
+#### MIGRATION_ENABLED
+- **Type**: Boolean
+- **Required**: No
+- **Default**: `true`
+- **Description**: Enable automatic spot instance migration
+- **Example**: `MIGRATION_ENABLED=false`
+- **Note**: When disabled, no migration jobs will be scheduled
+
+#### MIGRATION_INTERVAL_MINUTES
+- **Type**: Number (minutes)
+- **Required**: No
+- **Default**: `15`
+- **Description**: Migration job schedule interval in minutes
+- **Example**: `MIGRATION_INTERVAL_MINUTES=30`
+- **Range**: 1-60
+
+#### MIGRATION_JOB_TIMEOUT_MS
+- **Type**: Number (milliseconds)
+- **Required**: No
+- **Default**: `600000` (10 minutes)
+- **Description**: Migration job timeout in milliseconds
+- **Example**: `MIGRATION_JOB_TIMEOUT_MS=900000`
+- **Range**: 60000-1800000
+
+#### MIGRATION_MAX_CONCURRENT
+- **Type**: Number
+- **Required**: No
+- **Default**: `5`
+- **Description**: Maximum concurrent migration operations
+- **Example**: `MIGRATION_MAX_CONCURRENT=10`
+- **Range**: 1-20
+
+#### MIGRATION_DRY_RUN
+- **Type**: Boolean
+- **Required**: No
+- **Default**: `false`
+- **Description**: Enable dry run mode (logs actions without executing)
+- **Example**: `MIGRATION_DRY_RUN=true`
+- **Note**: Useful for testing migration logic without actual API calls
+
+#### MIGRATION_RETRY_FAILED
+- **Type**: Boolean
+- **Required**: No
+- **Default**: `true`
+- **Description**: Enable retry for failed migration attempts
+- **Example**: `MIGRATION_RETRY_FAILED=false`
+
+#### MIGRATION_LOG_LEVEL
+- **Type**: String
+- **Required**: No
+- **Default**: `info`
+- **Description**: Migration-specific log level
+- **Options**: `error`, `warn`, `info`, `debug`
+- **Example**: `MIGRATION_LOG_LEVEL=debug`
 
 ## Configuration Validation
 
@@ -380,6 +453,9 @@ LOG_FILE=/var/log/novita-api.log
 CACHE_TTL=300000
 INSTANCE_POLL_INTERVAL=30000
 RATE_LIMIT_MAX_REQUESTS=100
+MIGRATION_ENABLED=true
+MIGRATION_INTERVAL_MINUTES=15
+MIGRATION_LOG_LEVEL=info
 ```
 
 ### Testing Environment
@@ -390,6 +466,8 @@ LOG_LEVEL=error
 CACHE_TTL=1000
 INSTANCE_POLL_INTERVAL=5000
 WEBHOOK_TIMEOUT=1000
+MIGRATION_ENABLED=false
+MIGRATION_DRY_RUN=true
 ```
 
 ## Configuration File Examples
@@ -425,6 +503,15 @@ PRODUCT_CACHE_TTL=1800000
 # Rate Limiting
 RATE_LIMIT_MAX_REQUESTS=100
 RATE_LIMIT_WINDOW=60000
+
+# Migration Configuration
+MIGRATION_ENABLED=true
+MIGRATION_INTERVAL_MINUTES=15
+MIGRATION_JOB_TIMEOUT_MS=600000
+MIGRATION_MAX_CONCURRENT=5
+MIGRATION_DRY_RUN=false
+MIGRATION_RETRY_FAILED=true
+MIGRATION_LOG_LEVEL=info
 ```
 
 ### docker-compose.override.yml
@@ -440,6 +527,77 @@ services:
       - CACHE_TTL=60000
     volumes:
       - ./logs:/var/log
+```
+
+## Migration Service Configuration Examples
+
+### Basic Migration Setup
+
+For most use cases, the default migration settings work well:
+
+```bash
+# Enable migration with default 15-minute interval
+MIGRATION_ENABLED=true
+MIGRATION_INTERVAL_MINUTES=15
+MIGRATION_MAX_CONCURRENT=5
+```
+
+### High-Frequency Migration
+
+For environments with frequent spot instance reclaims:
+
+```bash
+# More frequent migration checks
+MIGRATION_ENABLED=true
+MIGRATION_INTERVAL_MINUTES=5
+MIGRATION_MAX_CONCURRENT=10
+MIGRATION_JOB_TIMEOUT_MS=300000  # 5 minutes
+```
+
+### Conservative Migration
+
+For production environments requiring careful migration:
+
+```bash
+# Less frequent, more conservative migration
+MIGRATION_ENABLED=true
+MIGRATION_INTERVAL_MINUTES=30
+MIGRATION_MAX_CONCURRENT=3
+MIGRATION_RETRY_FAILED=true
+MIGRATION_LOG_LEVEL=info
+```
+
+### Development/Testing Migration
+
+For development and testing environments:
+
+```bash
+# Dry run mode for testing
+MIGRATION_ENABLED=true
+MIGRATION_DRY_RUN=true
+MIGRATION_LOG_LEVEL=debug
+MIGRATION_INTERVAL_MINUTES=5
+```
+
+### Disabled Migration
+
+To completely disable automatic migration:
+
+```bash
+# Disable all migration functionality
+MIGRATION_ENABLED=false
+```
+
+### Migration Monitoring Configuration
+
+For enhanced monitoring and observability:
+
+```bash
+# Detailed logging and monitoring
+MIGRATION_ENABLED=true
+MIGRATION_LOG_LEVEL=debug
+MIGRATION_RETRY_FAILED=true
+LOG_LEVEL=info  # Ensure general logging captures migration events
 ```
 
 ## Configuration Best Practices
@@ -464,6 +622,8 @@ services:
 2. **Configure circuit breakers**: Prevent cascade failures
 3. **Use health checks**: Enable proper monitoring
 4. **Plan for failures**: Set reasonable timeout values
+5. **Configure migration properly**: Set appropriate intervals and timeouts
+6. **Monitor migration jobs**: Enable detailed logging for migration operations
 
 ### Monitoring
 
@@ -498,6 +658,12 @@ services:
    ```
    Error: Configuration validation failed
    Solution: Check all required fields and value ranges
+   ```
+
+5. **Migration Configuration Issues**
+   ```
+   Error: Migration interval out of range
+   Solution: Set MIGRATION_INTERVAL_MINUTES between 1-60
    ```
 
 ### Debugging Configuration

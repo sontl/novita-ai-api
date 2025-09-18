@@ -22,7 +22,7 @@ import {
 import { log } from 'console';
 
 export class NovitaApiService {
-  
+
   /**
    * Get available products with optional filtering
    */
@@ -33,9 +33,9 @@ export class NovitaApiService {
   }): Promise<Product[]> {
     try {
       const params: Record<string, string> = {};
-      
+
       if (filters?.productName) params.productName = filters.productName;
-      
+
       // Add billing method for spot pricing
       params.billingMethod = 'spot';
 
@@ -43,19 +43,19 @@ export class NovitaApiService {
         '/v1/products',
         { params }
       );
-      
+
       logger.debug('Raw API response:', response.data);
-      
+
       // Handle the actual API response structure
       const rawProducts = response.data.data || [];
-      
+
       // Filter products by region if specified
-      const filteredProducts = filters?.region 
-        ? rawProducts.filter((product: any) => 
-            product.regions && product.regions.includes(filters.region)
-          )
+      const filteredProducts = filters?.region
+        ? rawProducts.filter((product: any) =>
+          product.regions && product.regions.includes(filters.region)
+        )
         : rawProducts;
-      
+
       // Transform API response to match our Product interface
       const products: Product[] = filteredProducts.map((rawProduct: any) => ({
         id: rawProduct.id,
@@ -67,11 +67,11 @@ export class NovitaApiService {
         gpuMemory: rawProduct.memoryPerGpu || 24, // Default to 24GB if not specified
         availability: rawProduct.availableDeploy ? 'available' : 'unavailable'
       }));
-      
-      logger.info('Products fetched and transformed', { 
+
+      logger.info('Products fetched and transformed', {
         count: products.length,
         filteredCount: filteredProducts.length,
-        filters 
+        filters
       });
 
       return products;
@@ -86,7 +86,7 @@ export class NovitaApiService {
   async getOptimalProduct(productName: string, region: string): Promise<Product> {
     try {
       const products = await this.getProducts({ productName: productName, region });
-      
+
       if (products.length === 0) {
         throw new NovitaApiClientError(
           `No products found matching name "${productName}" in region "${region}"`,
@@ -96,12 +96,12 @@ export class NovitaApiService {
       }
 
       // Filter products: available + spot price > 0 + in specified region
-      const validProducts = products.filter(p => 
-        p.availability === 'available' && 
+      const validProducts = products.filter(p =>
+        p.availability === 'available' &&
         p.spotPrice > 0 &&
         p.region === region
       );
-      
+
       if (validProducts.length === 0) {
         throw new NovitaApiClientError(
           `No available products found for "${productName}" in region "${region}" with valid spot pricing`,
@@ -113,7 +113,7 @@ export class NovitaApiService {
       // Sort by spot price ascending and return the cheapest option
       const sortedProducts = validProducts.sort((a, b) => a.spotPrice - b.spotPrice);
       const optimalProduct = sortedProducts[0];
-      
+
       if (!optimalProduct) {
         throw new NovitaApiClientError(
           `No optimal product found for "${productName}" in region "${region}"`,
@@ -121,7 +121,7 @@ export class NovitaApiService {
           'NO_OPTIMAL_PRODUCT'
         );
       }
-      
+
       logger.info('Selected optimal product', {
         productId: optimalProduct.id,
         productName: optimalProduct.name,
@@ -190,13 +190,13 @@ export class NovitaApiService {
   async getRegistryAuth(authId: string): Promise<{ username: string; password: string }> {
     try {
       logger.info('Fetching registry authentication credentials', { authId });
-      
+
       const response = await novitaClient.get<RegistryAuthsResponse>(
         '/v1/repository/auths'
       );
-      
-      logger.debug('Registry auths API response', { 
-        authCount: response.data.data?.length || 0 
+
+      logger.debug('Registry auths API response', {
+        authCount: response.data.data?.length || 0
       });
 
       if (!response.data.data || !Array.isArray(response.data.data)) {
@@ -209,7 +209,7 @@ export class NovitaApiService {
 
       // Find the auth entry by ID
       const authEntry = response.data.data.find(auth => auth.id === authId);
-      
+
       if (!authEntry) {
         throw new NovitaApiClientError(
           `Registry authentication not found for ID: ${authId}`,
@@ -289,7 +289,7 @@ export class NovitaApiService {
 
       // The API returns the instance data directly, not wrapped in a success/data structure
       const instanceData = response.data;
-      
+
       if (!instanceData || !instanceData.id) {
         throw new NovitaApiClientError(
           'Invalid response: missing instance data',
@@ -319,7 +319,7 @@ export class NovitaApiService {
 
       return transformedInstance;
     } catch (error) {
-      throw this.handleApiError(error, 'Failed to start instance');
+      throw this.handleApiError(error, 'Failed to start instance', true);
     }
   }
 
@@ -334,7 +334,7 @@ export class NovitaApiService {
 
       // The API returns the instance data directly, not wrapped in a success/data structure
       const instanceData = response.data;
-      
+
       if (!instanceData || !instanceData.id) {
         throw new NovitaApiClientError(
           `Instance not found: ${instanceId}`,
@@ -366,7 +366,7 @@ export class NovitaApiService {
 
       return transformedInstance;
     } catch (error) {
-      throw this.handleApiError(error, 'Failed to fetch instance');
+      throw this.handleApiError(error, 'Failed to fetch instance', true);
     }
   }
 
@@ -380,7 +380,7 @@ export class NovitaApiService {
   }): Promise<NovitaListInstancesResponse> {
     try {
       const params: Record<string, string> = {};
-      
+
       if (options?.page) params.page = options.page.toString();
       if (options?.pageSize) params.page_size = options.pageSize.toString();
       if (options?.status) params.status = options.status;
@@ -398,7 +398,7 @@ export class NovitaApiService {
 
       // The API returns instances directly in the instances array
       const novitaInstances = response.data.instances || [];
-      
+
       // Transform Novita response to our format
       const transformedInstances = this.transformNovitaInstances(novitaInstances);
 
@@ -434,7 +434,7 @@ export class NovitaApiService {
 
       // The API returns the instance data directly, not wrapped in a success/data structure
       const instanceData = response.data;
-      
+
       if (!instanceData || !instanceData.id) {
         throw new NovitaApiClientError(
           'Invalid response: missing instance data',
@@ -499,13 +499,13 @@ export class NovitaApiService {
    */
   async migrateInstance(instanceId: string): Promise<MigrationResponse> {
     try {
-      logger.info('Initiating instance migration', { 
+      logger.info('Initiating instance migration', {
         instanceId,
         endpoint: '/gpu-instance/openapi/v1/gpu/instance/migrate'
       });
 
       const requestPayload = { instanceId };
-      
+
       logger.debug('Migration API request details', {
         instanceId,
         payload: requestPayload,
@@ -593,10 +593,10 @@ export class NovitaApiService {
           type: port.type
         })) || []
       };
-      
+
       // Add optional fields using Object.assign to avoid exactOptionalPropertyTypes issues
       const optionalFields: Partial<InstanceResponse> = {};
-      
+
       if (novitaInstance.clusterId) optionalFields.clusterId = novitaInstance.clusterId;
       if (novitaInstance.clusterName) optionalFields.clusterName = novitaInstance.clusterName;
       if (novitaInstance.productName) optionalFields.productName = novitaInstance.productName;
@@ -612,7 +612,7 @@ export class NovitaApiService {
       if (novitaInstance.endTime) optionalFields.endTime = novitaInstance.endTime;
       if (novitaInstance.spotStatus) optionalFields.spotStatus = novitaInstance.spotStatus;
       if (novitaInstance.spotReclaimTime) optionalFields.spotReclaimTime = novitaInstance.spotReclaimTime;
-      
+
       return Object.assign(transformed, optionalFields);
     });
   }
@@ -626,7 +626,7 @@ export class NovitaApiService {
     }
 
     const transformedPorts: Template['ports'] = [];
-    
+
     apiPorts.forEach(portGroup => {
       if (portGroup.ports && Array.isArray(portGroup.ports)) {
         portGroup.ports.forEach((portNumber: number) => {
@@ -651,9 +651,9 @@ export class NovitaApiService {
   }
 
   /**
-   * Handle and transform API errors into appropriate error types
+   * Handle and transform API errors into appropriate error types with enhanced startup context
    */
-  private handleApiError(error: any, context: string): never {
+  private handleApiError(error: any, context: string, isStartupOperation: boolean = false): never {
     if (error instanceof NovitaApiClientError) {
       throw error;
     }
@@ -664,40 +664,97 @@ export class NovitaApiService {
       const message = error.response.data?.message || error.message;
       const code = error.response.data?.code || error.code;
 
+      // Enhanced logging for startup operations
+      if (isStartupOperation) {
+        logger.error('Novita.ai API error during startup operation', {
+          context,
+          status,
+          message,
+          code,
+          responseData: error.response.data,
+          headers: error.response.headers
+        });
+      }
+
       // Handle specific HTTP status codes
       switch (status) {
         case 429:
           const retryAfter = error.response.headers?.['retry-after'];
+          const retryAfterMs = retryAfter ? parseInt(retryAfter) * 1000 : undefined;
+
+          if (isStartupOperation) {
+            logger.warn('Rate limit encountered during startup operation', {
+              context,
+              retryAfterMs,
+              message
+            });
+          }
+
           throw new RateLimitError(
             message || 'Rate limit exceeded',
-            retryAfter ? parseInt(retryAfter) * 1000 : undefined
+            retryAfterMs
           );
-        
+
         case 401:
           throw new NovitaApiClientError(
             'Authentication failed - check API key',
             401,
             'AUTHENTICATION_FAILED'
           );
-        
+
         case 403:
+          // Check if it's a resource constraint issue
+          if (message && (message.includes('insufficient') || message.includes('quota') || message.includes('limit'))) {
+            throw new NovitaApiClientError(
+              `Resource constraints: ${message}`,
+              403,
+              'RESOURCE_CONSTRAINTS'
+            );
+          }
           throw new NovitaApiClientError(
             'Access forbidden - insufficient permissions',
             403,
             'ACCESS_FORBIDDEN'
           );
-        
+
         case 404:
           throw new NovitaApiClientError(
             message || 'Resource not found',
             404,
             'NOT_FOUND'
           );
-        
+
+        case 409:
+          // Conflict - instance might be in wrong state
+          throw new NovitaApiClientError(
+            message || 'Resource conflict - instance may be in wrong state',
+            409,
+            'RESOURCE_CONFLICT'
+          );
+
+        case 422:
+          // Unprocessable entity - validation error from API
+          throw new NovitaApiClientError(
+            message || 'Invalid request parameters',
+            422,
+            'VALIDATION_ERROR'
+          );
+
         case 500:
         case 502:
         case 503:
         case 504:
+          const isRetryable = status === 503 || status === 502 || status === 504;
+
+          if (isStartupOperation) {
+            logger.error('Server error during startup operation', {
+              context,
+              status,
+              message,
+              isRetryable
+            });
+          }
+
           throw new NovitaApiClientError(
             message || 'Novita.ai API server error',
             status,
@@ -709,10 +766,24 @@ export class NovitaApiService {
     // Handle specific error codes
     if (error && error.code) {
       if (error.code === 'ECONNABORTED') {
+        if (isStartupOperation) {
+          logger.error('Request timeout during startup operation', {
+            context,
+            code: error.code,
+            timeout: error.timeout
+          });
+        }
         throw new TimeoutError('Request timeout');
       }
-      
-      if (error.code === 'ENOTFOUND' || error.code === 'ECONNRESET') {
+
+      if (error.code === 'ENOTFOUND' || error.code === 'ECONNRESET' || error.code === 'ECONNREFUSED') {
+        if (isStartupOperation) {
+          logger.error('Network error during startup operation', {
+            context,
+            code: error.code,
+            message: error.message
+          });
+        }
         throw new NovitaApiClientError(
           'Network error - unable to connect to Novita.ai API',
           0,
@@ -723,18 +794,117 @@ export class NovitaApiService {
 
     // Handle circuit breaker errors
     if (error && error.message?.includes('Circuit breaker is OPEN')) {
+      if (isStartupOperation) {
+        logger.error('Circuit breaker open during startup operation', {
+          context,
+          message: error.message
+        });
+      }
       throw new CircuitBreakerError();
     }
 
-    // Generic error fallback
-    logger.error(`${context}:`, error);
+    // Generic error fallback with enhanced logging for startup operations
+    if (isStartupOperation) {
+      logger.error('Unknown error during startup operation', {
+        context,
+        errorName: error.name,
+        errorMessage: error.message,
+        errorStack: error.stack,
+        errorCode: error.code
+      });
+    } else {
+      logger.error(`${context}:`, error);
+    }
+
     throw new NovitaApiClientError(
       `${context}: ${error.message || 'Unknown error'}`,
       500,
       'UNKNOWN_ERROR'
     );
   }
+
+  /**
+   * Enhanced start instance method with retry logic and detailed error handling
+   */
+  async startInstanceWithRetry(instanceId: string, maxRetries: number = 3): Promise<InstanceResponse> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.debug('Attempting to start instance', {
+          instanceId,
+          attempt,
+          maxRetries
+        });
+
+        return await this.startInstance(instanceId);
+
+      } catch (error) {
+        lastError = error as Error;
+
+        // Check if error is retryable
+        const isRetryable = this.isRetryableError(error as Error);
+
+        logger.warn('Instance start attempt failed', {
+          instanceId,
+          attempt,
+          maxRetries,
+          error: (error as Error).message,
+          isRetryable,
+          willRetry: isRetryable && attempt < maxRetries
+        });
+
+        // Don't retry if error is not retryable or we've exhausted attempts
+        if (!isRetryable || attempt >= maxRetries) {
+          break;
+        }
+
+        // Calculate exponential backoff delay
+        const baseDelay = 1000; // 1 second
+        const delay = baseDelay * Math.pow(2, attempt - 1);
+
+        logger.debug('Waiting before retry', {
+          instanceId,
+          attempt,
+          delayMs: delay
+        });
+
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    // All retries exhausted, throw the last error
+    logger.error('All start instance attempts failed', {
+      instanceId,
+      maxRetries,
+      lastError: lastError?.message
+    });
+
+    throw lastError;
+  }
+
+  /**
+   * Check if an error is retryable for startup operations
+   */
+  private isRetryableError(error: Error): boolean {
+    if (error instanceof RateLimitError) return true;
+    if (error instanceof TimeoutError) return true;
+    if (error instanceof CircuitBreakerError) return true;
+
+    if (error instanceof NovitaApiClientError) {
+      // Retry on server errors but not client errors
+      if (error.statusCode) {
+        return error.statusCode >= 500 || error.statusCode === 429;
+      }
+
+      // Retry on network errors
+      if (error.code === 'NETWORK_ERROR') return true;
+    }
+
+    return false;
+  }
 }
+
 
 // Export singleton instance
 export const novitaApiService = new NovitaApiService();

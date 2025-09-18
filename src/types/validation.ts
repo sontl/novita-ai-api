@@ -1,5 +1,5 @@
 import Joi from 'joi';
-import { CreateInstanceRequest } from './api';
+import { CreateInstanceRequest, StartInstanceRequest } from './api';
 
 // Validation schemas for API requests
 
@@ -75,6 +75,95 @@ export const instanceIdSchema = Joi.string()
   .messages({
     'string.pattern.base': 'Instance ID must contain only alphanumeric characters, hyphens, and underscores'
   });
+
+// Start instance request validation
+export const startInstanceSchema = Joi.object<StartInstanceRequest>({
+  instanceName: Joi.string()
+    .min(1)
+    .max(100)
+    .pattern(/^[a-zA-Z0-9-_]+$/)
+    .optional()
+    .messages({
+      'string.pattern.base': 'Instance name must contain only alphanumeric characters, hyphens, and underscores',
+      'string.min': 'Instance name must be at least 1 character long',
+      'string.max': 'Instance name must be at most 100 characters long'
+    }),
+  
+  healthCheckConfig: Joi.object({
+    timeoutMs: Joi.number()
+      .integer()
+      .min(1000)
+      .max(300000)
+      .default(30000)
+      .messages({
+        'number.min': 'Health check timeout must be at least 1000ms',
+        'number.max': 'Health check timeout must be at most 300000ms (5 minutes)',
+        'number.integer': 'Health check timeout must be an integer'
+      }),
+    
+    retryAttempts: Joi.number()
+      .integer()
+      .min(0)
+      .max(10)
+      .default(3)
+      .messages({
+        'number.min': 'Retry attempts must be at least 0',
+        'number.max': 'Retry attempts must be at most 10',
+        'number.integer': 'Retry attempts must be an integer'
+      }),
+    
+    retryDelayMs: Joi.number()
+      .integer()
+      .min(100)
+      .max(30000)
+      .default(2000)
+      .messages({
+        'number.min': 'Retry delay must be at least 100ms',
+        'number.max': 'Retry delay must be at most 30000ms',
+        'number.integer': 'Retry delay must be an integer'
+      }),
+    
+    maxWaitTimeMs: Joi.number()
+      .integer()
+      .min(30000)
+      .max(1800000)
+      .default(600000)
+      .messages({
+        'number.min': 'Max wait time must be at least 30000ms (30 seconds)',
+        'number.max': 'Max wait time must be at most 1800000ms (30 minutes)',
+        'number.integer': 'Max wait time must be an integer'
+      }),
+    
+    targetPort: Joi.number()
+      .integer()
+      .min(1)
+      .max(65535)
+      .optional()
+      .messages({
+        'number.min': 'Target port must be at least 1',
+        'number.max': 'Target port must be at most 65535',
+        'number.integer': 'Target port must be an integer'
+      })
+  }).optional(),
+  
+  targetPort: Joi.number()
+    .integer()
+    .min(1)
+    .max(65535)
+    .optional()
+    .messages({
+      'number.min': 'Target port must be at least 1',
+      'number.max': 'Target port must be at most 65535',
+      'number.integer': 'Target port must be an integer'
+    }),
+  
+  webhookUrl: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .optional()
+    .messages({
+      'string.uri': 'Webhook URL must be a valid HTTP or HTTPS URL'
+    })
+});
 
 // Query parameters validation for listing instances
 export const listInstancesQuerySchema = Joi.object({
@@ -198,6 +287,29 @@ export function validateInstanceId(id: unknown): ValidationResult<string> {
   }
   
   return { value: value as string };
+}
+
+export function validateStartInstance(data: unknown): ValidationResult<StartInstanceRequest> {
+  const { error, value } = startInstanceSchema.validate(data, { 
+    abortEarly: false,
+    stripUnknown: true 
+  });
+  
+  if (error) {
+    return {
+      value: value as StartInstanceRequest,
+      error: {
+        message: 'Validation failed',
+        details: error.details.map(detail => ({
+          field: detail.path.join('.'),
+          message: detail.message,
+          value: detail.context?.value
+        }))
+      }
+    };
+  }
+  
+  return { value: value as StartInstanceRequest };
 }
 
 export function validateConfig(config: unknown): ValidationResult<any> {

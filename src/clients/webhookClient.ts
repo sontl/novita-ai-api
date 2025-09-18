@@ -18,7 +18,7 @@ export interface WebhookRequest {
 export interface WebhookNotificationPayload {
   instanceId: string;
   novitaInstanceId?: string;
-  status: 'running' | 'failed' | 'timeout' | 'ready' | 'health_checking';
+  status: 'running' | 'failed' | 'timeout' | 'ready' | 'health_checking' | 'startup_initiated' | 'startup_completed' | 'startup_failed';
   timestamp: string;
   elapsedTime?: number;
   error?: string;
@@ -38,6 +38,21 @@ export interface WebhookNotificationPayload {
     startedAt?: string;
     completedAt?: string;
     totalResponseTime?: number;
+  };
+  startupOperation?: {
+    operationId: string;
+    status: 'initiated' | 'monitoring' | 'health_checking' | 'completed' | 'failed';
+    startedAt: string;
+    phases: {
+      startRequested: string;
+      instanceStarting?: string;
+      instanceRunning?: string;
+      healthCheckStarted?: string;
+      healthCheckCompleted?: string;
+      ready?: string;
+    };
+    totalElapsedTime?: number;
+    error?: string;
   };
   reason?: string;
 }
@@ -112,7 +127,7 @@ export class WebhookClient {
    */
   createNotificationPayload(
     instanceId: string,
-    status: 'running' | 'failed' | 'timeout' | 'ready' | 'health_checking',
+    status: 'running' | 'failed' | 'timeout' | 'ready' | 'health_checking' | 'startup_initiated' | 'startup_completed' | 'startup_failed',
     options: {
       novitaInstanceId?: string;
       elapsedTime?: number;
@@ -134,6 +149,21 @@ export class WebhookClient {
         completedAt?: string;
         totalResponseTime?: number;
       };
+      startupOperation?: {
+        operationId: string;
+        status: 'initiated' | 'monitoring' | 'health_checking' | 'completed' | 'failed';
+        startedAt: string;
+        phases: {
+          startRequested: string;
+          instanceStarting?: string;
+          instanceRunning?: string;
+          healthCheckStarted?: string;
+          healthCheckCompleted?: string;
+          ready?: string;
+        };
+        totalElapsedTime?: number;
+        error?: string;
+      };
       reason?: string;
     } = {}
   ): WebhookNotificationPayload {
@@ -146,6 +176,7 @@ export class WebhookClient {
       ...(options.error && { error: options.error }),
       ...(options.data && { data: options.data }),
       ...(options.healthCheck && { healthCheck: options.healthCheck }),
+      ...(options.startupOperation && { startupOperation: options.startupOperation }),
       ...(options.reason && { reason: options.reason })
     };
   }
@@ -512,6 +543,338 @@ export class WebhookClient {
     }
     
     await this.sendWebhook(request);
+  }
+
+  /**
+   * Send startup initiated notification webhook
+   */
+  async sendStartupInitiatedNotification(
+    url: string,
+    instanceId: string,
+    options: {
+      novitaInstanceId?: string;
+      operationId: string;
+      startedAt: Date;
+      estimatedReadyTime?: string;
+      secret?: string;
+    }
+  ): Promise<void> {
+    const payload = this.createNotificationPayload(instanceId, 'startup_initiated', {
+      ...(options.novitaInstanceId && { novitaInstanceId: options.novitaInstanceId }),
+      startupOperation: {
+        operationId: options.operationId,
+        status: 'initiated',
+        startedAt: options.startedAt.toISOString(),
+        phases: {
+          startRequested: options.startedAt.toISOString()
+        },
+        totalElapsedTime: 0
+      },
+      reason: 'Instance startup operation initiated',
+      ...(options.estimatedReadyTime && { data: { estimatedReadyTime: options.estimatedReadyTime } })
+    });
+    
+    const request: WebhookRequest = {
+      url,
+      payload
+    };
+    
+    if (options.secret) {
+      request.secret = options.secret;
+    }
+    
+    await this.sendWebhookWithRetry(request);
+  }
+
+  /**
+   * Send startup completed notification webhook
+   */
+  async sendStartupCompletedNotification(
+    url: string,
+    instanceId: string,
+    options: {
+      novitaInstanceId?: string;
+      operationId: string;
+      startedAt: Date;
+      completedAt: Date;
+      phases: {
+        startRequested: Date;
+        instanceStarting?: Date;
+        instanceRunning?: Date;
+        healthCheckStarted?: Date;
+        healthCheckCompleted?: Date;
+        ready?: Date;
+      };
+      healthCheckResult?: HealthCheckResult;
+      data?: any;
+      secret?: string;
+    }
+  ): Promise<void> {
+    const totalElapsedTime = options.completedAt.getTime() - options.startedAt.getTime();
+    
+    const payload = this.createNotificationPayload(instanceId, 'startup_completed', {
+      ...(options.novitaInstanceId && { novitaInstanceId: options.novitaInstanceId }),
+      elapsedTime: totalElapsedTime,
+      startupOperation: {
+        operationId: options.operationId,
+        status: 'completed',
+        startedAt: options.startedAt.toISOString(),
+        phases: {
+          startRequested: options.phases.startRequested.toISOString(),
+          ...(options.phases.instanceStarting && { instanceStarting: options.phases.instanceStarting.toISOString() }),
+          ...(options.phases.instanceRunning && { instanceRunning: options.phases.instanceRunning.toISOString() }),
+          ...(options.phases.healthCheckStarted && { healthCheckStarted: options.phases.healthCheckStarted.toISOString() }),
+          ...(options.phases.healthCheckCompleted && { healthCheckCompleted: options.phases.healthCheckCompleted.toISOString() }),
+          ...(options.phases.ready && { ready: options.phases.ready.toISOString() })
+        },
+        totalElapsedTime
+      },
+      ...(options.healthCheckResult && { 
+        healthCheck: this.formatHealthCheckForWebhook(
+          options.healthCheckResult,
+          'completed',
+          options.phases.healthCheckStarted,
+          options.phases.healthCheckCompleted
+        )
+      }),
+      ...(options.data && { data: options.data }),
+      reason: 'Instance startup completed successfully - instance is ready to serve requests'
+    });
+    
+    const request: WebhookRequest = {
+      url,
+      payload
+    };
+    
+    if (options.secret) {
+      request.secret = options.secret;
+    }
+    
+    await this.sendWebhookWithRetry(request);
+  }
+
+  /**
+   * Send startup failed notification webhook
+   */
+  async sendStartupFailedNotification(
+    url: string,
+    instanceId: string,
+    error: string,
+    options: {
+      novitaInstanceId?: string;
+      operationId: string;
+      startedAt: Date;
+      failedAt: Date;
+      phases: {
+        startRequested: Date;
+        instanceStarting?: Date;
+        instanceRunning?: Date;
+        healthCheckStarted?: Date;
+        healthCheckCompleted?: Date;
+      };
+      failurePhase: 'startup' | 'health_check' | 'timeout';
+      healthCheckResult?: HealthCheckResult;
+      secret?: string;
+    }
+  ): Promise<void> {
+    const totalElapsedTime = options.failedAt.getTime() - options.startedAt.getTime();
+    
+    const payload = this.createNotificationPayload(instanceId, 'startup_failed', {
+      ...(options.novitaInstanceId && { novitaInstanceId: options.novitaInstanceId }),
+      elapsedTime: totalElapsedTime,
+      error,
+      startupOperation: {
+        operationId: options.operationId,
+        status: 'failed',
+        startedAt: options.startedAt.toISOString(),
+        phases: {
+          startRequested: options.phases.startRequested.toISOString(),
+          ...(options.phases.instanceStarting && { instanceStarting: options.phases.instanceStarting.toISOString() }),
+          ...(options.phases.instanceRunning && { instanceRunning: options.phases.instanceRunning.toISOString() }),
+          ...(options.phases.healthCheckStarted && { healthCheckStarted: options.phases.healthCheckStarted.toISOString() }),
+          ...(options.phases.healthCheckCompleted && { healthCheckCompleted: options.phases.healthCheckCompleted.toISOString() })
+        },
+        totalElapsedTime,
+        error
+      },
+      ...(options.healthCheckResult && { 
+        healthCheck: this.formatHealthCheckForWebhook(
+          options.healthCheckResult,
+          'failed',
+          options.phases.healthCheckStarted,
+          options.failedAt
+        )
+      }),
+      reason: `Instance startup failed during ${options.failurePhase} phase: ${error}`
+    });
+    
+    const request: WebhookRequest = {
+      url,
+      payload
+    };
+    
+    if (options.secret) {
+      request.secret = options.secret;
+    }
+    
+    await this.sendWebhookWithRetry(request);
+  }
+
+  /**
+   * Send startup progress notification webhook
+   */
+  async sendStartupProgressNotification(
+    url: string,
+    instanceId: string,
+    currentPhase: 'monitoring' | 'health_checking',
+    options: {
+      novitaInstanceId?: string;
+      operationId: string;
+      startedAt: Date;
+      phases: {
+        startRequested: Date;
+        instanceStarting?: Date;
+        instanceRunning?: Date;
+        healthCheckStarted?: Date;
+      };
+      currentStatus: string;
+      healthCheckResult?: HealthCheckResult;
+      secret?: string;
+    }
+  ): Promise<void> {
+    const totalElapsedTime = Date.now() - options.startedAt.getTime();
+    
+    let status: 'running' | 'health_checking';
+    let reason: string;
+    
+    switch (currentPhase) {
+      case 'monitoring':
+        status = 'running';
+        reason = `Instance startup in progress - current status: ${options.currentStatus}`;
+        break;
+      case 'health_checking':
+        status = 'health_checking';
+        reason = 'Instance startup in progress - performing health checks';
+        break;
+      default:
+        status = 'running';
+        reason = 'Instance startup in progress';
+    }
+    
+    const payload = this.createNotificationPayload(instanceId, status, {
+      ...(options.novitaInstanceId && { novitaInstanceId: options.novitaInstanceId }),
+      elapsedTime: totalElapsedTime,
+      startupOperation: {
+        operationId: options.operationId,
+        status: currentPhase,
+        startedAt: options.startedAt.toISOString(),
+        phases: {
+          startRequested: options.phases.startRequested.toISOString(),
+          ...(options.phases.instanceStarting && { instanceStarting: options.phases.instanceStarting.toISOString() }),
+          ...(options.phases.instanceRunning && { instanceRunning: options.phases.instanceRunning.toISOString() }),
+          ...(options.phases.healthCheckStarted && { healthCheckStarted: options.phases.healthCheckStarted.toISOString() })
+        },
+        totalElapsedTime
+      },
+      ...(options.healthCheckResult && { 
+        healthCheck: this.formatHealthCheckForWebhook(
+          options.healthCheckResult,
+          currentPhase === 'health_checking' ? 'in_progress' : 'pending'
+        )
+      }),
+      reason
+    });
+    
+    const request: WebhookRequest = {
+      url,
+      payload
+    };
+    
+    if (options.secret) {
+      request.secret = options.secret;
+    }
+    
+    await this.sendWebhookWithRetry(request);
+  }
+
+  /**
+   * Send webhook with enhanced retry logic for startup operations
+   */
+  async sendWebhookWithRetry(request: WebhookRequest, maxRetries: number = 5): Promise<void> {
+    let lastError: Error | null = null;
+    const baseDelayMs = 1000; // Start with 1 second
+    const maxDelayMs = 30000; // Cap at 30 seconds
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.debug('Sending startup webhook with retry', {
+          url: request.url,
+          attempt,
+          maxRetries,
+          payloadSize: JSON.stringify(request.payload).length
+        });
+
+        await this.sendWebhook(request, 1); // Use single attempt in base method
+        
+        logger.info('Startup webhook sent successfully', {
+          url: request.url,
+          attempt,
+          totalAttempts: attempt
+        });
+
+        return; // Success, exit retry loop
+
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        logger.warn('Startup webhook delivery attempt failed', {
+          url: request.url,
+          attempt,
+          maxRetries,
+          error: lastError.message,
+          statusCode: (error as any)?.response?.status
+        });
+
+        // Don't retry on client errors (4xx), only on server errors (5xx) and network errors
+        if ((error as any)?.response?.status && (error as any).response.status < 500) {
+          logger.error('Startup webhook failed with client error, not retrying', {
+            url: request.url,
+            statusCode: (error as any).response.status,
+            error: lastError.message
+          });
+          throw lastError;
+        }
+
+        // Wait before retry with exponential backoff and jitter
+        if (attempt < maxRetries) {
+          const exponentialDelay = Math.min(baseDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
+          const jitter = Math.random() * 0.1 * exponentialDelay; // Add up to 10% jitter
+          const delayMs = Math.floor(exponentialDelay + jitter);
+          
+          logger.debug('Waiting before startup webhook retry', {
+            url: request.url,
+            attempt,
+            delayMs,
+            exponentialDelay,
+            jitter: Math.floor(jitter)
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      }
+    }
+
+    // All retries failed
+    const finalError = new Error(`Startup webhook delivery failed after ${maxRetries} attempts: ${lastError?.message}`);
+    
+    logger.error('Startup webhook delivery failed permanently', {
+      url: request.url,
+      maxRetries,
+      finalError: finalError.message,
+      lastError: lastError?.message
+    });
+    
+    throw finalError;
   }
 }
 

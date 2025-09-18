@@ -3,6 +3,7 @@ import { productService } from './productService';
 import { templateService } from './templateService';
 import { jobQueueService } from './jobQueueService';
 import { novitaApiService } from './novitaApiService';
+import { webhookClient } from '../clients/webhookClient';
 import { config } from '../config/config';
 import {
   CreateInstanceRequest,
@@ -19,13 +20,21 @@ import {
   JobType,
   Port,
   HealthCheckConfig,
-  HealthCheckResult
+  HealthCheckResult,
+  StartupOperation,
+  StartInstanceRequest,
+  StartInstanceResponse,
+  StartInstanceJobPayload
 } from '../types/api';
-import { JobPriority, CreateInstanceJobPayload } from '../types/job';
+import { InstanceNotFoundError, InstanceNotStartableError } from '../utils/errorHandler';
+import { JobPriority, CreateInstanceJobPayload, JobType as JobTypeEnum } from '../types/job';
 import { cacheManager } from './cacheService';
 
 export class InstanceService {
   private instanceStates: Map<string, InstanceState> = new Map();
+  
+  // Track active startup operations to prevent duplicates
+  private activeStartupOperations: Map<string, StartupOperation> = new Map();
   
   private readonly instanceCache = cacheManager.getCache<InstanceDetails>('instance-details', {
     maxSize: 500,
@@ -128,7 +137,7 @@ export class InstanceService {
       }
 
       await jobQueueService.addJob(
-        JobType.CREATE_INSTANCE,
+        JobTypeEnum.CREATE_INSTANCE,
         jobPayload,
         JobPriority.HIGH
       );
@@ -881,6 +890,201 @@ export class InstanceService {
   }
 
   /**
+   * Find instance by name - searches both local state and Novita.ai API
+   * Requirements: 1.2, 1.3, 1.4
+   */
+  async findInstanceByName(name: string): Promise<InstanceDetails> {
+    try {
+      logger.debug('Searching for instance by name', { name });
+
+      // First, search in local instance states
+      for (const [instanceId, instanceState] of this.instanceStates.entries()) {
+        if (instanceState.name === name) {
+          logger.debug('Found instance in local state', { instanceId, name });
+          return await this.getInstanceStatus(instanceId);
+        }
+      }
+
+      // If not found locally and name-based lookup is enabled, search Novita.ai API
+      if (config.instanceStartup.enableNameBasedLookup) {
+        logger.debug('Searching Novita.ai API for instance by name', { name });
+        
+        try {
+          const novitaInstances = await this.getNovitaInstances();
+          const matchingInstance = novitaInstances.find(instance => instance.name === name);
+          
+          if (matchingInstance) {
+            logger.debug('Found instance in Novita.ai API', { 
+              novitaInstanceId: matchingInstance.id, 
+              name 
+            });
+            
+            // Transform Novita instance to our format
+            return this.transformNovitaInstanceToDetails(matchingInstance);
+          }
+        } catch (error) {
+          logger.warn('Failed to search Novita.ai API for instance by name', {
+            name,
+            error: (error as Error).message
+          });
+          // Continue to throw InstanceNotFoundError below
+        }
+      }
+
+      // Instance not found
+      throw new InstanceNotFoundError(name, 'name');
+
+    } catch (error) {
+      if (error instanceof InstanceNotFoundError) {
+        throw error;
+      }
+      
+      logger.error('Failed to find instance by name', {
+        name,
+        error: (error as Error).message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Validate if an instance can be started
+   * Requirements: 2.1, 2.2, 2.3, 2.4
+   */
+  async validateInstanceStartable(instanceDetails: InstanceDetails): Promise<void> {
+    const { id: instanceId, status } = instanceDetails;
+
+    logger.debug('Validating instance startability', { instanceId, status });
+
+    // Check if instance is in a startable state
+    if (!this.isInstanceStatusStartable(status)) {
+      const reason = this.getNotStartableReason(status);
+      throw new InstanceNotStartableError(instanceId, status, reason);
+    }
+
+    // Check if startup operation is already in progress
+    if (this.isStartupInProgress(instanceId)) {
+      const existingOperation = this.getStartupOperation(instanceId);
+      const { StartupOperationInProgressError } = await import('../utils/errorHandler');
+      throw new StartupOperationInProgressError(
+        instanceId,
+        existingOperation?.operationId || 'unknown',
+        existingOperation?.status || 'unknown'
+      );
+    }
+
+    logger.debug('Instance validation passed', { instanceId, status });
+  }
+
+  /**
+   * Check if a startup operation is currently in progress for an instance
+   * Requirements: 6.1
+   */
+  isStartupInProgress(instanceId: string): boolean {
+    const operation = this.activeStartupOperations.get(instanceId);
+    
+    if (!operation) {
+      return false;
+    }
+
+    // Check if operation is in an active state
+    const activeStates = ['initiated', 'monitoring', 'health_checking'];
+    const isActive = activeStates.includes(operation.status);
+
+    logger.debug('Checking startup progress', { 
+      instanceId, 
+      operationStatus: operation.status,
+      isActive 
+    });
+
+    return isActive;
+  }
+
+  /**
+   * Create and track a startup operation
+   * Requirements: 6.1
+   */
+  createStartupOperation(instanceId: string, novitaInstanceId: string): StartupOperation {
+    const operationId = this.generateOperationId();
+    const now = new Date();
+
+    const operation: StartupOperation = {
+      operationId,
+      instanceId,
+      novitaInstanceId,
+      status: 'initiated',
+      startedAt: now,
+      phases: {
+        startRequested: now
+      }
+    };
+
+    this.activeStartupOperations.set(instanceId, operation);
+
+    logger.info('Startup operation created', { 
+      operationId, 
+      instanceId, 
+      novitaInstanceId 
+    });
+
+    return operation;
+  }
+
+  /**
+   * Update startup operation status and phases
+   * Requirements: 6.1
+   */
+  updateStartupOperation(
+    instanceId: string, 
+    status: StartupOperation['status'], 
+    phase?: keyof StartupOperation['phases'],
+    error?: string
+  ): void {
+    const operation = this.activeStartupOperations.get(instanceId);
+    
+    if (!operation) {
+      logger.warn('Attempted to update non-existent startup operation', { instanceId });
+      return;
+    }
+
+    operation.status = status;
+    
+    if (phase) {
+      operation.phases[phase] = new Date();
+    }
+    
+    if (error) {
+      operation.error = error;
+    }
+
+    // Remove operation if completed or failed
+    if (status === 'completed' || status === 'failed') {
+      this.activeStartupOperations.delete(instanceId);
+      logger.info('Startup operation completed', { 
+        operationId: operation.operationId, 
+        instanceId, 
+        status,
+        error 
+      });
+    } else {
+      logger.debug('Startup operation updated', { 
+        operationId: operation.operationId, 
+        instanceId, 
+        status, 
+        phase 
+      });
+    }
+  }
+
+  /**
+   * Get active startup operation for an instance
+   * Requirements: 6.1
+   */
+  getStartupOperation(instanceId: string): StartupOperation | undefined {
+    return this.activeStartupOperations.get(instanceId);
+  }
+
+  /**
    * Handle status transitions with appropriate timestamp updates
    */
   private handleStatusTransition(instanceState: InstanceState, newStatus: InstanceStatus): void {
@@ -1093,6 +1297,290 @@ export class InstanceService {
         instance.healthCheck?.status === 'failed' || 
         (instance.status === InstanceStatus.FAILED && instance.healthCheck)
       );
+  }
+
+  /**
+   * Check if an instance status is startable
+   * Requirements: 2.1, 2.2, 2.3, 2.4
+   */
+  private isInstanceStatusStartable(status: string): boolean {
+    // Only instances in 'exited' status can be started
+    return status === InstanceStatus.EXITED;
+  }
+
+  /**
+   * Get reason why an instance cannot be started based on its status
+   * Requirements: 2.1, 2.2, 2.3, 2.4
+   */
+  private getNotStartableReason(status: string): string {
+    switch (status) {
+      case InstanceStatus.CREATING:
+        return 'instance is currently being created';
+      case InstanceStatus.STARTING:
+        return 'instance is already starting';
+      case InstanceStatus.RUNNING:
+        return 'instance is already running';
+      case InstanceStatus.READY:
+        return 'instance is already ready and running';
+      case InstanceStatus.STOPPING:
+        return 'instance is currently stopping';
+      case InstanceStatus.FAILED:
+        return 'instance is in failed state and cannot be started';
+      case InstanceStatus.TERMINATED:
+        return 'instance has been permanently terminated';
+      default:
+        return `instance status '${status}' does not allow starting`;
+    }
+  }
+
+  /**
+   * Transform Novita instance response to our InstanceDetails format
+   * Requirements: 1.2, 1.3, 1.4
+   */
+  private transformNovitaInstanceToDetails(novitaInstance: InstanceResponse): InstanceDetails {
+    const details: InstanceDetails = {
+      id: novitaInstance.id,
+      name: novitaInstance.name,
+      status: novitaInstance.status,
+      gpuNum: novitaInstance.gpuNum,
+      region: novitaInstance.region,
+      portMappings: novitaInstance.portMappings || [],
+      createdAt: novitaInstance.createdAt
+    };
+
+    // Add optional properties only if they exist
+    if (novitaInstance.connectionInfo) {
+      details.connectionDetails = novitaInstance.connectionInfo;
+    }
+
+    if (novitaInstance.startedAt) {
+      details.readyAt = novitaInstance.startedAt;
+    }
+
+    return details;
+  }
+
+  /**
+   * Start an instance by ID or name
+   * Requirements: 1.1, 1.5, 3.1, 5.1
+   */
+  async startInstance(
+    identifier: string,
+    startConfig: StartInstanceRequest = {},
+    searchBy: 'id' | 'name' = 'id'
+  ): Promise<StartInstanceResponse> {
+    try {
+      logger.info('Starting instance startup process', {
+        identifier,
+        searchBy,
+        startConfig: {
+          hasHealthCheckConfig: !!startConfig.healthCheckConfig,
+          targetPort: startConfig.targetPort,
+          hasWebhookUrl: !!startConfig.webhookUrl
+        }
+      });
+
+      // Find the instance
+      let instanceDetails: InstanceDetails;
+      if (searchBy === 'name') {
+        instanceDetails = await this.findInstanceByName(identifier);
+      } else {
+        instanceDetails = await this.getInstanceStatus(identifier);
+      }
+
+      // Validate that the instance can be started
+      await this.validateInstanceStartable(instanceDetails);
+
+      // Get the instance state to access novitaInstanceId
+      const instanceState = this.instanceStates.get(instanceDetails.id);
+      if (!instanceState || !instanceState.novitaInstanceId) {
+        throw new InstanceNotFoundError(identifier, searchBy);
+      }
+
+      // Create startup operation for tracking
+      const operation = this.createStartupOperation(instanceDetails.id, instanceState.novitaInstanceId);
+
+      try {
+        // Call Novita.ai API to start the instance
+        logger.debug('Calling Novita.ai API to start instance', {
+          instanceId: instanceDetails.id,
+          novitaInstanceId: instanceState.novitaInstanceId
+        });
+
+        // Use enhanced start instance method with retry logic
+        await novitaApiService.startInstanceWithRetry(
+          instanceState.novitaInstanceId,
+          config.defaults.maxRetryAttempts
+        );
+
+        // Update startup operation phase
+        this.updateStartupOperation(instanceDetails.id, 'monitoring', 'instanceStarting');
+
+        // Update instance status to starting
+        this.updateInstanceState(instanceDetails.id, {
+          status: InstanceStatus.STARTING
+        });
+
+        // Create monitoring job for startup process
+        const jobPayload: StartInstanceJobPayload = {
+          instanceId: instanceDetails.id,
+          novitaInstanceId: instanceState.novitaInstanceId,
+          healthCheckConfig: startConfig.healthCheckConfig || {
+            timeoutMs: 10000,
+            retryAttempts: 3,
+            retryDelayMs: 2000,
+            maxWaitTimeMs: 300000
+          },
+          startTime: new Date(),
+          maxWaitTime: startConfig.healthCheckConfig?.maxWaitTimeMs || 300000 // 5 minutes default
+        };
+
+        // Add optional properties only if they exist
+        const webhookUrl = startConfig.webhookUrl || instanceState.webhookUrl;
+        if (webhookUrl) {
+          jobPayload.webhookUrl = webhookUrl;
+        }
+        if (startConfig.targetPort) {
+          jobPayload.targetPort = startConfig.targetPort;
+        }
+
+        await jobQueueService.addJob(
+          JobTypeEnum.MONITOR_STARTUP,
+          jobPayload,
+          JobPriority.HIGH
+        );
+
+        // Send startup initiated webhook notification if configured
+        if (webhookUrl) {
+          try {
+            await webhookClient.sendStartupInitiatedNotification(
+              webhookUrl,
+              instanceDetails.id,
+              {
+                novitaInstanceId: instanceState.novitaInstanceId,
+                operationId: operation.operationId,
+                startedAt: operation.startedAt,
+                estimatedReadyTime: this.calculateEstimatedStartupTime()
+              }
+            );
+          } catch (webhookError) {
+            logger.error('Failed to send startup initiated webhook notification', {
+              instanceId: instanceDetails.id,
+              webhookUrl,
+              error: webhookError instanceof Error ? webhookError.message : 'Unknown error'
+            });
+            // Don't fail the startup operation due to webhook errors
+          }
+        }
+
+        logger.info('Instance startup initiated successfully', {
+          instanceId: instanceDetails.id,
+          operationId: operation.operationId,
+          novitaInstanceId: instanceState.novitaInstanceId
+        });
+
+        return {
+          instanceId: instanceDetails.id,
+          novitaInstanceId: instanceState.novitaInstanceId,
+          status: InstanceStatus.STARTING,
+          message: 'Instance startup initiated successfully',
+          operationId: operation.operationId,
+          estimatedReadyTime: this.calculateEstimatedStartupTime()
+        };
+
+      } catch (error) {
+        const errorMessage = (error as Error).message;
+        const errorName = (error as Error).name;
+        
+        // Enhanced error logging with context
+        logger.error('Failed to start instance via Novita.ai API', {
+          instanceId: instanceDetails.id,
+          novitaInstanceId: instanceState.novitaInstanceId,
+          error: errorMessage,
+          errorType: errorName,
+          operationId: operation.operationId,
+          elapsedTime: Date.now() - operation.startedAt.getTime()
+        });
+
+        // Update startup operation with detailed error information
+        this.updateStartupOperation(
+          instanceDetails.id,
+          'failed',
+          undefined,
+          errorMessage
+        );
+
+        // Transform API errors into more specific startup errors
+        const { 
+          StartupFailedError, 
+          ResourceConstraintsError, 
+          NetworkError,
+          isRetryableStartupError 
+        } = await import('../utils/errorHandler');
+        
+        // Check for specific error types and transform them
+        if (error instanceof NovitaApiClientError) {
+          if (error.code === 'RESOURCE_CONSTRAINTS') {
+            throw new ResourceConstraintsError(
+              instanceDetails.id,
+              'GPU resources',
+              'Try again later or select a different instance configuration'
+            );
+          }
+          
+          if (error.code === 'NETWORK_ERROR') {
+            throw new NetworkError(
+              `Network error during instance startup: ${errorMessage}`,
+              error.code,
+              true
+            );
+          }
+          
+          // Transform other API errors into startup failed errors
+          throw new StartupFailedError(
+            instanceDetails.id,
+            errorMessage,
+            'api_call',
+            isRetryableStartupError(error)
+          );
+        }
+
+        // For other error types, wrap them as startup failed errors
+        throw new StartupFailedError(
+          instanceDetails.id,
+          errorMessage,
+          'api_call',
+          isRetryableStartupError(error as Error)
+        );
+      }
+
+    } catch (error) {
+      logger.error('Failed to start instance', {
+        identifier,
+        searchBy,
+        error: (error as Error).message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Calculate estimated startup time (rough estimate)
+   * Requirements: 5.1
+   */
+  private calculateEstimatedStartupTime(): string {
+    // Estimate 2-4 minutes for instance startup and health checks
+    const estimatedMinutes = 3;
+    const estimatedTime = new Date(Date.now() + estimatedMinutes * 60 * 1000);
+    return estimatedTime.toISOString();
+  }
+
+  /**
+   * Generate unique operation ID for startup operations
+   * Requirements: 6.1
+   */
+  private generateOperationId(): string {
+    return `startup_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   }
 }
 

@@ -19,6 +19,7 @@ import {
   SendWebhookJobPayload,
   MigrateSpotInstancesJobPayload
 } from '../types/job';
+import { StartInstanceJobPayload } from '../types/api';
 
 export class JobQueueService {
   private jobs: Map<string, Job> = new Map();
@@ -40,7 +41,7 @@ export class JobQueueService {
    */
   async addJob(
     type: JobType,
-    payload: CreateInstanceJobPayload | MonitorInstanceJobPayload | SendWebhookJobPayload | MigrateSpotInstancesJobPayload,
+    payload: CreateInstanceJobPayload | MonitorInstanceJobPayload | SendWebhookJobPayload | MigrateSpotInstancesJobPayload | StartInstanceJobPayload,
     priority: JobPriority = JobPriority.NORMAL,
     maxAttempts: number = 3
   ): Promise<string> {
@@ -127,6 +128,7 @@ export class JobQueueService {
       jobsByType: {
         [JobType.CREATE_INSTANCE]: 0,
         [JobType.MONITOR_INSTANCE]: 0,
+        [JobType.MONITOR_STARTUP]: 0,
         [JobType.SEND_WEBHOOK]: 0,
         [JobType.MIGRATE_SPOT_INSTANCES]: 0
       }
