@@ -713,4 +713,276 @@ describe('NovitaApiService', () => {
       });
     });
   });
+
+  describe('migrateInstance', () => {
+    const instanceId = 'test-instance-123';
+
+    it('should migrate instance successfully', async () => {
+      const mockApiResponse = {
+        message: 'Migration initiated successfully',
+        newInstanceId: 'new-instance-456',
+        instanceId: instanceId
+      };
+
+      mockedNovitaClient.post.mockResolvedValue({
+        data: mockApiResponse,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      const result = await novitaApiService.migrateInstance(instanceId);
+
+      expect(result).toEqual({
+        success: true,
+        instanceId: instanceId,
+        message: 'Migration initiated successfully',
+        newInstanceId: 'new-instance-456',
+        migrationTime: expect.any(String)
+      });
+
+      expect(mockedNovitaClient.post).toHaveBeenCalledWith(
+        '/gpu-instance/openapi/v1/gpu/instance/migrate',
+        { instanceId }
+      );
+    });
+
+    it('should handle migration API response without newInstanceId', async () => {
+      const mockApiResponse = {
+        message: 'Migration completed',
+        instanceId: instanceId
+      };
+
+      mockedNovitaClient.post.mockResolvedValue({
+        data: mockApiResponse,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      const result = await novitaApiService.migrateInstance(instanceId);
+
+      expect(result).toEqual({
+        success: true,
+        instanceId: instanceId,
+        message: 'Migration completed',
+        newInstanceId: instanceId, // Should fallback to original instanceId
+        migrationTime: expect.any(String)
+      });
+    });
+
+    it('should handle migration API response with minimal data', async () => {
+      mockedNovitaClient.post.mockResolvedValue({
+        data: {},
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      const result = await novitaApiService.migrateInstance(instanceId);
+
+      expect(result).toEqual({
+        success: true,
+        instanceId: instanceId,
+        message: 'Migration initiated successfully',
+        newInstanceId: undefined,
+        migrationTime: expect.any(String)
+      });
+    });
+
+    it('should handle API response with error field', async () => {
+      const mockApiResponse = {
+        error: 'Instance not eligible for migration',
+        message: 'Migration failed'
+      };
+
+      mockedNovitaClient.post.mockResolvedValue({
+        data: mockApiResponse,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      const result = await novitaApiService.migrateInstance(instanceId);
+
+      expect(result).toEqual({
+        success: false,
+        instanceId: instanceId,
+        message: 'Migration failed',
+        error: 'Instance not eligible for migration',
+        migrationTime: expect.any(String)
+      });
+    });
+
+    it('should handle 404 error (instance not found)', async () => {
+      const axiosError = {
+        response: {
+          status: 404,
+          data: { message: 'Instance not found' }
+        },
+        message: 'Request failed with status code 404'
+      };
+
+      mockedNovitaClient.post.mockRejectedValue(axiosError);
+
+      await expect(
+        novitaApiService.migrateInstance(instanceId)
+      ).rejects.toThrow(NovitaApiClientError);
+
+      expect(mockedNovitaClient.post).toHaveBeenCalledWith(
+        '/gpu-instance/openapi/v1/gpu/instance/migrate',
+        { instanceId }
+      );
+    });
+
+    it('should handle 401 authentication error', async () => {
+      const axiosError = {
+        response: {
+          status: 401,
+          data: { message: 'Unauthorized' }
+        },
+        message: 'Request failed with status code 401'
+      };
+
+      mockedNovitaClient.post.mockRejectedValue(axiosError);
+
+      await expect(
+        novitaApiService.migrateInstance(instanceId)
+      ).rejects.toThrow('Authentication failed - check API key');
+    });
+
+    it('should handle 429 rate limit error', async () => {
+      const axiosError = {
+        response: {
+          status: 429,
+          data: { message: 'Rate limit exceeded' },
+          headers: { 'retry-after': '60' }
+        },
+        message: 'Request failed with status code 429'
+      };
+
+      mockedNovitaClient.post.mockRejectedValue(axiosError);
+
+      await expect(
+        novitaApiService.migrateInstance(instanceId)
+      ).rejects.toThrow(RateLimitError);
+    });
+
+    it('should handle 500 server error', async () => {
+      const axiosError = {
+        response: {
+          status: 500,
+          data: { message: 'Internal server error' }
+        },
+        message: 'Request failed with status code 500'
+      };
+
+      mockedNovitaClient.post.mockRejectedValue(axiosError);
+
+      await expect(
+        novitaApiService.migrateInstance(instanceId)
+      ).rejects.toThrow(NovitaApiClientError);
+    });
+
+    it('should handle network errors', async () => {
+      const networkError = {
+        code: 'ENOTFOUND',
+        message: 'Network error'
+      };
+
+      mockedNovitaClient.post.mockRejectedValue(networkError);
+
+      await expect(
+        novitaApiService.migrateInstance(instanceId)
+      ).rejects.toThrow('Network error - unable to connect to Novita.ai API');
+    });
+
+    it('should handle timeout errors', async () => {
+      const timeoutError = {
+        code: 'ECONNABORTED',
+        message: 'Request timeout'
+      };
+
+      mockedNovitaClient.post.mockRejectedValue(timeoutError);
+
+      await expect(
+        novitaApiService.migrateInstance(instanceId)
+      ).rejects.toThrow('Request timeout');
+    });
+
+    it('should log migration request details', async () => {
+      const mockApiResponse = {
+        message: 'Migration successful'
+      };
+
+      mockedNovitaClient.post.mockResolvedValue({
+        data: mockApiResponse,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      await novitaApiService.migrateInstance(instanceId);
+
+      // Verify logging calls were made
+      const { logger } = require('../../utils/logger');
+      expect(logger.info).toHaveBeenCalledWith(
+        'Initiating instance migration',
+        expect.objectContaining({
+          instanceId,
+          endpoint: '/gpu-instance/openapi/v1/gpu/instance/migrate'
+        })
+      );
+
+      expect(logger.debug).toHaveBeenCalledWith(
+        'Migration API request details',
+        expect.objectContaining({
+          instanceId,
+          payload: { instanceId },
+          endpoint: '/gpu-instance/openapi/v1/gpu/instance/migrate'
+        })
+      );
+
+      expect(logger.info).toHaveBeenCalledWith(
+        'Instance migration completed successfully',
+        expect.objectContaining({
+          instanceId,
+          success: true,
+          responseStatus: 200
+        })
+      );
+    });
+
+    it('should log migration errors', async () => {
+      const axiosError = {
+        response: {
+          status: 400,
+          data: { message: 'Bad request' }
+        },
+        message: 'Request failed with status code 400'
+      };
+
+      mockedNovitaClient.post.mockRejectedValue(axiosError);
+
+      await expect(
+        novitaApiService.migrateInstance(instanceId)
+      ).rejects.toThrow();
+
+      // Verify error logging
+      const { logger } = require('../../utils/logger');
+      expect(logger.error).toHaveBeenCalledWith(
+        'Instance migration failed',
+        expect.objectContaining({
+          instanceId,
+          error: expect.any(String),
+          statusCode: 400
+        })
+      );
+    });
+  });
 });

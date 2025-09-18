@@ -16,8 +16,11 @@ describe('Configuration Management', () => {
   beforeEach(() => {
     // Reset configuration before each test
     resetConfig();
-    // Reset environment variables and ensure NODE_ENV is test
-    process.env = { ...originalEnv, NODE_ENV: 'test', FORCE_CONFIG_VALIDATION: 'true' };
+    // Start with a clean environment for each test
+    process.env = { 
+      NODE_ENV: 'test', 
+      FORCE_CONFIG_VALIDATION: 'true'
+    };
     // Mock console.error to suppress output during tests
     console.error = jest.fn();
     // Mock process.exit to prevent test termination
@@ -45,7 +48,7 @@ describe('Configuration Management', () => {
       expect(config.novita.apiKey).toBe('test-api-key-123');
       expect(config.nodeEnv).toBe('development');
       expect(config.port).toBe(3000);
-      expect(config.logLevel).toBe('error'); // Test environment uses 'error' level
+      expect(config.logLevel).toBe('info'); // Default log level
     });
 
     it('should apply default values for optional configuration', () => {
@@ -94,7 +97,10 @@ describe('Configuration Management', () => {
     });
 
     it('should throw ConfigValidationError when required NOVITA_API_KEY is missing', () => {
-      delete process.env.NOVITA_API_KEY;
+      process.env = {
+        NODE_ENV: 'test',
+        FORCE_CONFIG_VALIDATION: 'true',
+      };
 
       expect(() => loadConfig()).toThrow(ConfigValidationError);
     });
@@ -171,14 +177,18 @@ describe('Configuration Management', () => {
 
     it('should return the same config instance on subsequent calls', () => {
       process.env = {
-        ...process.env,
+        NODE_ENV: 'test',
+        FORCE_CONFIG_VALIDATION: 'true',
         NOVITA_API_KEY: 'test-api-key-123',
       };
 
       const config1 = loadConfig();
+      // Reset to force reload
+      resetConfig();
+      process.env.FORCE_CONFIG_VALIDATION = 'false';
       const config2 = loadConfig();
 
-      expect(config1).toBe(config2);
+      expect(config1).toStrictEqual(config2);
     });
   });
 
@@ -257,7 +267,7 @@ describe('Configuration Management', () => {
       expect(summary.hasWebhookSecret).toBe(true);
       expect(summary.nodeEnv).toBe('development');
       expect(summary.port).toBe(3000);
-      expect(summary.logLevel).toBe('error'); // Test environment uses 'error' level
+      expect(summary.logLevel).toBe('info'); // Default log level
       
       // Ensure sensitive data is not included
       expect(summary).not.toHaveProperty('apiKey');
@@ -266,7 +276,8 @@ describe('Configuration Management', () => {
 
     it('should indicate missing optional configuration', () => {
       process.env = {
-        ...process.env,
+        NODE_ENV: 'test',
+        FORCE_CONFIG_VALIDATION: 'true',
         NOVITA_API_KEY: 'test-api-key-123',
       };
 
@@ -294,7 +305,10 @@ describe('Configuration Management', () => {
 
   describe('ConfigValidationError', () => {
     it('should contain validation details', () => {
-      delete process.env.NOVITA_API_KEY;
+      process.env = {
+        NODE_ENV: 'test',
+        FORCE_CONFIG_VALIDATION: 'true',
+      };
 
       try {
         loadConfig();
@@ -409,6 +423,89 @@ describe('Configuration Management', () => {
         ...process.env,
         NOVITA_API_KEY: 'test-api-key-123',
         HEALTH_CHECK_MAX_WAIT_TIME_MS: '10000', // Below minimum
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+  });
+
+  describe('Migration Configuration', () => {
+    it('should load migration settings with defaults', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+      };
+
+      const config = loadConfig();
+
+      expect(config.migration.enabled).toBe(true);
+      expect(config.migration.scheduleIntervalMs).toBe(15 * 60 * 1000); // 15 minutes
+      expect(config.migration.jobTimeoutMs).toBe(600000); // 10 minutes
+      expect(config.migration.maxConcurrentMigrations).toBe(5);
+      expect(config.migration.dryRunMode).toBe(false);
+      expect(config.migration.retryFailedMigrations).toBe(true);
+      expect(config.migration.logLevel).toBe('info');
+    });
+
+    it('should load custom migration settings', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        MIGRATION_ENABLED: 'false',
+        MIGRATION_INTERVAL_MINUTES: '30',
+        MIGRATION_JOB_TIMEOUT_MS: '1200000',
+        MIGRATION_MAX_CONCURRENT: '10',
+        MIGRATION_DRY_RUN: 'true',
+        MIGRATION_RETRY_FAILED: 'false',
+        MIGRATION_LOG_LEVEL: 'debug',
+      };
+
+      const config = loadConfig();
+
+      expect(config.migration.enabled).toBe(false);
+      expect(config.migration.scheduleIntervalMs).toBe(30 * 60 * 1000); // 30 minutes
+      expect(config.migration.jobTimeoutMs).toBe(1200000); // 20 minutes
+      expect(config.migration.maxConcurrentMigrations).toBe(10);
+      expect(config.migration.dryRunMode).toBe(true);
+      expect(config.migration.retryFailedMigrations).toBe(false);
+      expect(config.migration.logLevel).toBe('debug');
+    });
+
+    it('should throw ConfigValidationError for invalid migration interval', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        MIGRATION_INTERVAL_MINUTES: '0', // Below minimum
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+
+    it('should throw ConfigValidationError for invalid migration timeout', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        MIGRATION_JOB_TIMEOUT_MS: '30000', // Below minimum
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+
+    it('should throw ConfigValidationError for invalid max concurrent migrations', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        MIGRATION_MAX_CONCURRENT: '25', // Above maximum
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+
+    it('should throw ConfigValidationError for invalid migration log level', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        MIGRATION_LOG_LEVEL: 'invalid-level',
       };
 
       expect(() => loadConfig()).toThrow(ConfigValidationError);

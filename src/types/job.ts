@@ -5,7 +5,8 @@
 export enum JobType {
   CREATE_INSTANCE = 'create_instance',
   MONITOR_INSTANCE = 'monitor_instance',
-  SEND_WEBHOOK = 'send_webhook'
+  SEND_WEBHOOK = 'send_webhook',
+  MIGRATE_SPOT_INSTANCES = 'migrate_spot_instances'
 }
 
 export enum JobStatus {
@@ -61,6 +62,59 @@ export interface SendWebhookJobPayload {
   url: string;
   payload: any;
   headers?: Record<string, string>;
+}
+
+export interface MigrateSpotInstancesJobPayload {
+  scheduledAt: Date;
+  jobId: string;
+  config?: {
+    dryRun?: boolean;
+    maxMigrations?: number;
+  };
+}
+
+export interface MigrationEligibilityResult {
+  eligible: boolean;
+  reason: string;
+  instanceId: string;
+  spotStatus?: string;
+  spotReclaimTime?: string;
+}
+
+export interface MigrationAttempt {
+  instanceId: string;
+  instanceName: string;
+  status: import('./api').InstanceStatus;
+  spotStatus?: string;
+  spotReclaimTime?: string;
+  eligibilityCheck: MigrationEligibilityResult;
+  migrationResult?: {
+    success: boolean;
+    error?: string;
+    responseTime: number;
+  };
+  processedAt: Date;
+}
+
+export interface MigrationJobResult {
+  totalProcessed: number;
+  migrated: number;
+  skipped: number;
+  errors: number;
+  executionTimeMs: number;
+}
+
+export interface MigrationJobSummary {
+  jobId: string;
+  startedAt: Date;
+  completedAt: Date;
+  totalInstances: number;
+  exitedInstances: number;
+  eligibleInstances: number;
+  migratedInstances: number;
+  skippedInstances: number;
+  errorCount: number;
+  attempts: MigrationAttempt[];
 }
 
 export interface JobQueueStats {

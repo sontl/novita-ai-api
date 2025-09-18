@@ -10,13 +10,16 @@ import { novitaApiService } from './novitaApiService';
 import { instanceService } from './instanceService';
 import { webhookClient } from '../clients/webhookClient';
 import { healthCheckerService } from './healthCheckerService';
+import { instanceMigrationService } from './instanceMigrationService';
 import { config } from '../config/config';
 import {
   Job,
   JobType,
   CreateInstanceJobPayload,
   MonitorInstanceJobPayload,
-  SendWebhookJobPayload
+  SendWebhookJobPayload,
+  MigrateSpotInstancesJobPayload,
+  MigrationJobResult
 } from '../types/job';
 import {
   NovitaCreateInstanceRequest,
@@ -47,6 +50,7 @@ export class JobWorkerService {
     this.jobQueue.registerHandler(JobType.CREATE_INSTANCE, this.handleCreateInstance.bind(this));
     this.jobQueue.registerHandler(JobType.MONITOR_INSTANCE, this.handleMonitorInstance.bind(this));
     this.jobQueue.registerHandler(JobType.SEND_WEBHOOK, this.handleSendWebhook.bind(this));
+    this.jobQueue.registerHandler(JobType.MIGRATE_SPOT_INSTANCES, this.handleMigrateSpotInstances.bind(this));
   }
 
   /**
@@ -404,6 +408,76 @@ export class JobWorkerService {
         url: payload.url,
         error: error instanceof Error ? error.message : 'Unknown error'
       });
+      throw error;
+    }
+  }
+
+  /**
+   * Handle spot instance migration job
+   */
+  private async handleMigrateSpotInstances(job: Job): Promise<void> {
+    const payload = job.payload as MigrateSpotInstancesJobPayload;
+    const jobStartTime = Date.now();
+    
+    logger.info('Processing migrate spot instances job', {
+      jobId: job.id,
+      scheduledAt: payload.scheduledAt,
+      dryRun: payload.config?.dryRun,
+      maxMigrations: payload.config?.maxMigrations
+    });
+
+    try {
+      // Execute the migration batch processing
+      const migrationResult: MigrationJobResult = await instanceMigrationService.processMigrationBatch();
+      
+      const jobExecutionTime = Date.now() - jobStartTime;
+
+      // Log comprehensive job completion metrics
+      logger.info('Spot instance migration job completed successfully', {
+        jobId: job.id,
+        scheduledAt: payload.scheduledAt,
+        jobExecutionTimeMs: jobExecutionTime,
+        migrationExecutionTimeMs: migrationResult.executionTimeMs,
+        totalProcessed: migrationResult.totalProcessed,
+        migrated: migrationResult.migrated,
+        skipped: migrationResult.skipped,
+        errors: migrationResult.errors,
+        successRate: migrationResult.totalProcessed > 0 
+          ? ((migrationResult.migrated / migrationResult.totalProcessed) * 100).toFixed(2) + '%'
+          : '0%'
+      });
+
+      // Log warning if there were errors during migration
+      if (migrationResult.errors > 0) {
+        logger.warn('Migration job completed with errors', {
+          jobId: job.id,
+          errorCount: migrationResult.errors,
+          totalProcessed: migrationResult.totalProcessed,
+          errorRate: ((migrationResult.errors / migrationResult.totalProcessed) * 100).toFixed(2) + '%'
+        });
+      }
+
+      // Log info if no instances needed migration
+      if (migrationResult.totalProcessed === 0) {
+        logger.info('No instances required migration processing', {
+          jobId: job.id,
+          scheduledAt: payload.scheduledAt
+        });
+      }
+
+    } catch (error) {
+      const jobExecutionTime = Date.now() - jobStartTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown migration job error';
+
+      logger.error('Spot instance migration job failed', {
+        jobId: job.id,
+        scheduledAt: payload.scheduledAt,
+        jobExecutionTimeMs: jobExecutionTime,
+        error: errorMessage,
+        errorType: error instanceof Error ? error.constructor.name : 'UnknownError'
+      });
+
+      // Re-throw the error to mark the job as failed
       throw error;
     }
   }

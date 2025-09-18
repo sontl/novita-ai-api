@@ -62,7 +62,8 @@ describe('Enhanced Health Check Routes', () => {
       jobsByType: {
         [JobType.CREATE_INSTANCE]: 3,
         [JobType.MONITOR_INSTANCE]: 2,
-        [JobType.SEND_WEBHOOK]: 1
+        [JobType.SEND_WEBHOOK]: 1,
+        [JobType.MIGRATE_SPOT_INSTANCES]: 0
       }
     });
     

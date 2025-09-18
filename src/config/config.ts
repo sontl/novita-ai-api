@@ -58,6 +58,15 @@ export interface Config {
     readonly defaultRetryDelayMs: number;
     readonly defaultMaxWaitTimeMs: number;
   };
+  readonly migration: {
+    readonly enabled: boolean;
+    readonly scheduleIntervalMs: number;
+    readonly jobTimeoutMs: number;
+    readonly maxConcurrentMigrations: number;
+    readonly dryRunMode: boolean;
+    readonly retryFailedMigrations: boolean;
+    readonly logLevel: string;
+  };
 }
 
 /**
@@ -80,7 +89,7 @@ class ConfigLoader {
    * Load configuration from environment variables
    */
   public loadConfig(envPath?: string): Config {
-    if (this._config) {
+    if (this._config && process.env.FORCE_CONFIG_VALIDATION !== 'true') {
       return this._config;
     }
 
@@ -98,7 +107,8 @@ class ConfigLoader {
       }
     }
 
-    this._config = this.validateAndTransform(process.env);
+    const newConfig = this.validateAndTransform(process.env);
+    this._config = newConfig;
     return this._config;
   }
 
@@ -117,6 +127,10 @@ class ConfigLoader {
    */
   public reset(): void {
     this._config = null;
+    // Also reset the singleton instance for testing
+    if (process.env.NODE_ENV === 'test') {
+      ConfigLoader.instance = new ConfigLoader();
+    }
   }
 
   /**
@@ -176,6 +190,15 @@ class ConfigLoader {
         defaultRetryAttempts: envVars.HEALTH_CHECK_RETRY_ATTEMPTS,
         defaultRetryDelayMs: envVars.HEALTH_CHECK_RETRY_DELAY_MS,
         defaultMaxWaitTimeMs: envVars.HEALTH_CHECK_MAX_WAIT_TIME_MS,
+      },
+      migration: {
+        enabled: envVars.MIGRATION_ENABLED,
+        scheduleIntervalMs: envVars.MIGRATION_INTERVAL_MINUTES * 60 * 1000,
+        jobTimeoutMs: envVars.MIGRATION_JOB_TIMEOUT_MS,
+        maxConcurrentMigrations: envVars.MIGRATION_MAX_CONCURRENT,
+        dryRunMode: envVars.MIGRATION_DRY_RUN,
+        retryFailedMigrations: envVars.MIGRATION_RETRY_FAILED,
+        logLevel: envVars.MIGRATION_LOG_LEVEL,
       },
     };
   }
@@ -358,6 +381,45 @@ class ConfigLoader {
         .max(1800000)
         .default(300000)
         .description('Maximum total wait time for health checks in milliseconds (30000-1800000)'),
+      
+      // Migration Configuration
+      MIGRATION_ENABLED: Joi.boolean()
+        .default(true)
+        .description('Enable automatic spot instance migration'),
+      
+      MIGRATION_INTERVAL_MINUTES: Joi.number()
+        .integer()
+        .min(1)
+        .max(60)
+        .default(15)
+        .description('Migration job schedule interval in minutes (1-60)'),
+      
+      MIGRATION_JOB_TIMEOUT_MS: Joi.number()
+        .integer()
+        .min(60000)
+        .max(1800000)
+        .default(600000)
+        .description('Migration job timeout in milliseconds (60000-1800000)'),
+      
+      MIGRATION_MAX_CONCURRENT: Joi.number()
+        .integer()
+        .min(1)
+        .max(20)
+        .default(5)
+        .description('Maximum concurrent migration operations (1-20)'),
+      
+      MIGRATION_DRY_RUN: Joi.boolean()
+        .default(false)
+        .description('Enable dry run mode for migration (logs actions without executing)'),
+      
+      MIGRATION_RETRY_FAILED: Joi.boolean()
+        .default(true)
+        .description('Enable retry for failed migration attempts'),
+      
+      MIGRATION_LOG_LEVEL: Joi.string()
+        .valid('error', 'warn', 'info', 'debug')
+        .default('info')
+        .description('Migration-specific log level'),
     }).unknown(true); // Allow unknown environment variables
   }
 
@@ -395,6 +457,7 @@ class ConfigLoader {
       security: config.security,
       instanceListing: config.instanceListing,
       healthCheck: config.healthCheck,
+      migration: config.migration,
     };
   }
 }
@@ -454,7 +517,7 @@ export function getConfigSummary(): Record<string, any> {
 }
 
 // Load configuration immediately (fail-fast behavior) - except in test environment
-export const config = process.env.NODE_ENV === 'test' && !process.env.FORCE_CONFIG_VALIDATION ? 
+export const config = process.env.NODE_ENV === 'test' && process.env.FORCE_CONFIG_VALIDATION !== 'true' ? 
   createTestConfig() : 
   loadConfig();
 
@@ -500,6 +563,15 @@ function createTestConfig(): Config {
       defaultRetryAttempts: 3,
       defaultRetryDelayMs: 2000,
       defaultMaxWaitTimeMs: 300000,
+    },
+    migration: {
+      enabled: true,
+      scheduleIntervalMs: 15 * 60 * 1000, // 15 minutes
+      jobTimeoutMs: 600000 * 12, // 120 minutes
+      maxConcurrentMigrations: 5,
+      dryRunMode: false,
+      retryFailedMigrations: true,
+      logLevel: 'info',
     },
   };
 }

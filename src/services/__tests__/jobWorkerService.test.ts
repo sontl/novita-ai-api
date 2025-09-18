@@ -27,6 +27,13 @@ jest.mock('../../utils/logger', () => ({
   }
 }));
 
+// Mock instanceMigrationService
+jest.mock('../instanceMigrationService', () => ({
+  instanceMigrationService: {
+    processMigrationBatch: jest.fn()
+  }
+}));
+
 describe('JobWorkerService', () => {
   let jobQueue: JobQueueService;
   let jobWorker: JobWorkerService;
@@ -52,6 +59,7 @@ describe('JobWorkerService', () => {
       expect(registerHandlerSpy).toHaveBeenCalledWith(JobType.CREATE_INSTANCE, expect.any(Function));
       expect(registerHandlerSpy).toHaveBeenCalledWith(JobType.MONITOR_INSTANCE, expect.any(Function));
       expect(registerHandlerSpy).toHaveBeenCalledWith(JobType.SEND_WEBHOOK, expect.any(Function));
+      expect(registerHandlerSpy).toHaveBeenCalledWith(JobType.MIGRATE_SPOT_INSTANCES, expect.any(Function));
     });
   });
 

@@ -16,7 +16,8 @@ import {
   TimeoutError,
   RegistryAuth,
   RegistryAuthsResponse,
-  NovitaInstanceResponse
+  NovitaInstanceResponse,
+  MigrationResponse
 } from '../types/api';
 import { log } from 'console';
 
@@ -490,6 +491,66 @@ export class NovitaApiService {
       logger.info('Instance deleted successfully', { instanceId });
     } catch (error) {
       throw this.handleApiError(error, 'Failed to delete instance');
+    }
+  }
+
+  /**
+   * Migrate a spot instance that has been reclaimed
+   */
+  async migrateInstance(instanceId: string): Promise<MigrationResponse> {
+    try {
+      logger.info('Initiating instance migration', { 
+        instanceId,
+        endpoint: '/gpu-instance/openapi/v1/gpu/instance/migrate'
+      });
+
+      const requestPayload = { instanceId };
+      
+      logger.debug('Migration API request details', {
+        instanceId,
+        payload: requestPayload,
+        endpoint: '/gpu-instance/openapi/v1/gpu/instance/migrate'
+      });
+
+      const response = await novitaClient.post<any>(
+        '/gpu-instance/openapi/v1/gpu/instance/migrate',
+        requestPayload
+      );
+
+      // Transform the API response to our standardized format
+      const migrationResponse: MigrationResponse = {
+        success: true,
+        instanceId: instanceId,
+        message: response.data?.message || 'Migration initiated successfully',
+        newInstanceId: response.data?.newInstanceId || response.data?.instanceId,
+        migrationTime: new Date().toISOString()
+      };
+
+      // Add any additional response data if available
+      if (response.data?.error) {
+        migrationResponse.error = response.data.error;
+        migrationResponse.success = false;
+      }
+
+      logger.info('Instance migration completed successfully', {
+        instanceId,
+        newInstanceId: migrationResponse.newInstanceId,
+        success: migrationResponse.success,
+        message: migrationResponse.message,
+        responseStatus: response.status
+      });
+
+      return migrationResponse;
+    } catch (error: any) {
+      logger.error('Instance migration failed', {
+        instanceId,
+        error: error?.message || 'Unknown error',
+        errorCode: error?.code,
+        statusCode: error?.response?.status
+      });
+
+      // Still throw the error for proper error handling in the calling code
+      throw this.handleApiError(error, 'Failed to migrate instance');
     }
   }
 

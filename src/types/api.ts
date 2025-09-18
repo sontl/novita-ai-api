@@ -320,7 +320,8 @@ export enum InstanceStatus {
   STOPPING = 'stopping',
   STOPPED = 'stopped',
   FAILED = 'failed',
-  TERMINATED = 'terminated'
+  TERMINATED = 'terminated',
+  EXITED = 'exited'
 }
 
 export interface NovitaListInstancesResponse {
@@ -503,4 +504,29 @@ export interface RegistryAuth {
 
 export interface RegistryAuthsResponse {
   data: RegistryAuth[];
+}
+
+// Migration configuration types
+export interface MigrationConfig {
+  enabled: boolean;
+  scheduleIntervalMs: number;
+  jobTimeoutMs: number;
+  maxConcurrentMigrations: number;
+  dryRunMode: boolean;
+  retryFailedMigrations: boolean;
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+}
+
+// Migration API types
+export interface MigrationRequest {
+  instanceId: string;
+}
+
+export interface MigrationResponse {
+  success: boolean;
+  instanceId: string;
+  message?: string;
+  error?: string;
+  newInstanceId?: string;
+  migrationTime?: string;
 }
