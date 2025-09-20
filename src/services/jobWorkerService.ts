@@ -161,6 +161,13 @@ export class JobWorkerService {
         requestedRegion: payload.region
       });
 
+      // log createRequest details
+      logger.debug('Novita.ai instance creation request', {
+        jobId: job.id,
+        instanceId: payload.instanceId,
+        createRequest
+      });
+
       // Step 4: Create instance via Novita.ai API
       const novitaInstance = await novitaApiService.createInstance(createRequest);
 

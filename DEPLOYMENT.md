@@ -24,6 +24,11 @@ Edit `.env` with your configuration:
 # Required: Your Novita.ai API key
 NOVITA_API_KEY=your_actual_api_key_here
 
+# Optional: Redis configuration for data persistence
+UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your_redis_token
+REDIS_ENABLE_FALLBACK=true
+
 # Optional: Webhook configuration
 WEBHOOK_URL=https://your-webhook-endpoint.com/webhook
 WEBHOOK_SECRET=your_webhook_signing_secret
@@ -77,6 +82,19 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 | `MAX_RETRY_ATTEMPTS` | No | `3` | Maximum API retry attempts |
 | `REQUEST_TIMEOUT` | No | `30000` | API request timeout (milliseconds) |
 
+#### Redis Configuration (Optional)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `UPSTASH_REDIS_REST_URL` | No | - | Upstash Redis REST URL for persistence |
+| `UPSTASH_REDIS_REST_TOKEN` | No | - | Upstash Redis authentication token |
+| `REDIS_ENABLE_FALLBACK` | No | `true` | Enable fallback to in-memory storage |
+| `REDIS_CONNECTION_TIMEOUT_MS` | No | `10000` | Redis connection timeout (milliseconds) |
+| `REDIS_COMMAND_TIMEOUT_MS` | No | `5000` | Redis command timeout (milliseconds) |
+| `REDIS_RETRY_ATTEMPTS` | No | `3` | Redis operation retry attempts |
+| `REDIS_RETRY_DELAY_MS` | No | `1000` | Redis retry delay (milliseconds) |
+| `REDIS_KEY_PREFIX` | No | `novita_api` | Redis key prefix for namespacing |
+
 ### Volume Mounts
 
 The service uses the following volumes:
@@ -107,6 +125,8 @@ Health check validates:
 - Service responsiveness
 - Novita.ai API connectivity
 - Internal service health
+- Redis connectivity (when configured)
+- Cache service availability
 
 ## Monitoring
 
@@ -311,11 +331,74 @@ docker stats novita-gpu-instance-api
 docker-compose build --no-cache
 ```
 
+## Redis Deployment
+
+### New Deployment with Redis
+
+For new deployments with Redis persistence:
+
+```bash
+# Set up Redis environment variables
+export UPSTASH_REDIS_REST_URL="https://your-redis.upstash.io"
+export UPSTASH_REDIS_REST_TOKEN="your-redis-token"
+export REDIS_ENABLE_FALLBACK="true"
+
+# Deploy with Redis support
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+### Migration from In-Memory to Redis
+
+For existing deployments migrating to Redis:
+
+```bash
+# 1. Configure Redis environment variables
+export UPSTASH_REDIS_REST_URL="https://your-redis.upstash.io"
+export UPSTASH_REDIS_REST_TOKEN="your-redis-token"
+export REDIS_ENABLE_FALLBACK="true"
+
+# 2. Run migration script (dry run first)
+docker-compose exec novita-gpu-api node scripts/redis-migration.js --dry-run
+
+# 3. Run actual migration
+docker-compose exec novita-gpu-api node scripts/redis-migration.js
+
+# 4. Restart with Redis configuration
+docker-compose restart novita-gpu-api
+
+# 5. Verify Redis is working
+curl http://localhost:3000/health | jq '.redis'
+```
+
+### Redis Troubleshooting
+
+Common Redis deployment issues:
+
+```bash
+# Test Redis connectivity
+curl -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN" \
+     "$UPSTASH_REDIS_REST_URL/ping"
+
+# Check Redis status in health endpoint
+curl http://localhost:3000/health | jq '.redis, .dependencies.redis'
+
+# Monitor Redis-related logs
+docker-compose logs -f novita-gpu-api | grep -i redis
+
+# Enable fallback mode for high availability
+export REDIS_ENABLE_FALLBACK=true
+docker-compose restart novita-gpu-api
+```
+
+For detailed Redis troubleshooting, see [Redis Troubleshooting Guide](docs/REDIS_TROUBLESHOOTING.md).
+
 ## Production Checklist
 
 Before deploying to production:
 
 - [ ] Configure all required environment variables
+- [ ] Set up Redis instance (if using persistence)
+- [ ] Test Redis connectivity and migration
 - [ ] Set up proper log rotation
 - [ ] Configure monitoring and alerting
 - [ ] Set up backup procedures

@@ -6,6 +6,7 @@ import { instanceService } from '../services/instanceService';
 import { metricsService } from '../services/metricsService';
 import { HealthCheckResponse, EnhancedHealthCheckResponse } from '../types/api';
 import { serviceRegistry } from '../services/serviceRegistry';
+import { getServiceHealthStatus } from '../services/serviceInitializer';
 
 const router = Router();
 
@@ -16,10 +17,11 @@ router.get('/', async (req: Request, res: Response) => {
     logger.debug('Health check requested', { requestId });
 
     // Check service dependencies with detailed information
-    const [services, dependencyDetails, migrationServiceDetails] = await Promise.all([
+    const [services, dependencyDetails, migrationServiceDetails, redisServiceDetails] = await Promise.all([
       checkServiceHealth(),
       checkDependencyDetails(),
-      checkMigrationServiceDetails()
+      checkMigrationServiceDetails(),
+      checkRedisServiceDetails()
     ]);
     
     // Get performance metrics
@@ -55,7 +57,8 @@ router.get('/', async (req: Request, res: Response) => {
         }
       },
       dependencies: dependencyDetails,
-      migrationService: migrationServiceDetails
+      migrationService: migrationServiceDetails,
+      redis: redisServiceDetails
     };
 
     // Add additional debug information in development
@@ -93,7 +96,8 @@ router.get('/', async (req: Request, res: Response) => {
         novitaApi: 'down',
         jobQueue: 'down',
         cache: 'down',
-        migrationService: 'down'
+        migrationService: 'down',
+        redis: 'down'
       },
       uptime: process.uptime()
     };
@@ -110,14 +114,16 @@ async function checkServiceHealth(): Promise<HealthCheckResponse['services']> {
     checkNovitaApiHealth(),
     checkJobQueueHealth(),
     checkCacheHealth(),
-    checkMigrationServiceHealth()
+    checkMigrationServiceHealth(),
+    checkRedisHealth()
   ]);
 
   return {
     novitaApi: checks[0].status === 'fulfilled' && checks[0].value ? 'up' : 'down',
     jobQueue: checks[1].status === 'fulfilled' && checks[1].value ? 'up' : 'down',
     cache: checks[2].status === 'fulfilled' && checks[2].value ? 'up' : 'down',
-    migrationService: checks[3].status === 'fulfilled' && checks[3].value ? 'up' : 'down'
+    migrationService: checks[3].status === 'fulfilled' && checks[3].value ? 'up' : 'down',
+    redis: checks[4].status === 'fulfilled' && checks[4].value ? 'up' : 'down'
   };
 }
 
@@ -125,10 +131,11 @@ async function checkServiceHealth(): Promise<HealthCheckResponse['services']> {
  * Check detailed dependency information
  */
 async function checkDependencyDetails(): Promise<Record<string, any>> {
-  const [novitaCheck, jobQueueCheck, cacheCheck] = await Promise.allSettled([
+  const [novitaCheck, jobQueueCheck, cacheCheck, redisCheck] = await Promise.allSettled([
     checkNovitaApiHealthDetailed(),
     checkJobQueueHealthDetailed(),
-    checkCacheHealthDetailed()
+    checkCacheHealthDetailed(),
+    checkRedisHealthDetailed()
   ]);
 
   return {
@@ -143,6 +150,10 @@ async function checkDependencyDetails(): Promise<Record<string, any>> {
     cache: cacheCheck.status === 'fulfilled' ? cacheCheck.value : { 
       status: 'down', 
       error: cacheCheck.reason?.message || 'Unknown error' 
+    },
+    redis: redisCheck.status === 'fulfilled' ? redisCheck.value : { 
+      status: 'down', 
+      error: redisCheck.reason?.message || 'Unknown error' 
     }
   };
 }
@@ -361,6 +372,97 @@ async function checkMigrationServiceDetails(): Promise<EnhancedHealthCheckRespon
       recentErrors: 0,
       totalExecutions: 0,
       uptime: 0
+    };
+  }
+}
+
+/**
+ * Check Redis service health
+ */
+async function checkRedisHealth(): Promise<boolean> {
+  try {
+    const redisClient = serviceRegistry.getRedisClient();
+    if (!redisClient) {
+      return false; // Redis not configured
+    }
+    
+    return (redisClient as any).isHealthy?.() ?? false;
+  } catch (error) {
+    logger.debug('Redis health check failed', {
+      error: (error as Error).message
+    });
+    return false;
+  }
+}
+
+/**
+ * Detailed Redis health check
+ */
+async function checkRedisHealthDetailed(): Promise<any> {
+  const startTime = Date.now();
+  
+  try {
+    const redisClient = serviceRegistry.getRedisClient();
+    
+    if (!redisClient) {
+      return {
+        status: 'not_configured',
+        message: 'Redis client not initialized',
+        lastChecked: new Date().toISOString()
+      };
+    }
+
+    // Test Redis connectivity with ping
+    const pingResult = await redisClient.ping();
+    const responseTime = Date.now() - startTime;
+    const connectionStats = (redisClient as any).getConnectionStats?.() ?? {};
+    
+    return {
+      status: 'up',
+      responseTime,
+      pingResult,
+      connectionStats,
+      isHealthy: (redisClient as any).isHealthy?.() ?? false,
+      lastChecked: new Date().toISOString()
+    };
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    
+    return {
+      status: 'down',
+      responseTime,
+      error: (error as Error).message,
+      lastChecked: new Date().toISOString()
+    };
+  }
+}
+
+/**
+ * Check detailed Redis service information
+ */
+async function checkRedisServiceDetails(): Promise<any> {
+  try {
+    const serviceHealthStatus = getServiceHealthStatus();
+    const cacheManager = serviceRegistry.getCacheManager();
+    
+    const result: any = {
+      available: serviceHealthStatus.redis.available,
+      healthy: serviceHealthStatus.redis.healthy,
+      cacheManager: serviceHealthStatus.cacheManager
+    };
+
+    if (cacheManager) {
+      result.cacheManagerConfig = cacheManager.getConfiguration();
+      result.redisHealthStatus = cacheManager.getRedisHealthStatus();
+    }
+
+    return result;
+  } catch (error) {
+    return {
+      available: false,
+      healthy: false,
+      error: (error as Error).message,
+      lastChecked: new Date().toISOString()
     };
   }
 }

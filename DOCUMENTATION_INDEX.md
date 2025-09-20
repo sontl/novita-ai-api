@@ -23,8 +23,17 @@ Complete documentation for the Novita GPU Instance API service.
 - **[Region Fallback Implementation](./REGION_FALLBACK_IMPLEMENTATION.md)** - Region fallback logic
 - **[Startup Error Handling Summary](./STARTUP_ERROR_HANDLING_SUMMARY.md)** - Error handling details
 
+## 🗄️ Redis Persistence Documentation
+
+- **[docs/REDIS_CONFIGURATION.md](./docs/REDIS_CONFIGURATION.md)** - Complete Redis configuration guide
+- **[docs/REDIS_TROUBLESHOOTING.md](./docs/REDIS_TROUBLESHOOTING.md)** - Redis troubleshooting and diagnostics
+- **[docs/DEPLOYMENT_EXAMPLES.md](./docs/DEPLOYMENT_EXAMPLES.md)** - Comprehensive deployment examples with Redis
+- **[scripts/redis-migration.js](./scripts/redis-migration.js)** - Migration utility for Redis adoption
+
 ## 🐳 Deployment & Operations
 
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Main deployment guide with Redis support
+- **[docs/DEPLOYMENT_EXAMPLES.md](./docs/DEPLOYMENT_EXAMPLES.md)** - Comprehensive deployment examples
 - **[Docker Deployment Summary](./DOCKER_DEPLOYMENT_SUMMARY.md)** - Docker deployment overview
 - **[Makefile](./Makefile)** - Build and deployment commands
 
@@ -74,14 +83,17 @@ Complete documentation for the Novita GPU Instance API service.
 3. [client-examples/](./client-examples/) - Code examples
 
 ### For DevOps/Deployment
-1. [DEPLOYMENT.md](./DEPLOYMENT.md) - Deployment guide
-2. [Docker Deployment Summary](./DOCKER_DEPLOYMENT_SUMMARY.md) - Docker overview
-3. [.env.example](./.env.example) - Configuration template
+1. [DEPLOYMENT.md](./DEPLOYMENT.md) - Main deployment guide
+2. [docs/DEPLOYMENT_EXAMPLES.md](./docs/DEPLOYMENT_EXAMPLES.md) - Comprehensive examples
+3. [docs/REDIS_CONFIGURATION.md](./docs/REDIS_CONFIGURATION.md) - Redis setup
+4. [Docker Deployment Summary](./DOCKER_DEPLOYMENT_SUMMARY.md) - Docker overview
+5. [.env.example](./.env.example) - Configuration template
 
 ### For Troubleshooting
 1. Health check: `curl http://localhost:3000/health`
-2. [STARTUP_ERROR_HANDLING_SUMMARY.md](./STARTUP_ERROR_HANDLING_SUMMARY.md)
-3. Application logs in `./logs/`
+2. [docs/REDIS_TROUBLESHOOTING.md](./docs/REDIS_TROUBLESHOOTING.md) - Redis issues
+3. [STARTUP_ERROR_HANDLING_SUMMARY.md](./STARTUP_ERROR_HANDLING_SUMMARY.md) - General errors
+4. Application logs in `./logs/`
 
 ### For Understanding Implementation
 1. [API Endpoints Summary](./API_ENDPOINTS_SUMMARY.md) - Technical details
@@ -93,9 +105,12 @@ Complete documentation for the Novita GPU Instance API service.
 | Document | Status | Last Updated | Purpose |
 |----------|--------|--------------|---------|
 | README.md | ✅ Current | 2024-01-15 | Project overview |
-| API_CLIENT_REFERENCE.md | ✅ Current | 2024-01-15 | Complete API docs |
+| API_CLIENT_REFERENCE.md | ✅ Current | 2024-09-20 | Complete API docs with Redis |
 | API_QUICK_START.md | ✅ Current | 2024-01-15 | Quick start guide |
-| DEPLOYMENT.md | ✅ Current | 2024-01-15 | Deployment guide |
+| DEPLOYMENT.md | ✅ Current | 2024-09-20 | Deployment guide with Redis |
+| docs/REDIS_CONFIGURATION.md | ✅ Current | 2024-09-20 | Redis configuration guide |
+| docs/REDIS_TROUBLESHOOTING.md | ✅ Current | 2024-09-20 | Redis troubleshooting |
+| docs/DEPLOYMENT_EXAMPLES.md | ✅ Current | 2024-09-20 | Deployment examples |
 | API_ENDPOINTS_SUMMARY.md | ✅ Current | 2024-01-15 | Technical summary |
 
 ## 🤝 Contributing

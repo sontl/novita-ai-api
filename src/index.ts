@@ -16,8 +16,8 @@ import { metricsRouter } from './routes/metrics';
 import cacheRouter from './routes/cache';
 import { jobWorkerService } from './services/jobWorkerService';
 import { createMigrationScheduler } from './services/migrationScheduler';
-import { jobQueueService } from './services/jobQueueService';
 import { serviceRegistry } from './services/serviceRegistry';
+import { initializeServices, shutdownServices } from './services/serviceInitializer';
 
 const app = express();
 
@@ -93,51 +93,81 @@ app.use(errorHandler);
 
 // Only start server if not in test environment
 if (config.nodeEnv !== 'test') {
-  // Start job worker service for background processing
-  jobWorkerService.start();
-  logger.info('Job worker service started');
-  
-  // Initialize and start migration scheduler
-  const migrationScheduler = createMigrationScheduler(config, jobQueueService);
-  serviceRegistry.registerMigrationScheduler(migrationScheduler);
-  migrationScheduler.start();
-  logger.info('Migration scheduler initialized', {
-    enabled: config.migration.enabled,
-    intervalMs: config.migration.scheduleIntervalMs
-  });
-  
-  const server = app.listen(config.port, () => {
-    logger.info(`Server running on port ${config.port}`);
-    logger.info(`Environment: ${config.nodeEnv}`);
-  });
-
-  // Graceful shutdown helper function
-  const gracefulShutdown = async (signal: string) => {
-    logger.info(`${signal} received, shutting down gracefully`);
-    
-    try {
-      // Shutdown migration scheduler first
-      await migrationScheduler.shutdown(10000);
-      logger.info('Migration scheduler shutdown complete');
-      
-      // Then shutdown job worker service
-      await jobWorkerService.shutdown(10000);
-      logger.info('Job worker service shutdown complete');
-      
-      // Finally close the server
-      server.close(() => {
-        logger.info('Process terminated');
-        process.exit(0);
+  // Initialize Redis-backed services
+  initializeServices(config)
+    .then(async (serviceResult) => {
+      logger.info('Services initialized successfully', {
+        redisHealthy: serviceResult.redisHealthy,
+        cacheManagerType: serviceResult.cacheManager.getConfiguration().defaultBackend
       });
-    } catch (error) {
-      logger.error(`Error during ${signal} shutdown`, { error: (error as Error).message });
-      process.exit(1);
-    }
-  };
 
-  // Graceful shutdown
-  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+      // Get job queue service from registry (initialized by serviceInitializer)
+      const jobQueueService = serviceRegistry.getJobQueueService();
+      if (!jobQueueService) {
+        throw new Error('Job queue service not initialized');
+      }
+
+      // Start job worker service for background processing
+      jobWorkerService.start();
+      logger.info('Job worker service started');
+      
+      // Initialize and start migration scheduler
+      const migrationScheduler = createMigrationScheduler(config, jobQueueService);
+      serviceRegistry.registerMigrationScheduler(migrationScheduler);
+      migrationScheduler.start();
+      logger.info('Migration scheduler initialized', {
+        enabled: config.migration.enabled,
+        intervalMs: config.migration.scheduleIntervalMs
+      });
+      
+      const server = app.listen(config.port, () => {
+        logger.info(`Server running on port ${config.port}`);
+        logger.info(`Environment: ${config.nodeEnv}`);
+        logger.info('Application startup completed successfully');
+      });
+
+      // Graceful shutdown helper function
+      const gracefulShutdown = async (signal: string) => {
+        logger.info(`${signal} received, shutting down gracefully`);
+        
+        try {
+          // Shutdown job worker service first
+          await jobWorkerService.shutdown(10000);
+          logger.info('Job worker service shutdown complete');
+          
+          // Shutdown all services (migration scheduler, cache manager, Redis client)
+          await shutdownServices(10000);
+          logger.info('All services shutdown complete');
+          
+          // Finally close the server
+          server.close(() => {
+            logger.info('Process terminated');
+            process.exit(0);
+          });
+        } catch (error) {
+          logger.error(`Error during ${signal} shutdown`, { error: (error as Error).message });
+          process.exit(1);
+        }
+      };
+
+      // Graceful shutdown
+      process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+      process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    })
+    .catch((error) => {
+      logger.error('Failed to initialize services', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
+      if (!config.redis.enableFallback) {
+        logger.error('Redis fallback disabled, exiting');
+        process.exit(1);
+      } else {
+        logger.warn('Continuing with fallback services due to Redis initialization failure');
+        // Continue with basic startup for fallback mode
+        // This would need additional fallback initialization logic
+      }
+    });
 }
 
 export { app };

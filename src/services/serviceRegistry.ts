@@ -4,9 +4,15 @@
  */
 
 import { MigrationScheduler } from './migrationScheduler';
+import { ICacheService, RedisCacheManager } from './redisCacheManager';
+import { IRedisClient } from '../utils/redisClient';
+import { JobQueueService } from './jobQueueService';
 
 interface ServiceRegistry {
   migrationScheduler?: MigrationScheduler;
+  cacheManager?: RedisCacheManager;
+  redisClient?: IRedisClient;
+  jobQueueService?: JobQueueService;
 }
 
 class ServiceRegistryManager {
@@ -30,8 +36,39 @@ class ServiceRegistryManager {
     return this.services.migrationScheduler;
   }
 
+  public registerCacheManager(cacheManager: RedisCacheManager): void {
+    this.services.cacheManager = cacheManager;
+  }
+
+  public getCacheManager(): RedisCacheManager | undefined {
+    return this.services.cacheManager;
+  }
+
+  public registerRedisClient(redisClient: IRedisClient): void {
+    this.services.redisClient = redisClient;
+  }
+
+  public getRedisClient(): IRedisClient | undefined {
+    return this.services.redisClient;
+  }
+
+  public registerJobQueueService(jobQueueService: JobQueueService): void {
+    this.services.jobQueueService = jobQueueService;
+  }
+
+  public getJobQueueService(): JobQueueService | undefined {
+    return this.services.jobQueueService;
+  }
+
   public reset(): void {
     this.services = {};
+  }
+
+  /**
+   * Get all registered services for health checks
+   */
+  public getAllServices(): ServiceRegistry {
+    return { ...this.services };
   }
 }
 

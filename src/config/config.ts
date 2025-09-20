@@ -78,6 +78,16 @@ export interface Config {
     readonly enableNameBasedLookup: boolean;
     readonly operationTimeoutMs: number;
   };
+  readonly redis: {
+    readonly url: string;
+    readonly token: string;
+    readonly connectionTimeoutMs: number;
+    readonly commandTimeoutMs: number;
+    readonly retryAttempts: number;
+    readonly retryDelayMs: number;
+    readonly keyPrefix: string;
+    readonly enableFallback: boolean;
+  };
 }
 
 /**
@@ -221,6 +231,16 @@ class ConfigLoader {
         },
         enableNameBasedLookup: envVars.INSTANCE_STARTUP_ENABLE_NAME_LOOKUP,
         operationTimeoutMs: envVars.INSTANCE_STARTUP_OPERATION_TIMEOUT_MS,
+      },
+      redis: {
+        url: envVars.UPSTASH_REDIS_REST_URL,
+        token: envVars.UPSTASH_REDIS_REST_TOKEN,
+        connectionTimeoutMs: envVars.REDIS_CONNECTION_TIMEOUT_MS,
+        commandTimeoutMs: envVars.REDIS_COMMAND_TIMEOUT_MS,
+        retryAttempts: envVars.REDIS_RETRY_ATTEMPTS,
+        retryDelayMs: envVars.REDIS_RETRY_DELAY_MS,
+        keyPrefix: envVars.REDIS_KEY_PREFIX,
+        enableFallback: envVars.REDIS_ENABLE_FALLBACK,
       },
     };
   }
@@ -489,6 +509,56 @@ class ConfigLoader {
         .max(3600000)
         .default(900000)
         .description('Timeout for startup operations in milliseconds (60000-3600000)'),
+      
+      // Redis Configuration
+      UPSTASH_REDIS_REST_URL: Joi.string()
+        .uri({ scheme: ['http', 'https'] })
+        .required()
+        .description('Upstash Redis REST URL (required)'),
+      
+      UPSTASH_REDIS_REST_TOKEN: Joi.string()
+        .required()
+        .min(10)
+        .description('Upstash Redis REST token (required)'),
+      
+      REDIS_CONNECTION_TIMEOUT_MS: Joi.number()
+        .integer()
+        .min(1000)
+        .max(60000)
+        .default(10000)
+        .description('Redis connection timeout in milliseconds (1000-60000)'),
+      
+      REDIS_COMMAND_TIMEOUT_MS: Joi.number()
+        .integer()
+        .min(1000)
+        .max(30000)
+        .default(5000)
+        .description('Redis command timeout in milliseconds (1000-30000)'),
+      
+      REDIS_RETRY_ATTEMPTS: Joi.number()
+        .integer()
+        .min(0)
+        .max(10)
+        .default(3)
+        .description('Number of retry attempts for Redis operations (0-10)'),
+      
+      REDIS_RETRY_DELAY_MS: Joi.number()
+        .integer()
+        .min(100)
+        .max(10000)
+        .default(1000)
+        .description('Delay between Redis retry attempts in milliseconds (100-10000)'),
+      
+      REDIS_KEY_PREFIX: Joi.string()
+        .pattern(/^[a-zA-Z0-9_-]+$/)
+        .min(1)
+        .max(50)
+        .default('novita_api')
+        .description('Prefix for Redis keys (1-50 characters, alphanumeric, underscore, and dash allowed)'),
+      
+      REDIS_ENABLE_FALLBACK: Joi.boolean()
+        .default(true)
+        .description('Enable fallback to in-memory storage when Redis is unavailable'),
     }).unknown(true); // Allow unknown environment variables
   }
 
@@ -528,6 +598,16 @@ class ConfigLoader {
       healthCheck: config.healthCheck,
       migration: config.migration,
       instanceStartup: config.instanceStartup,
+      redis: {
+        hasUrl: !!config.redis.url,
+        hasToken: !!config.redis.token,
+        connectionTimeoutMs: config.redis.connectionTimeoutMs,
+        commandTimeoutMs: config.redis.commandTimeoutMs,
+        retryAttempts: config.redis.retryAttempts,
+        retryDelayMs: config.redis.retryDelayMs,
+        keyPrefix: config.redis.keyPrefix,
+        enableFallback: config.redis.enableFallback,
+      },
     };
   }
 }
@@ -653,6 +733,16 @@ function createTestConfig(): Config {
       },
       enableNameBasedLookup: true,
       operationTimeoutMs: 900000, // 15 minutes
+    },
+    redis: {
+      url: 'https://test-redis.upstash.io',
+      token: 'test-redis-token',
+      connectionTimeoutMs: 10000,
+      commandTimeoutMs: 5000,
+      retryAttempts: 3,
+      retryDelayMs: 1000,
+      keyPrefix: 'novita_api',
+      enableFallback: true,
     },
   };
 }

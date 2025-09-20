@@ -9,6 +9,49 @@ http://localhost:3000  # Development
 https://your-domain.com  # Production
 ```
 
+## Data Persistence
+
+The API supports both in-memory and Redis-backed data persistence using Upstash Redis:
+
+### Cache Persistence
+- **Instance Details**: GPU instance information cached with configurable TTL
+- **Product Data**: Novita.ai product catalog cached for optimal performance  
+- **API Responses**: Frequently accessed data cached to reduce external API calls
+- **Cross-Restart Persistence**: Cache data survives application restarts when Redis is enabled
+- **Distributed Caching**: Multiple application instances can share the same cache
+
+### Job Queue Persistence (Available)
+- **Background Jobs**: Asynchronous operations persisted across service restarts
+- **Job Status**: Processing status and results maintained for tracking
+- **Retry Logic**: Failed jobs automatically retried with exponential backoff
+- **Crash Recovery**: Jobs interrupted by application crashes are automatically recovered
+- **Priority Queuing**: Jobs are processed based on priority with Redis sorted sets
+
+### Redis Features
+- **Automatic Fallback**: Graceful degradation to in-memory storage when Redis is unavailable
+- **Connection Management**: Automatic reconnection with exponential backoff
+- **Error Handling**: Comprehensive error handling with circuit breaker patterns
+- **Monitoring**: Built-in Redis health checks and performance metrics
+- **Serialization**: Proper handling of complex objects including Date types
+
+### Configuration
+Redis persistence is configured via environment variables:
+```bash
+# Required for Redis mode
+UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your-redis-token
+
+# Optional Redis settings
+REDIS_ENABLE_FALLBACK=true           # Graceful fallback to in-memory storage
+REDIS_CONNECTION_TIMEOUT_MS=10000    # Connection timeout (default: 10000)
+REDIS_COMMAND_TIMEOUT_MS=5000        # Command timeout (default: 5000)
+REDIS_RETRY_ATTEMPTS=3               # Retry attempts (default: 3)
+REDIS_KEY_PREFIX=novita_api          # Key prefix (default: novita_api)
+```
+
+For detailed configuration, see [Redis Configuration Guide](docs/REDIS_CONFIGURATION.md).
+For troubleshooting Redis issues, see [Redis Troubleshooting Guide](docs/REDIS_TROUBLESHOOTING.md).
+
 ## Authentication
 
 All API requests require authentication via API key:
@@ -812,15 +855,140 @@ curl -X GET http://localhost:3000/api/instances \
   -H "X-Request-ID: req_$(date +%s)"
 ```
 
+## Health and Monitoring
+
+### Health Check
+
+Monitor service health and Redis status.
+
+#### `GET /health`
+
+**Response (200 OK - Healthy):**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "services": {
+    "novitaApi": "up",
+    "jobQueue": "up",
+    "cache": "up",
+    "migrationService": "up",
+    "redis": "up"
+  },
+  "uptime": 3600,
+  "performance": {
+    "requestsPerMinute": 45.2,
+    "averageResponseTime": 120,
+    "errorRate": 0.01,
+    "jobProcessingRate": 2.5
+  },
+  "system": {
+    "memory": {
+      "usedMB": 256,
+      "totalMB": 512,
+      "externalMB": 45,
+      "rss": 280
+    },
+    "cpu": {
+      "usage": 15.5,
+      "loadAverage": [0.8, 0.9, 1.1]
+    }
+  },
+  "redis": {
+    "available": true,
+    "healthy": true,
+    "cacheManager": {
+      "available": true,
+      "configuration": {
+        "defaultBackend": "fallback",
+        "enableFallback": true,
+        "cacheCount": 3,
+        "redisConnected": true
+      }
+    }
+  },
+  "dependencies": {
+    "redis": {
+      "status": "up",
+      "responseTime": 45,
+      "pingResult": "PONG",
+      "isHealthy": true,
+      "lastChecked": "2024-01-15T10:30:00.000Z"
+    },
+    "novitaApi": {
+      "status": "up",
+      "responseTime": 250,
+      "lastChecked": "2024-01-15T10:30:00.000Z"
+    },
+    "jobQueue": {
+      "status": "up",
+      "queueSize": 5,
+      "processing": 2,
+      "completed": 150,
+      "failed": 3,
+      "lastChecked": "2024-01-15T10:30:00.000Z"
+    },
+    "cache": {
+      "status": "up",
+      "instanceCache": {
+        "size": 25,
+        "hitRatio": 85
+      },
+      "instanceStatesCache": {
+        "size": 30,
+        "hitRatio": 92
+      },
+      "totalStates": 25,
+      "lastChecked": "2024-01-15T10:30:00.000Z"
+    }
+  }
+}
+```
+
+**Response (503 Service Unavailable - Unhealthy):**
+```json
+{
+  "status": "unhealthy",
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "services": {
+    "novitaApi": "down",
+    "jobQueue": "up",
+    "cache": "up",
+    "migrationService": "up",
+    "redis": "down"
+  },
+  "uptime": 3600
+}
+```
+
+### Redis Status Indicators
+
+The health endpoint provides detailed Redis status information:
+
+- **`redis.available`**: Whether Redis client is initialized
+- **`redis.healthy`**: Whether Redis is responding to commands
+- **`redis.cacheManager.configuration.defaultBackend`**: Current cache backend (`redis`, `fallback`, or `memory`)
+- **`dependencies.redis.responseTime`**: Redis ping response time in milliseconds
+- **`dependencies.redis.pingResult`**: Result of Redis ping command
+
+### Monitoring Redis Performance
+
+Use the health endpoint to monitor:
+- Redis connectivity and response times
+- Cache hit ratios and performance
+- Fallback mode activation
+- Memory and system resource usage
+
 ## Support
 
 For API support:
 
-1. Check the [Health Check](#1-health-check) endpoint
+1. Check the [Health Check](#health-check) endpoint
 2. Review error codes and messages
 3. Check application logs
-4. Consult the main documentation
-5. Contact the development team
+4. Consult the [Redis Configuration Guide](docs/REDIS_CONFIGURATION.md)
+5. Review the [Redis Troubleshooting Guide](docs/REDIS_TROUBLESHOOTING.md)
+6. Contact the development team
 
 ## Changelog
 

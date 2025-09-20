@@ -6,6 +6,9 @@ API service for managing Novita.ai GPU instances with automated lifecycle manage
 
 - Automated GPU instance creation with optimal pricing selection
 - Instance lifecycle management (create, start, monitor)
+- **Redis-backed data persistence** with graceful fallback to in-memory storage
+- **Persistent job queue** for reliable background processing
+- **Distributed cache** for improved performance and scalability
 - Webhook notifications when instances are ready
 - RESTful API with comprehensive error handling
 - Docker Compose deployment ready
@@ -28,8 +31,16 @@ cp .env.example .env
 
 2. Edit `.env` and set your configuration:
 ```bash
+# Required
 NOVITA_API_KEY=your_novita_api_key_here
-WEBHOOK_URL=https://your-webhook-endpoint.com/webhook  # Optional
+
+# Optional
+WEBHOOK_URL=https://your-webhook-endpoint.com/webhook
+
+# Redis Configuration (Optional - enables persistence)
+UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your-redis-token
+REDIS_ENABLE_FALLBACK=true
 ```
 
 ### Local Development
@@ -92,6 +103,8 @@ See [client-examples/](./client-examples/) for ready-to-use client code in:
 ### Quick Reference
 - **[API Quick Start](./API_QUICK_START.md)** - Get started in minutes
 - **[API Client Reference](./API_CLIENT_REFERENCE.md)** - Complete API documentation for client integration
+- **[Redis Configuration Guide](./docs/REDIS_CONFIGURATION.md)** - Configure Redis persistence and deployment
+- **[Redis Troubleshooting Guide](./docs/REDIS_TROUBLESHOOTING.md)** - Diagnose and resolve Redis issues
 - [API Endpoints Summary](./API_ENDPOINTS_SUMMARY.md) - Technical implementation summary
 - [Docker Deployment Summary](./DOCKER_DEPLOYMENT_SUMMARY.md)
 

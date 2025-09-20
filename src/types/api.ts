@@ -143,6 +143,7 @@ export interface HealthCheckResponse {
     jobQueue: 'up' | 'down';
     cache: 'up' | 'down';
     migrationService: 'up' | 'down';
+    redis: 'up' | 'down';
   };
   uptime: number;
 }
@@ -175,6 +176,13 @@ export interface EnhancedHealthCheckResponse extends HealthCheckResponse {
     recentErrors: number;
     totalExecutions: number;
     uptime: number;
+  };
+  redis: {
+    available: boolean;
+    healthy: boolean;
+    cacheManager?: any;
+    cacheManagerConfig?: any;
+    redisHealthStatus?: any;
   };
 }
 

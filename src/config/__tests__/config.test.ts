@@ -8,6 +8,14 @@ import {
   Config 
 } from '../config';
 
+// Helper function to create base environment with required Redis config
+const createBaseEnv = (overrides: Record<string, string> = {}): Record<string, string> => ({
+  NOVITA_API_KEY: 'test-api-key-123',
+  UPSTASH_REDIS_REST_URL: 'https://test-redis.upstash.io',
+  UPSTASH_REDIS_REST_TOKEN: 'test-redis-token',
+  ...overrides,
+});
+
 describe('Configuration Management', () => {
   const originalEnv = process.env;
   const originalConsoleError = console.error;
@@ -38,8 +46,7 @@ describe('Configuration Management', () => {
     it('should load valid configuration with required environment variables', () => {
       process.env = {
         ...process.env,
-        NOVITA_API_KEY: 'test-api-key-123',
-        NODE_ENV: 'development',
+        ...createBaseEnv({ NODE_ENV: 'development' }),
       };
 
       const config = loadConfig();
@@ -54,7 +61,7 @@ describe('Configuration Management', () => {
     it('should apply default values for optional configuration', () => {
       process.env = {
         ...process.env,
-        NOVITA_API_KEY: 'test-api-key-123',
+        ...createBaseEnv(),
       };
 
       const config = loadConfig();
@@ -71,16 +78,17 @@ describe('Configuration Management', () => {
     it('should use custom values when provided', () => {
       process.env = {
         ...process.env,
-        NOVITA_API_KEY: 'test-api-key-123',
-        NODE_ENV: 'production',
-        PORT: '8080',
-        LOG_LEVEL: 'debug',
-        WEBHOOK_URL: 'https://example.com/webhook',
-        WEBHOOK_SECRET: 'secret123',
-        DEFAULT_REGION: 'US-WEST-01',
-        INSTANCE_POLL_INTERVAL: '60',
-        MAX_RETRY_ATTEMPTS: '5',
-        REQUEST_TIMEOUT: '45000',
+        ...createBaseEnv({
+          NODE_ENV: 'production',
+          PORT: '8080',
+          LOG_LEVEL: 'debug',
+          WEBHOOK_URL: 'https://example.com/webhook',
+          WEBHOOK_SECRET: 'secret123',
+          DEFAULT_REGION: 'US-WEST-01',
+          INSTANCE_POLL_INTERVAL: '60',
+          MAX_RETRY_ATTEMPTS: '5',
+          REQUEST_TIMEOUT: '45000',
+        }),
       };
 
       const config = loadConfig();
@@ -94,6 +102,51 @@ describe('Configuration Management', () => {
       expect(config.defaults.pollInterval).toBe(60);
       expect(config.defaults.maxRetryAttempts).toBe(5);
       expect(config.defaults.requestTimeout).toBe(45000);
+    });
+
+    it('should load Redis configuration with defaults', () => {
+      process.env = {
+        ...process.env,
+        ...createBaseEnv(),
+      };
+
+      const config = loadConfig();
+
+      expect(config.redis.url).toBe('https://test-redis.upstash.io');
+      expect(config.redis.token).toBe('test-redis-token');
+      expect(config.redis.connectionTimeoutMs).toBe(10000);
+      expect(config.redis.commandTimeoutMs).toBe(5000);
+      expect(config.redis.retryAttempts).toBe(3);
+      expect(config.redis.retryDelayMs).toBe(1000);
+      expect(config.redis.keyPrefix).toBe('novita_api');
+      expect(config.redis.enableFallback).toBe(true);
+    });
+
+    it('should load custom Redis configuration', () => {
+      process.env = {
+        ...process.env,
+        ...createBaseEnv({
+          UPSTASH_REDIS_REST_URL: 'https://custom-redis.upstash.io',
+          UPSTASH_REDIS_REST_TOKEN: 'custom-redis-token',
+          REDIS_CONNECTION_TIMEOUT_MS: '15000',
+          REDIS_COMMAND_TIMEOUT_MS: '8000',
+          REDIS_RETRY_ATTEMPTS: '5',
+          REDIS_RETRY_DELAY_MS: '2000',
+          REDIS_KEY_PREFIX: 'custom_prefix',
+          REDIS_ENABLE_FALLBACK: 'false',
+        }),
+      };
+
+      const config = loadConfig();
+
+      expect(config.redis.url).toBe('https://custom-redis.upstash.io');
+      expect(config.redis.token).toBe('custom-redis-token');
+      expect(config.redis.connectionTimeoutMs).toBe(15000);
+      expect(config.redis.commandTimeoutMs).toBe(8000);
+      expect(config.redis.retryAttempts).toBe(5);
+      expect(config.redis.retryDelayMs).toBe(2000);
+      expect(config.redis.keyPrefix).toBe('custom_prefix');
+      expect(config.redis.enableFallback).toBe(false);
     });
 
     it('should throw ConfigValidationError when required NOVITA_API_KEY is missing', () => {
@@ -175,6 +228,50 @@ describe('Configuration Management', () => {
       expect(() => loadConfig()).toThrow(ConfigValidationError);
     });
 
+    it('should throw ConfigValidationError when Redis URL is missing', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        UPSTASH_REDIS_REST_TOKEN: 'test-redis-token',
+        // Missing UPSTASH_REDIS_REST_URL
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+
+    it('should throw ConfigValidationError when Redis token is missing', () => {
+      process.env = {
+        ...process.env,
+        NOVITA_API_KEY: 'test-api-key-123',
+        UPSTASH_REDIS_REST_URL: 'https://test-redis.upstash.io',
+        // Missing UPSTASH_REDIS_REST_TOKEN
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+
+    it('should throw ConfigValidationError for invalid Redis URL', () => {
+      process.env = {
+        ...process.env,
+        ...createBaseEnv({
+          UPSTASH_REDIS_REST_URL: 'not-a-valid-url',
+        }),
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+
+    it('should throw ConfigValidationError for short Redis token', () => {
+      process.env = {
+        ...process.env,
+        ...createBaseEnv({
+          UPSTASH_REDIS_REST_TOKEN: '123', // Too short
+        }),
+      };
+
+      expect(() => loadConfig()).toThrow(ConfigValidationError);
+    });
+
     it('should return the same config instance on subsequent calls', () => {
       process.env = {
         NODE_ENV: 'test',
@@ -212,11 +309,10 @@ describe('Configuration Management', () => {
 
   describe('validateEnvironment', () => {
     it('should return valid result for correct environment', () => {
-      const env = {
-        NOVITA_API_KEY: 'test-api-key-123',
+      const env = createBaseEnv({
         NODE_ENV: 'production',
         PORT: '3000',
-      };
+      });
 
       const result = validateEnvironment(env);
 

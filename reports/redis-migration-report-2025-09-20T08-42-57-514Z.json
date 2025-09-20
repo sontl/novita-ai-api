@@ -1,0 +1,50 @@
+{
+  "timestamp": "2025-09-20T08:42:57.514Z",
+  "config": {
+    "redis": {
+      "url": "https://test.upstash.io",
+      "token": "test-token",
+      "keyPrefix": "novita_api"
+    },
+    "migration": {
+      "batchSize": 100,
+      "retryAttempts": 3,
+      "retryDelayMs": 1000,
+      "dryRun": true,
+      "verbose": false
+    }
+  },
+  "migrationLog": [
+    {
+      "step": "backup",
+      "status": "completed",
+      "file": "/Users/sontl/workspace/novitai/backups/redis-migration-backup-2025-09-20T08-42-57-482Z.json",
+      "dataSize": 1049
+    },
+    {
+      "step": "cache_migration",
+      "status": "completed",
+      "migratedCount": 5
+    },
+    {
+      "step": "job_migration",
+      "status": "completed",
+      "migratedCount": 3
+    },
+    {
+      "step": "verification",
+      "status": "completed",
+      "results": {
+        "cacheEntries": 17,
+        "jobEntries": 26,
+        "errors": []
+      }
+    }
+  ],
+  "summary": {
+    "totalSteps": 4,
+    "completedSteps": 4,
+    "failedSteps": 0,
+    "dryRun": true
+  }
+}
