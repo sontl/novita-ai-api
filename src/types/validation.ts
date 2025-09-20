@@ -1,5 +1,5 @@
 import Joi from 'joi';
-import { CreateInstanceRequest, StartInstanceRequest } from './api';
+import { CreateInstanceRequest, StartInstanceRequest, StopInstanceRequest } from './api';
 
 // Validation schemas for API requests
 
@@ -54,10 +54,10 @@ export const createInstanceSchema = Joi.object<CreateInstanceRequest>({
     }),
   
   region: Joi.string()
-    .valid('CN-HK-01', 'US-WEST-01', 'EU-WEST-01')
+    .valid('CN-HK-01', 'US-WEST-01', 'EU-WEST-01', 'AS-SGP-02')
     .default('CN-HK-01')
     .messages({
-      'any.only': 'Region must be one of: CN-HK-01, US-WEST-01, EU-WEST-01'
+      'any.only': 'Region must be one of: CN-HK-01, US-WEST-01, EU-WEST-01, AS-SGP-02'
     }),
   
   webhookUrl: Joi.string()
@@ -75,6 +75,27 @@ export const instanceIdSchema = Joi.string()
   .messages({
     'string.pattern.base': 'Instance ID must contain only alphanumeric characters, hyphens, and underscores'
   });
+
+// Stop instance request validation
+export const stopInstanceSchema = Joi.object<StopInstanceRequest>({
+  instanceName: Joi.string()
+    .min(1)
+    .max(100)
+    .pattern(/^[a-zA-Z0-9-_]+$/)
+    .optional()
+    .messages({
+      'string.pattern.base': 'Instance name must contain only alphanumeric characters, hyphens, and underscores',
+      'string.min': 'Instance name must be at least 1 character long',
+      'string.max': 'Instance name must be at most 100 characters long'
+    }),
+  
+  webhookUrl: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .optional()
+    .messages({
+      'string.uri': 'Webhook URL must be a valid HTTP or HTTPS URL'
+    })
+});
 
 // Start instance request validation
 export const startInstanceSchema = Joi.object<StartInstanceRequest>({
@@ -310,6 +331,29 @@ export function validateStartInstance(data: unknown): ValidationResult<StartInst
   }
   
   return { value: value as StartInstanceRequest };
+}
+
+export function validateStopInstance(data: unknown): ValidationResult<StopInstanceRequest> {
+  const { error, value } = stopInstanceSchema.validate(data, { 
+    abortEarly: false,
+    stripUnknown: true 
+  });
+  
+  if (error) {
+    return {
+      value: value as StopInstanceRequest,
+      error: {
+        message: 'Validation failed',
+        details: error.details.map(detail => ({
+          field: detail.path.join('.'),
+          message: detail.message,
+          value: detail.context?.value
+        }))
+      }
+    };
+  }
+  
+  return { value: value as StopInstanceRequest };
 }
 
 export function validateConfig(config: unknown): ValidationResult<any> {

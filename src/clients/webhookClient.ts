@@ -127,7 +127,7 @@ export class WebhookClient {
    */
   createNotificationPayload(
     instanceId: string,
-    status: 'running' | 'failed' | 'timeout' | 'ready' | 'health_checking' | 'startup_initiated' | 'startup_completed' | 'startup_failed',
+    status: 'running' | 'failed' | 'timeout' | 'ready' | 'health_checking' | 'startup_initiated' | 'startup_completed' | 'startup_failed' | 'stopped',
     options: {
       novitaInstanceId?: string;
       elapsedTime?: number;
@@ -795,6 +795,43 @@ export class WebhookClient {
     }
     
     await this.sendWebhookWithRetry(request);
+  }
+
+  /**
+   * Send stop notification webhook
+   */
+  async sendStopNotification(
+    url: string,
+    instanceId: string,
+    options: {
+      novitaInstanceId?: string;
+      operationId?: string;
+      secret?: string;
+    } = {}
+  ): Promise<void> {
+    logger.info('Sending stop notification webhook', {
+      url,
+      instanceId,
+      novitaInstanceId: options.novitaInstanceId,
+      operationId: options.operationId
+    });
+
+    const payload = this.createNotificationPayload(instanceId, 'stopped', {
+      ...(options.novitaInstanceId && { novitaInstanceId: options.novitaInstanceId }),
+      ...(options.operationId && { operationId: options.operationId }),
+      reason: 'Instance stopped successfully'
+    });
+
+    const request: WebhookRequest = {
+      url,
+      payload
+    };
+
+    if (options.secret) {
+      request.secret = options.secret;
+    }
+
+    await this.sendWebhook(request);
   }
 
   /**

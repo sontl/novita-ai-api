@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { instanceService } from '../services/instanceService';
-import { validateCreateInstance, validateInstanceId, validateStartInstance } from '../types/validation';
+import { validateCreateInstance, validateInstanceId, validateStartInstance, validateStopInstance } from '../types/validation';
 import { createContextLogger, LogContext } from '../utils/logger';
 import { asyncHandler } from '../utils/errorHandler';
 import { config } from '../config/config';
@@ -120,8 +120,8 @@ router.get('/', asyncHandler(async (req: Request, res: Response): Promise<void> 
 
   // Parse query parameters with configuration defaults
   const source = (req.query.source as string) || 'all';
-  const includeNovitaOnly = req.query.includeNovitaOnly !== undefined 
-    ? req.query.includeNovitaOnly === 'true' 
+  const includeNovitaOnly = req.query.includeNovitaOnly !== undefined
+    ? req.query.includeNovitaOnly === 'true'
     : config.instanceListing.defaultIncludeNovitaOnly;
   const syncLocalState = req.query.syncLocalState !== undefined
     ? req.query.syncLocalState === 'true'
@@ -154,7 +154,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response): Promise<void> 
     // Use traditional local-only listing
     result = await instanceService.listInstances();
   }
-  
+
   const duration = Date.now() - startTime;
 
   contextLogger.info('Instances listed successfully', {
@@ -298,7 +298,7 @@ router.post('/:instanceId/start', asyncHandler(async (req: Request, res: Respons
     res.status(202).json(result);
   } catch (error) {
     const duration = Date.now() - startTime;
-    
+
     // Enhanced error logging for startup operations
     contextLogger.error('Instance start failed', {
       instanceId: instanceIdValidation.value,
@@ -383,9 +383,174 @@ router.post('/start', asyncHandler(async (req: Request, res: Response): Promise<
     res.status(202).json(result);
   } catch (error) {
     const duration = Date.now() - startTime;
-    
+
     // Enhanced error logging for startup operations
     contextLoggerWithName.error('Instance start by name failed', {
+      instanceName: bodyValidation.value.instanceName,
+      error: (error as Error).message,
+      errorType: (error as Error).name,
+      duration,
+      requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+    });
+
+    throw error;
+  }
+}));
+
+/**
+ * POST /api/instances/:instanceId/stop
+ * Stop instance by ID
+ */
+router.post('/:instanceId/stop', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+  const { instanceId } = req.params;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'stop_instance_by_id',
+    instanceId
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Instance stop request received (by ID)', {
+    instanceId,
+    requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+  });
+
+  // Validate instance ID
+  const instanceIdValidation = validateInstanceId(instanceId);
+  if (instanceIdValidation.error) {
+    contextLogger.warn('Invalid instance ID provided', {
+      validationError: instanceIdValidation.error.message
+    });
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError(instanceIdValidation.error.message, instanceIdValidation.error.details);
+  }
+
+  // Validate request body
+  const bodyValidation = validateStopInstance(req.body);
+  if (bodyValidation.error) {
+    contextLogger.warn('Instance stop validation failed', {
+      validationErrors: bodyValidation.error.details
+    });
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError(bodyValidation.error.message, bodyValidation.error.details);
+  }
+
+  // Stop instance by ID
+  const startTime = Date.now();
+  try {
+    const result = await instanceService.stopInstance(
+      instanceIdValidation.value,
+      bodyValidation.value,
+      'id'
+    );
+    const duration = Date.now() - startTime;
+
+    contextLogger.info('Instance stop completed successfully', {
+      instanceId: result.instanceId,
+      novitaInstanceId: result.novitaInstanceId,
+      operationId: result.operationId,
+      status: result.status,
+      duration
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    const duration = Date.now() - startTime;
+
+    // Enhanced error logging for stop operations
+    contextLogger.error('Instance stop failed', {
+      instanceId: instanceIdValidation.value,
+      error: (error as Error).message,
+      errorType: (error as Error).name,
+      duration,
+      requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+    });
+
+    throw error;
+  }
+}));
+
+/**
+ * POST /api/instances/stop
+ * Stop instance by name (provided in request body)
+ */
+router.post('/stop', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'stop_instance_by_name'
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Instance stop request received (by name)', {
+    requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+  });
+
+  // Validate request body
+  const bodyValidation = validateStopInstance(req.body);
+  if (bodyValidation.error) {
+    contextLogger.warn('Instance stop validation failed', {
+      validationErrors: bodyValidation.error.details
+    });
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError(bodyValidation.error.message, bodyValidation.error.details);
+  }
+
+  // Ensure instanceName is provided for name-based stopping
+  if (!bodyValidation.value.instanceName) {
+    contextLogger.warn('Instance name not provided for name-based stop');
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError('Instance name is required for name-based stopping', [{
+      field: 'instanceName',
+      message: 'Instance name is required for name-based stopping',
+      value: undefined
+    }]);
+  }
+
+  // Add instanceName to context for logging
+  const contextWithName: LogContext = {
+    ...context,
+    instanceName: bodyValidation.value.instanceName
+  };
+  const contextLoggerWithName = createContextLogger(contextWithName);
+
+  // Stop instance by name
+  const startTime = Date.now();
+  try {
+    const result = await instanceService.stopInstance(
+      bodyValidation.value.instanceName,
+      bodyValidation.value,
+      'name'
+    );
+    const duration = Date.now() - startTime;
+
+    contextLoggerWithName.info('Instance stop completed successfully', {
+      instanceId: result.instanceId,
+      novitaInstanceId: result.novitaInstanceId,
+      operationId: result.operationId,
+      status: result.status,
+      duration
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    const duration = Date.now() - startTime;
+
+    // Enhanced error logging for stop operations
+    contextLoggerWithName.error('Instance stop by name failed', {
       instanceName: bodyValidation.value.instanceName,
       error: (error as Error).message,
       errorType: (error as Error).name,

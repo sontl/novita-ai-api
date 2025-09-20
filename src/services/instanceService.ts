@@ -24,7 +24,9 @@ import {
   StartupOperation,
   StartInstanceRequest,
   StartInstanceResponse,
-  StartInstanceJobPayload
+  StartInstanceJobPayload,
+  StopInstanceRequest,
+  StopInstanceResponse
 } from '../types/api';
 import { InstanceNotFoundError, InstanceNotStartableError } from '../utils/errorHandler';
 import { JobPriority, CreateInstanceJobPayload, JobType as JobTypeEnum } from '../types/job';
@@ -1556,6 +1558,147 @@ export class InstanceService {
 
     } catch (error) {
       logger.error('Failed to start instance', {
+        identifier,
+        searchBy,
+        error: (error as Error).message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Stop an instance by ID or name
+   */
+  async stopInstance(
+    identifier: string,
+    request: StopInstanceRequest,
+    searchBy: 'id' | 'name' = 'id'
+  ): Promise<StopInstanceResponse> {
+    try {
+      logger.info('Stopping instance', { identifier, searchBy });
+
+      // Find the instance
+      let instanceDetails: InstanceDetails;
+      if (searchBy === 'name') {
+        instanceDetails = await this.findInstanceByName(identifier);
+      } else {
+        instanceDetails = await this.getInstanceStatus(identifier);
+      }
+
+      const instanceState = this.instanceStates.get(instanceDetails.id);
+      if (!instanceState) {
+        throw new InstanceNotFoundError(instanceDetails.id);
+      }
+
+      // Check if instance can be stopped
+      if (!instanceState.novitaInstanceId) {
+        throw new NovitaApiClientError(
+          'Instance has not been created in Novita.ai yet and cannot be stopped',
+          400,
+          'INSTANCE_NOT_STOPPABLE'
+        );
+      }
+
+      // Check current status
+      if (instanceState.status === InstanceStatus.STOPPED) {
+        logger.info('Instance is already stopped', {
+          instanceId: instanceDetails.id,
+          novitaInstanceId: instanceState.novitaInstanceId
+        });
+        
+        return {
+          instanceId: instanceDetails.id,
+          novitaInstanceId: instanceState.novitaInstanceId,
+          status: InstanceStatus.STOPPED,
+          message: 'Instance is already stopped',
+          operationId: this.generateOperationId()
+        };
+      }
+
+      if (instanceState.status === InstanceStatus.STOPPING) {
+        logger.info('Instance is already stopping', {
+          instanceId: instanceDetails.id,
+          novitaInstanceId: instanceState.novitaInstanceId
+        });
+        
+        return {
+          instanceId: instanceDetails.id,
+          novitaInstanceId: instanceState.novitaInstanceId,
+          status: InstanceStatus.STOPPING,
+          message: 'Instance is already stopping',
+          operationId: this.generateOperationId()
+        };
+      }
+
+      // Generate operation ID for tracking
+      const operationId = this.generateOperationId();
+
+      // Update instance status to stopping
+      this.updateInstanceState(instanceDetails.id, {
+        status: InstanceStatus.STOPPING,
+        timestamps: {
+          ...instanceState.timestamps,
+          stopping: new Date()
+        }
+      });
+
+      logger.info('Calling Novita.ai API to stop instance', {
+        instanceId: instanceDetails.id,
+        novitaInstanceId: instanceState.novitaInstanceId,
+        operationId
+      });
+
+      // Call Novita.ai API to stop the instance
+      const novitaResponse = await novitaApiService.stopInstance(instanceState.novitaInstanceId);
+
+      // Update instance state with stopped status
+      this.updateInstanceState(instanceDetails.id, {
+        status: InstanceStatus.STOPPED,
+        timestamps: {
+          ...instanceState.timestamps,
+          stopped: new Date()
+        }
+      });
+
+      logger.info('Instance stopped successfully', {
+        instanceId: instanceDetails.id,
+        novitaInstanceId: instanceState.novitaInstanceId,
+        operationId,
+        status: novitaResponse.status
+      });
+
+      // Send webhook notification if configured
+      if (request.webhookUrl || instanceState.webhookUrl) {
+        const webhookUrl = request.webhookUrl || instanceState.webhookUrl!;
+        try {
+          await webhookClient.sendStopNotification(webhookUrl, instanceDetails.id, {
+            novitaInstanceId: instanceState.novitaInstanceId,
+            operationId
+          });
+          
+          logger.info('Webhook notification sent for instance stop', {
+            instanceId: instanceDetails.id,
+            operationId
+          });
+        } catch (webhookError) {
+          logger.warn('Failed to send webhook notification for instance stop', {
+            instanceId: instanceDetails.id,
+            operationId,
+            error: (webhookError as Error).message
+          });
+        }
+      }
+
+      return {
+        instanceId: instanceDetails.id,
+        novitaInstanceId: instanceState.novitaInstanceId,
+        status: InstanceStatus.STOPPED,
+        message: 'Instance stopped successfully',
+        operationId
+      };
+
+    } catch (error) {
+      logger.error('Failed to stop instance', {
         identifier,
         searchBy,
         error: (error as Error).message

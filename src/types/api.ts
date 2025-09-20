@@ -40,6 +40,19 @@ export interface StartInstanceResponse {
   estimatedReadyTime?: string;
 }
 
+export interface StopInstanceRequest {
+  instanceName?: string; // For name-based stopping
+  webhookUrl?: string;
+}
+
+export interface StopInstanceResponse {
+  instanceId: string;
+  novitaInstanceId: string;
+  status: InstanceStatus;
+  message: string;
+  operationId: string;
+}
+
 export interface InstanceDetails {
   id: string;
   name: string;
@@ -405,6 +418,8 @@ export interface InstanceState {
     started?: Date;
     ready?: Date;
     failed?: Date;
+    stopping?: Date;
+    stopped?: Date;
   };
   webhookUrl?: string;
   lastError?: string;
