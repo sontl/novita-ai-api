@@ -1,5 +1,9 @@
 # REST API Endpoints Implementation Summary
 
+> **📖 For comprehensive client documentation, see [API_CLIENT_REFERENCE.md](./API_CLIENT_REFERENCE.md)**
+
+This document provides a technical implementation summary. For client integration, use the comprehensive API reference above.
+
 ## Implemented Endpoints
 
 ### 1. POST /api/instances

@@ -64,18 +64,23 @@ curl http://localhost:3000/health
 - `POST /api/instances` - Create new GPU instance
 - `GET /api/instances/{id}` - Get instance status
 - `GET /api/instances` - List all instances
+- `POST /api/instances/{id}/start` - Start instance by ID
+- `POST /api/instances/start` - Start instance by name
+- `POST /api/instances/{id}/stop` - Stop instance by ID
+- `POST /api/instances/stop` - Stop instance by name
+- `GET /api/cache/stats` - Cache statistics
 - `GET /api/metrics` - Service metrics
+
+**📖 Complete API Reference:** [API_CLIENT_REFERENCE.md](./API_CLIENT_REFERENCE.md)
 
 ## Documentation
 
-For comprehensive documentation, see the [docs/](./docs/) directory:
+📚 **[Complete Documentation Index](./DOCUMENTATION_INDEX.md)** - Navigate all documentation
 
-- **[API Documentation](./docs/API.md)** - Complete API reference with examples
-- **[Deployment Guide](./docs/DEPLOYMENT.md)** - Docker Compose deployment instructions  
-- **[Configuration Reference](./docs/CONFIGURATION.md)** - All environment variables and settings
-- **[Usage Examples](./docs/EXAMPLES.md)** - Client code examples and integration patterns
-- **[Troubleshooting Guide](./docs/TROUBLESHOOTING.md)** - Common issues and solutions
-- **[Operations Runbook](./docs/OPERATIONS.md)** - Monitoring, maintenance, and incident response
+### Essential Documentation
+- **[API Quick Start](./API_QUICK_START.md)** - Get started in minutes
+- **[API Client Reference](./API_CLIENT_REFERENCE.md)** - Complete API documentation
+- **[Deployment Guide](./DEPLOYMENT.md)** - Docker deployment instructions
 
 ### Client Examples
 
@@ -85,7 +90,9 @@ See [client-examples/](./client-examples/) for ready-to-use client code in:
 - Shell scripts (cURL)
 
 ### Quick Reference
-- [API Endpoints Summary](./API_ENDPOINTS_SUMMARY.md)
+- **[API Quick Start](./API_QUICK_START.md)** - Get started in minutes
+- **[API Client Reference](./API_CLIENT_REFERENCE.md)** - Complete API documentation for client integration
+- [API Endpoints Summary](./API_ENDPOINTS_SUMMARY.md) - Technical implementation summary
 - [Docker Deployment Summary](./DOCKER_DEPLOYMENT_SUMMARY.md)
 
 ## Development

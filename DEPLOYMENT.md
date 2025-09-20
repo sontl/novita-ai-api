@@ -334,4 +334,6 @@ For issues and questions:
 2. Verify configuration: `docker-compose config`
 3. Test connectivity: `curl http://localhost:3000/health`
 4. Review this documentation
-5. Check the API documentation in `API_ENDPOINTS_SUMMARY.md`
+5. Check the API documentation:
+   - [API Quick Start](./API_QUICK_START.md) - Get started quickly
+   - [API Client Reference](./API_CLIENT_REFERENCE.md) - Complete API documentation
