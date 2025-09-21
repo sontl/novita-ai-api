@@ -1,5 +1,5 @@
 import Joi from 'joi';
-import { CreateInstanceRequest, StartInstanceRequest, StopInstanceRequest } from './api';
+import { CreateInstanceRequest, StartInstanceRequest, StopInstanceRequest, UpdateLastUsedTimeRequest } from './api';
 
 // Validation schemas for API requests
 
@@ -14,7 +14,7 @@ export const createInstanceSchema = Joi.object<CreateInstanceRequest>({
       'string.min': 'Name must be at least 1 character long',
       'string.max': 'Name must be at most 100 characters long'
     }),
-  
+
   productName: Joi.string()
     .min(1)
     .max(200)
@@ -23,14 +23,14 @@ export const createInstanceSchema = Joi.object<CreateInstanceRequest>({
       'string.min': 'Product name is required',
       'string.max': 'Product name must be at most 200 characters long'
     }),
-  
+
   templateId: Joi.string()
     .min(1)
     .required()
     .messages({
       'string.min': 'Template ID is required'
     }),
-  
+
   gpuNum: Joi.number()
     .integer()
     .min(1)
@@ -41,7 +41,7 @@ export const createInstanceSchema = Joi.object<CreateInstanceRequest>({
       'number.max': 'GPU number must be at most 8',
       'number.integer': 'GPU number must be an integer'
     }),
-  
+
   rootfsSize: Joi.number()
     .integer()
     .min(20)
@@ -52,14 +52,14 @@ export const createInstanceSchema = Joi.object<CreateInstanceRequest>({
       'number.max': 'Root filesystem size must be at most 1000GB',
       'number.integer': 'Root filesystem size must be an integer'
     }),
-  
+
   region: Joi.string()
     .valid('CN-HK-01', 'US-WEST-01', 'EU-WEST-01', 'AS-SGP-02')
     .default('CN-HK-01')
     .messages({
       'any.only': 'Region must be one of: CN-HK-01, US-WEST-01, EU-WEST-01, AS-SGP-02'
     }),
-  
+
   webhookUrl: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .optional()
@@ -88,12 +88,22 @@ export const stopInstanceSchema = Joi.object<StopInstanceRequest>({
       'string.min': 'Instance name must be at least 1 character long',
       'string.max': 'Instance name must be at most 100 characters long'
     }),
-  
+
   webhookUrl: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .optional()
     .messages({
       'string.uri': 'Webhook URL must be a valid HTTP or HTTPS URL'
+    })
+});
+
+// Update last used time request validation
+export const updateLastUsedTimeSchema = Joi.object<UpdateLastUsedTimeRequest>({
+  lastUsedAt: Joi.string()
+    .isoDate()
+    .optional()
+    .messages({
+      'string.isoDate': 'Last used time must be a valid ISO date string'
     })
 });
 
@@ -109,7 +119,7 @@ export const startInstanceSchema = Joi.object<StartInstanceRequest>({
       'string.min': 'Instance name must be at least 1 character long',
       'string.max': 'Instance name must be at most 100 characters long'
     }),
-  
+
   healthCheckConfig: Joi.object({
     timeoutMs: Joi.number()
       .integer()
@@ -121,7 +131,7 @@ export const startInstanceSchema = Joi.object<StartInstanceRequest>({
         'number.max': 'Health check timeout must be at most 300000ms (5 minutes)',
         'number.integer': 'Health check timeout must be an integer'
       }),
-    
+
     retryAttempts: Joi.number()
       .integer()
       .min(0)
@@ -132,7 +142,7 @@ export const startInstanceSchema = Joi.object<StartInstanceRequest>({
         'number.max': 'Retry attempts must be at most 10',
         'number.integer': 'Retry attempts must be an integer'
       }),
-    
+
     retryDelayMs: Joi.number()
       .integer()
       .min(100)
@@ -143,7 +153,7 @@ export const startInstanceSchema = Joi.object<StartInstanceRequest>({
         'number.max': 'Retry delay must be at most 30000ms',
         'number.integer': 'Retry delay must be an integer'
       }),
-    
+
     maxWaitTimeMs: Joi.number()
       .integer()
       .min(30000)
@@ -154,7 +164,7 @@ export const startInstanceSchema = Joi.object<StartInstanceRequest>({
         'number.max': 'Max wait time must be at most 1800000ms (30 minutes)',
         'number.integer': 'Max wait time must be an integer'
       }),
-    
+
     targetPort: Joi.number()
       .integer()
       .min(1)
@@ -166,7 +176,7 @@ export const startInstanceSchema = Joi.object<StartInstanceRequest>({
         'number.integer': 'Target port must be an integer'
       })
   }).optional(),
-  
+
   targetPort: Joi.number()
     .integer()
     .min(1)
@@ -177,7 +187,7 @@ export const startInstanceSchema = Joi.object<StartInstanceRequest>({
       'number.max': 'Target port must be at most 65535',
       'number.integer': 'Target port must be an integer'
     }),
-  
+
   webhookUrl: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .optional()
@@ -196,7 +206,7 @@ export const listInstancesQuerySchema = Joi.object({
       'number.min': 'Page must be at least 1',
       'number.integer': 'Page must be an integer'
     }),
-  
+
   pageSize: Joi.number()
     .integer()
     .min(1)
@@ -207,7 +217,7 @@ export const listInstancesQuerySchema = Joi.object({
       'number.max': 'Page size must be at most 100',
       'number.integer': 'Page size must be an integer'
     }),
-  
+
   status: Joi.string()
     .valid('creating', 'starting', 'running', 'failed', 'stopped')
     .optional()
@@ -223,7 +233,7 @@ export const configSchema = Joi.object({
     .messages({
       'any.required': 'NOVITA_API_KEY environment variable is required'
     }),
-  
+
   PORT: Joi.number()
     .integer()
     .min(1)
@@ -234,18 +244,18 @@ export const configSchema = Joi.object({
       'number.max': 'PORT must be at most 65535',
       'number.integer': 'PORT must be an integer'
     }),
-  
+
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
     .default('development'),
-  
+
   LOG_LEVEL: Joi.string()
     .valid('error', 'warn', 'info', 'debug')
     .default('info'),
-  
+
   WEBHOOK_SECRET: Joi.string()
     .optional(),
-  
+
   DEFAULT_WEBHOOK_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .optional()
@@ -268,11 +278,11 @@ export interface ValidationResult<T> {
 }
 
 export function validateCreateInstance(data: unknown): ValidationResult<CreateInstanceRequest> {
-  const { error, value } = createInstanceSchema.validate(data, { 
+  const { error, value } = createInstanceSchema.validate(data, {
     abortEarly: false,
-    stripUnknown: true 
+    stripUnknown: true
   });
-  
+
   if (error) {
     return {
       value: value as CreateInstanceRequest,
@@ -286,13 +296,13 @@ export function validateCreateInstance(data: unknown): ValidationResult<CreateIn
       }
     };
   }
-  
+
   return { value: value as CreateInstanceRequest };
 }
 
 export function validateInstanceId(id: unknown): ValidationResult<string> {
   const { error, value } = instanceIdSchema.validate(id);
-  
+
   if (error) {
     return {
       value: value as string,
@@ -306,16 +316,16 @@ export function validateInstanceId(id: unknown): ValidationResult<string> {
       }
     };
   }
-  
+
   return { value: value as string };
 }
 
 export function validateStartInstance(data: unknown): ValidationResult<StartInstanceRequest> {
-  const { error, value } = startInstanceSchema.validate(data, { 
+  const { error, value } = startInstanceSchema.validate(data, {
     abortEarly: false,
-    stripUnknown: true 
+    stripUnknown: true
   });
-  
+
   if (error) {
     return {
       value: value as StartInstanceRequest,
@@ -329,16 +339,16 @@ export function validateStartInstance(data: unknown): ValidationResult<StartInst
       }
     };
   }
-  
+
   return { value: value as StartInstanceRequest };
 }
 
 export function validateStopInstance(data: unknown): ValidationResult<StopInstanceRequest> {
-  const { error, value } = stopInstanceSchema.validate(data, { 
+  const { error, value } = stopInstanceSchema.validate(data, {
     abortEarly: false,
-    stripUnknown: true 
+    stripUnknown: true
   });
-  
+
   if (error) {
     return {
       value: value as StopInstanceRequest,
@@ -352,17 +362,40 @@ export function validateStopInstance(data: unknown): ValidationResult<StopInstan
       }
     };
   }
-  
+
   return { value: value as StopInstanceRequest };
 }
 
+export function validateUpdateLastUsedTime(data: unknown): ValidationResult<UpdateLastUsedTimeRequest> {
+  const { error, value } = updateLastUsedTimeSchema.validate(data, {
+    abortEarly: false,
+    stripUnknown: true
+  });
+
+  if (error) {
+    return {
+      value: value as UpdateLastUsedTimeRequest,
+      error: {
+        message: 'Validation failed',
+        details: error.details.map(detail => ({
+          field: detail.path.join('.'),
+          message: detail.message,
+          value: detail.context?.value
+        }))
+      }
+    };
+  }
+
+  return { value: value as UpdateLastUsedTimeRequest };
+}
+
 export function validateConfig(config: unknown): ValidationResult<any> {
-  const { error, value } = configSchema.validate(config, { 
+  const { error, value } = configSchema.validate(config, {
     abortEarly: false,
     stripUnknown: true,
     allowUnknown: true
   });
-  
+
   if (error) {
     return {
       value: value,
@@ -376,6 +409,6 @@ export function validateConfig(config: unknown): ValidationResult<any> {
       }
     };
   }
-  
+
   return { value };
 }

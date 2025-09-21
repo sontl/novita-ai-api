@@ -53,6 +53,16 @@ export interface StopInstanceResponse {
   operationId: string;
 }
 
+export interface UpdateLastUsedTimeRequest {
+  lastUsedAt?: string; // ISO string, defaults to current time if not provided
+}
+
+export interface UpdateLastUsedTimeResponse {
+  instanceId: string;
+  lastUsedAt: string;
+  message: string;
+}
+
 export interface InstanceDetails {
   id: string;
   name: string;
@@ -71,6 +81,7 @@ export interface InstanceDetails {
   };
   createdAt: string;
   readyAt?: string;
+  lastUsedAt?: string;
 }
 
 // Enhanced instance details with comprehensive data
@@ -428,6 +439,7 @@ export interface InstanceState {
     failed?: Date;
     stopping?: Date;
     stopped?: Date;
+    lastUsed?: Date;
   };
   webhookUrl?: string;
   lastError?: string;

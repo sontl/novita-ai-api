@@ -736,6 +736,10 @@ export class InstanceService {
       details.readyAt = instanceState.timestamps.ready.toISOString();
     }
 
+    if (instanceState.timestamps.lastUsed) {
+      details.lastUsedAt = instanceState.timestamps.lastUsed.toISOString();
+    }
+
     return details;
   }
 
@@ -755,6 +759,10 @@ export class InstanceService {
 
     if (instanceState.timestamps.ready) {
       details.readyAt = instanceState.timestamps.ready.toISOString();
+    }
+
+    if (instanceState.timestamps.lastUsed) {
+      details.lastUsedAt = instanceState.timestamps.lastUsed.toISOString();
     }
 
     return details;
@@ -889,6 +897,91 @@ export class InstanceService {
     }
     
     return removed;
+  }
+
+  /**
+   * Update the last used time for an instance
+   */
+  async updateLastUsedTime(instanceId: string, lastUsedAt?: Date): Promise<{ instanceId: string; lastUsedAt: string; message: string }> {
+    try {
+      // Get instance state
+      const instanceState = this.instanceStates.get(instanceId);
+      if (!instanceState) {
+        throw new NovitaApiClientError(
+          `Instance not found: ${instanceId}`,
+          404,
+          'INSTANCE_NOT_FOUND'
+        );
+      }
+
+      const timestamp = lastUsedAt || new Date();
+
+      // Update instance state with last used time
+      instanceService.updateInstanceState(instanceId, {
+        timestamps: {
+          ...instanceState.timestamps,
+          lastUsed: timestamp
+        }
+      });
+
+      logger.info('Instance last used time updated', {
+        instanceId,
+        lastUsedAt: timestamp.toISOString(),
+        instanceName: instanceState.name,
+        status: instanceState.status
+      });
+
+      return {
+        instanceId,
+        lastUsedAt: timestamp.toISOString(),
+        message: 'Last used time updated successfully'
+      };
+
+    } catch (error) {
+      logger.error('Failed to update instance last used time', {
+        instanceId,
+        error: (error as Error).message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get instances that are eligible for auto-stop (running and inactive for over threshold)
+   */
+  getInstancesEligibleForAutoStop(inactivityThresholdMinutes: number = 20): InstanceState[] {
+    const thresholdMs = inactivityThresholdMinutes * 60 * 1000;
+    const now = Date.now();
+    const eligibleInstances: InstanceState[] = [];
+
+    for (const [instanceId, instanceState] of this.instanceStates.entries()) {
+      // Only consider running instances
+      if (instanceState.status !== InstanceStatus.RUNNING) {
+        continue;
+      }
+
+      // Check if instance has a last used time
+      const lastUsedTime = instanceState.timestamps.lastUsed;
+      if (!lastUsedTime) {
+        // If no last used time is set, use the ready time or started time as fallback
+        const fallbackTime = instanceState.timestamps.ready || instanceState.timestamps.started;
+        if (!fallbackTime) {
+          continue; // Skip if no timing information available
+        }
+        
+        // Check if fallback time exceeds threshold
+        if (now - fallbackTime.getTime() > thresholdMs) {
+          eligibleInstances.push(instanceState);
+        }
+      } else {
+        // Check if last used time exceeds threshold
+        if (now - lastUsedTime.getTime() > thresholdMs) {
+          eligibleInstances.push(instanceState);
+        }
+      }
+    }
+
+    return eligibleInstances;
   }
 
   /**

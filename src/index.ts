@@ -16,6 +16,7 @@ import { metricsRouter } from './routes/metrics';
 import cacheRouter from './routes/cache';
 import { jobWorkerService } from './services/jobWorkerService';
 import { createMigrationScheduler } from './services/migrationScheduler';
+import { autoStopService } from './services/autoStopService';
 import { serviceRegistry } from './services/serviceRegistry';
 import { initializeServices, shutdownServices } from './services/serviceInitializer';
 
@@ -119,6 +120,10 @@ if (config.nodeEnv !== 'test') {
         enabled: config.migration.enabled,
         intervalMs: config.migration.scheduleIntervalMs
       });
+
+      // Start auto-stop service for inactive instance management
+      autoStopService.startScheduler();
+      logger.info('Auto-stop service initialized', autoStopService.getAutoStopStats());
       
       const server = app.listen(config.port, () => {
         logger.info(`Server running on port ${config.port}`);
@@ -131,6 +136,10 @@ if (config.nodeEnv !== 'test') {
         logger.info(`${signal} received, shutting down gracefully`);
         
         try {
+          // Shutdown auto-stop service
+          autoStopService.stopScheduler();
+          logger.info('Auto-stop service shutdown complete');
+          
           // Shutdown job worker service first
           await jobWorkerService.shutdown(10000);
           logger.info('Job worker service shutdown complete');

@@ -7,7 +7,8 @@ export enum JobType {
   MONITOR_INSTANCE = 'monitor_instance',
   MONITOR_STARTUP = 'monitor_startup',
   SEND_WEBHOOK = 'send_webhook',
-  MIGRATE_SPOT_INSTANCES = 'migrate_spot_instances'
+  MIGRATE_SPOT_INSTANCES = 'migrate_spot_instances',
+  AUTO_STOP_CHECK = 'auto_stop_check'
 }
 
 export enum JobStatus {
@@ -116,6 +117,15 @@ export interface MigrationJobSummary {
   skippedInstances: number;
   errorCount: number;
   attempts: MigrationAttempt[];
+}
+
+export interface AutoStopCheckJobPayload {
+  scheduledAt: Date;
+  jobId: string;
+  config?: {
+    dryRun?: boolean;
+    inactivityThresholdMinutes?: number; // defaults to 20 minutes
+  };
 }
 
 export interface JobQueueStats {

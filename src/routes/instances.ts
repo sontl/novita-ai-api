@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { instanceService } from '../services/instanceService';
-import { validateCreateInstance, validateInstanceId, validateStartInstance, validateStopInstance } from '../types/validation';
+import { autoStopService } from '../services/autoStopService';
+import { validateCreateInstance, validateInstanceId, validateStartInstance, validateStopInstance, validateUpdateLastUsedTime } from '../types/validation';
 import { createContextLogger, LogContext } from '../utils/logger';
 import { asyncHandler } from '../utils/errorHandler';
 import { config } from '../config/config';
@@ -560,6 +561,140 @@ router.post('/stop', asyncHandler(async (req: Request, res: Response): Promise<v
 
     throw error;
   }
+}));
+
+/**
+ * PUT /api/instances/:instanceId/last-used
+ * Update the last used time for an instance
+ */
+router.put('/:instanceId/last-used', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+  const { instanceId } = req.params;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'update_last_used_time',
+    instanceId
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Update last used time request received', {
+    instanceId,
+    requestBody: req.body
+  });
+
+  // Validate instance ID
+  const instanceIdValidation = validateInstanceId(instanceId);
+  if (instanceIdValidation.error) {
+    contextLogger.warn('Invalid instance ID provided', {
+      validationError: instanceIdValidation.error.message
+    });
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError(instanceIdValidation.error.message, instanceIdValidation.error.details);
+  }
+
+  // Validate request body
+  const bodyValidation = validateUpdateLastUsedTime(req.body);
+  if (bodyValidation.error) {
+    contextLogger.warn('Update last used time validation failed', {
+      validationErrors: bodyValidation.error.details
+    });
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError(bodyValidation.error.message, bodyValidation.error.details);
+  }
+
+  // Update last used time
+  const startTime = Date.now();
+  try {
+    const lastUsedAt = bodyValidation.value.lastUsedAt ? new Date(bodyValidation.value.lastUsedAt) : undefined;
+    const result = await instanceService.updateLastUsedTime(instanceIdValidation.value, lastUsedAt);
+    const duration = Date.now() - startTime;
+
+    contextLogger.info('Last used time updated successfully', {
+      instanceId: result.instanceId,
+      lastUsedAt: result.lastUsedAt,
+      duration
+    });
+
+    res.json(result);
+  } catch (error) {
+    const duration = Date.now() - startTime;
+
+    contextLogger.error('Update last used time failed', {
+      instanceId: instanceIdValidation.value,
+      error: (error as Error).message,
+      errorType: (error as Error).name,
+      duration
+    });
+
+    throw error;
+  }
+}));
+
+/**
+ * GET /api/instances/auto-stop/stats
+ * Get auto-stop service statistics
+ */
+router.get('/auto-stop/stats', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'get_auto_stop_stats'
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.debug('Auto-stop stats request received');
+
+  const stats = autoStopService.getAutoStopStats();
+
+  contextLogger.debug('Auto-stop stats retrieved successfully');
+
+  res.json(stats);
+}));
+
+/**
+ * POST /api/instances/auto-stop/trigger
+ * Manually trigger an auto-stop check
+ */
+router.post('/auto-stop/trigger', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'trigger_auto_stop_check'
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  const dryRun = req.body.dryRun !== false; // Default to true for safety
+
+  contextLogger.info('Manual auto-stop check triggered', { dryRun });
+
+  const startTime = Date.now();
+  await autoStopService.triggerManualCheck(dryRun);
+  const duration = Date.now() - startTime;
+
+  contextLogger.info('Manual auto-stop check queued successfully', { 
+    dryRun, 
+    duration 
+  });
+
+  res.json({
+    message: 'Auto-stop check queued successfully',
+    dryRun,
+    timestamp: new Date().toISOString()
+  });
 }));
 
 export { router as instancesRouter };

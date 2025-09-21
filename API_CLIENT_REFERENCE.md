@@ -247,7 +247,8 @@ Retrieve current status and details of a specific instance.
     "webTerminal": "https://abc123.novita.ai:7681"
   },
   "createdAt": "2024-01-15T10:30:00.000Z",
-  "readyAt": "2024-01-15T10:35:00.000Z"
+  "readyAt": "2024-01-15T10:35:00.000Z",
+  "lastUsedAt": "2024-01-15T10:40:00.000Z"
 }
 ```
 
@@ -293,7 +294,8 @@ List all managed instances with their current status.
         }
       ],
       "createdAt": "2024-01-15T10:30:00.000Z",
-      "readyAt": "2024-01-15T10:35:00.000Z"
+      "readyAt": "2024-01-15T10:35:00.000Z",
+      "lastUsedAt": "2024-01-15T10:40:00.000Z"
     },
     {
       "id": "inst_def456ghi789",
@@ -506,7 +508,88 @@ Stop an instance using its name.
 }
 ```
 
-### 10. Cache Management
+### 10. Update Last Used Time
+
+Update the last used timestamp for an instance to prevent auto-stop.
+
+#### `PUT /api/instances/{instanceId}/last-used`
+
+**Path Parameters:**
+- `instanceId` (string, required): Instance identifier
+
+**Request Body:**
+```json
+{
+  "lastUsedAt": "2024-01-15T10:30:00.000Z"  // Optional, defaults to current time
+}
+```
+
+**Request Schema:**
+- `lastUsedAt` (string, optional): ISO date string for last used time (defaults to current time)
+
+**Response (200 OK):**
+```json
+{
+  "instanceId": "inst_abc123def456",
+  "lastUsedAt": "2024-01-15T10:30:00.000Z",
+  "message": "Last used time updated successfully"
+}
+```
+
+**Response (404 Not Found):**
+```json
+{
+  "error": {
+    "code": "INSTANCE_NOT_FOUND",
+    "message": "Instance not found",
+    "details": "Instance with ID 'inst_invalid' does not exist",
+    "timestamp": "2024-01-15T10:30:00.000Z",
+    "requestId": "req_123456789"
+  }
+}
+```
+
+### 11. Auto-Stop Statistics
+
+Get auto-stop service statistics and configuration.
+
+#### `GET /api/instances/auto-stop/stats`
+
+**Response (200 OK):**
+```json
+{
+  "schedulerRunning": true,
+  "checkIntervalMinutes": 5,
+  "defaultInactivityThresholdMinutes": 20
+}
+```
+
+### 12. Trigger Auto-Stop Check
+
+Manually trigger an auto-stop check for testing purposes.
+
+#### `POST /api/instances/auto-stop/trigger`
+
+**Request Body:**
+```json
+{
+  "dryRun": true  // Optional, defaults to true for safety
+}
+```
+
+**Request Schema:**
+- `dryRun` (boolean, optional): Whether to perform a dry run without actually stopping instances (default: true)
+
+**Response (200 OK):**
+```json
+{
+  "message": "Auto-stop check queued successfully",
+  "dryRun": true,
+  "timestamp": "2024-01-15T10:30:00.000Z"
+}
+```
+
+### 13. Cache Management
 
 Manage service caches for performance optimization.
 
@@ -566,7 +649,7 @@ Clear all caches or a specific cache.
 }
 ```
 
-### 11. Metrics
+### 14. Metrics
 
 Get application performance metrics.
 
@@ -669,6 +752,40 @@ Instances can have the following status values:
 - `failed` - Instance creation or operation failed
 - `terminated` - Instance has been terminated
 - `exited` - Instance has exited
+
+## Auto-Stop Feature
+
+The API includes an automatic instance shutdown feature that stops running instances when they haven't been used for a configurable period (default: 20 minutes).
+
+### How It Works
+
+1. **Last Used Tracking**: Clients update the last used time via `PUT /api/instances/{instanceId}/last-used`
+2. **Background Monitoring**: Service checks for inactive instances every 5 minutes
+3. **Automatic Shutdown**: Instances inactive for over 20 minutes are automatically stopped
+4. **Cost Optimization**: Prevents instances from running idle and incurring unnecessary costs
+
+### Client Integration
+
+Update the last used time whenever actively using an instance:
+
+```javascript
+// Mark instance as used
+async function markInstanceAsUsed(instanceId) {
+  await fetch(`/api/instances/${instanceId}/last-used`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+// For long-running tasks, update periodically
+setInterval(() => markInstanceAsUsed(instanceId), 10 * 60 * 1000); // Every 10 minutes
+```
+
+### Monitoring Auto-Stop
+
+- Check auto-stop statistics: `GET /api/instances/auto-stop/stats`
+- Trigger manual checks: `POST /api/instances/auto-stop/trigger`
+- Instance details include `lastUsedAt` timestamp
 
 ## Webhook Notifications
 

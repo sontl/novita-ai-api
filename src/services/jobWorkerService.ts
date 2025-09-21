@@ -11,6 +11,7 @@ import { instanceService } from './instanceService';
 import { webhookClient } from '../clients/webhookClient';
 import { healthCheckerService } from './healthCheckerService';
 import { instanceMigrationService } from './instanceMigrationService';
+import { autoStopService } from './autoStopService';
 import { config } from '../config/config';
 import {
   Job,
@@ -19,7 +20,8 @@ import {
   MonitorInstanceJobPayload,
   SendWebhookJobPayload,
   MigrateSpotInstancesJobPayload,
-  MigrationJobResult
+  MigrationJobResult,
+  AutoStopCheckJobPayload
 } from '../types/job';
 import {
   NovitaCreateInstanceRequest,
@@ -53,6 +55,7 @@ export class JobWorkerService {
     this.jobQueue.registerHandler(JobType.MONITOR_STARTUP, this.handleMonitorStartup.bind(this));
     this.jobQueue.registerHandler(JobType.SEND_WEBHOOK, this.handleSendWebhook.bind(this));
     this.jobQueue.registerHandler(JobType.MIGRATE_SPOT_INSTANCES, this.handleMigrateSpotInstances.bind(this));
+    this.jobQueue.registerHandler(JobType.AUTO_STOP_CHECK, this.handleAutoStopCheck.bind(this));
   }
 
   /**
@@ -657,6 +660,62 @@ export class JobWorkerService {
 
       // Handle the failure using our centralized handler
       await this.handleStartupMonitoringFailure(payload, error instanceof Error ? error : new Error('Unknown startup monitoring error'));
+      throw error;
+    }
+  }
+
+  /**
+   * Handle auto-stop check job
+   */
+  private async handleAutoStopCheck(job: Job): Promise<void> {
+    const payload = job.payload as AutoStopCheckJobPayload;
+    
+    logger.info('Processing auto-stop check job', {
+      jobId: job.id,
+      scheduledAt: payload.scheduledAt,
+      dryRun: payload.config?.dryRun,
+      inactivityThresholdMinutes: payload.config?.inactivityThresholdMinutes
+    });
+
+    try {
+      const result = await autoStopService.processAutoStopCheck(payload);
+      
+      logger.info('Auto-stop check job completed successfully', {
+        jobId: job.id,
+        scheduledAt: payload.scheduledAt,
+        totalChecked: result.totalChecked,
+        eligibleForStop: result.eligibleForStop,
+        stopped: result.stopped,
+        errors: result.errors,
+        executionTimeMs: result.executionTimeMs,
+        successRate: result.eligibleForStop > 0 ? 
+          ((result.stopped / result.eligibleForStop) * 100).toFixed(2) + '%' : 
+          '100%'
+      });
+
+      // Log warning if there were errors during auto-stop
+      if (result.errors > 0) {
+        logger.warn('Auto-stop check completed with errors', {
+          jobId: job.id,
+          errorCount: result.errors,
+          totalChecked: result.totalChecked,
+          errorRate: result.totalChecked > 0 ? 
+            ((result.errors / result.totalChecked) * 100).toFixed(2) + '%' : 
+            '0%'
+        });
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown auto-stop check error';
+
+      logger.error('Auto-stop check job failed', {
+        jobId: job.id,
+        scheduledAt: payload.scheduledAt,
+        error: errorMessage,
+        errorType: error instanceof Error ? error.constructor.name : 'UnknownError'
+      });
+
+      // Re-throw the error to mark the job as failed
       throw error;
     }
   }
