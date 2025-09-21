@@ -14,7 +14,7 @@ import { healthRouter } from './routes/health';
 import { instancesRouter } from './routes/instances';
 import { metricsRouter } from './routes/metrics';
 import cacheRouter from './routes/cache';
-import { jobWorkerService } from './services/jobWorkerService';
+import { JobWorkerService } from './services/jobWorkerService';
 import { createMigrationScheduler } from './services/migrationScheduler';
 import { autoStopService } from './services/autoStopService';
 import { serviceRegistry } from './services/serviceRegistry';
@@ -94,6 +94,8 @@ app.use(errorHandler);
 
 // Only start server if not in test environment
 if (config.nodeEnv !== 'test') {
+  let jobWorkerService: JobWorkerService;
+  
   // Initialize Redis-backed services
   initializeServices(config)
     .then(async (serviceResult) => {
@@ -108,7 +110,8 @@ if (config.nodeEnv !== 'test') {
         throw new Error('Job queue service not initialized');
       }
 
-      // Start job worker service for background processing
+      // Create and start job worker service with the initialized job queue service
+      jobWorkerService = new JobWorkerService(jobQueueService);
       jobWorkerService.start();
       logger.info('Job worker service started');
       
@@ -141,8 +144,10 @@ if (config.nodeEnv !== 'test') {
           logger.info('Auto-stop service shutdown complete');
           
           // Shutdown job worker service first
-          await jobWorkerService.shutdown(10000);
-          logger.info('Job worker service shutdown complete');
+          if (jobWorkerService) {
+            await jobWorkerService.shutdown(10000);
+            logger.info('Job worker service shutdown complete');
+          }
           
           // Shutdown all services (migration scheduler, cache manager, Redis client)
           await shutdownServices(10000);

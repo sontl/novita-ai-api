@@ -2025,8 +2025,5 @@ export class JobWorkerService {
   }
 }
 
-// Import the singleton job queue service and create worker singleton
-import { jobQueueService } from './jobQueueService';
-
-// Export singleton instance
-export const jobWorkerService = new JobWorkerService(jobQueueService);
+// Note: JobWorkerService should be instantiated with the proper JobQueueService instance
+// rather than using a singleton to avoid circular dependency issues

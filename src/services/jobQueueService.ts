@@ -4,7 +4,7 @@
 
 // Simple ID generator for jobs
 function generateJobId(): string {
-  return `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  return `job_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 }
 import { logger } from '../utils/logger';
 import { recordJobMetrics } from '../middleware/metricsMiddleware';
@@ -57,7 +57,7 @@ export class JobQueueService {
     };
 
     this.jobs.set(job.id, job);
-    
+
     logger.info('Job added to queue', {
       jobId: job.id,
       type: job.type,
@@ -118,7 +118,7 @@ export class JobQueueService {
    */
   getStats(): JobQueueStats {
     const jobs = Array.from(this.jobs.values());
-    
+
     const stats: JobQueueStats = {
       totalJobs: jobs.length,
       pendingJobs: 0,
@@ -150,7 +150,7 @@ export class JobQueueService {
           stats.failedJobs++;
           break;
       }
-      
+
       stats.jobsByType[job.type]++;
     });
 
@@ -184,7 +184,7 @@ export class JobQueueService {
     }
 
     this.isProcessing = false;
-    
+
     if (this.processingInterval) {
       clearInterval(this.processingInterval);
       this.processingInterval = undefined;
@@ -210,7 +210,7 @@ export class JobQueueService {
    */
   private getNextJob(): Job | undefined {
     const now = new Date();
-    
+
     // Get pending jobs that are ready to be processed (not waiting for retry)
     const availableJobs = this.getJobs({ status: JobStatus.PENDING })
       .filter(job => !job.nextRetryAt || job.nextRetryAt <= now);
@@ -223,7 +223,7 @@ export class JobQueueService {
    */
   private async processJob(job: Job): Promise<void> {
     const startTime = Date.now();
-    
+
     try {
       // Update job status to processing
       job.status = JobStatus.PROCESSING;
@@ -260,7 +260,7 @@ export class JobQueueService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const processingTime = Date.now() - startTime;
-      
+
       logger.error('Job processing failed', {
         jobId: job.id,
         type: job.type,
@@ -280,7 +280,7 @@ export class JobQueueService {
           baseDelay * Math.pow(2, job.attempts - 1),
           this.maxRetryDelay
         );
-        
+
         job.status = JobStatus.PENDING;
         job.nextRetryAt = new Date(Date.now() + delay);
 
@@ -361,7 +361,7 @@ export class JobQueueService {
    */
   async shutdown(timeoutMs: number = 30000): Promise<void> {
     logger.info('Shutting down job queue service');
-    
+
     this.stopProcessing();
 
     // Wait for processing jobs to complete
@@ -379,5 +379,5 @@ export class JobQueueService {
   }
 }
 
-// Export singleton instance
-export const jobQueueService = new JobQueueService();
+// Note: JobQueueService should be instantiated through the service initializer
+// to ensure proper integration with the application lifecycle

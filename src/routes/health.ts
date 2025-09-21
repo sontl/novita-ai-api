@@ -1,11 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../utils/logger';
 import { novitaApiService } from '../services/novitaApiService';
-import { jobQueueService } from '../services/jobQueueService';
+import { serviceRegistry } from '../services/serviceRegistry';
 import { instanceService } from '../services/instanceService';
 import { metricsService } from '../services/metricsService';
 import { HealthCheckResponse, EnhancedHealthCheckResponse } from '../types/api';
-import { serviceRegistry } from '../services/serviceRegistry';
 import { getServiceHealthStatus } from '../services/serviceInitializer';
 
 const router = Router();
@@ -68,7 +67,7 @@ router.get('/', async (req: Request, res: Response) => {
         nodeVersion: process.version,
         platform: process.platform,
         cacheStats: instanceService.getCacheStats(),
-        jobQueueStats: jobQueueService.getStats()
+        jobQueueStats: serviceRegistry.getJobQueueService()?.getStats() || {}
       };
     }
 
@@ -189,6 +188,10 @@ async function checkNovitaApiHealth(): Promise<boolean> {
 async function checkJobQueueHealth(): Promise<boolean> {
   try {
     // Check if job queue service is responsive
+    const jobQueueService = serviceRegistry.getJobQueueService();
+    if (!jobQueueService) {
+      return false;
+    }
     const stats = jobQueueService.getStats();
     return typeof stats === 'object' && stats !== null;
   } catch (error) {
@@ -255,6 +258,15 @@ async function checkNovitaApiHealthDetailed(): Promise<any> {
  */
 async function checkJobQueueHealthDetailed(): Promise<any> {
   try {
+    const jobQueueService = serviceRegistry.getJobQueueService();
+    if (!jobQueueService) {
+      return {
+        status: 'down',
+        error: 'Job queue service not available',
+        lastChecked: new Date().toISOString()
+      };
+    }
+    
     const stats = jobQueueService.getStats();
     
     return {

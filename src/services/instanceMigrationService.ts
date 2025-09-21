@@ -85,10 +85,10 @@ export class InstanceMigrationService {
   }
 
   /**
-   * Check if an instance is eligible for migration based on spot status
+   * Check if an instance is eligible for migration based on spot status and GPU IDs
    */
   async checkMigrationEligibility(instance: InstanceResponse): Promise<MigrationEligibilityResult> {
-    const { id: instanceId, status, spotStatus, spotReclaimTime } = instance;
+    const { id: instanceId, status, spotStatus, spotReclaimTime, gpuIds } = instance;
 
     const step: MigrationWorkflowStep = {
       step: 'eligibility_check',
@@ -99,7 +99,8 @@ export class InstanceMigrationService {
         instanceId,
         status,
         spotStatus,
-        spotReclaimTime
+        spotReclaimTime,
+        gpuIds
       }
     };
 
@@ -113,7 +114,8 @@ export class InstanceMigrationService {
           reason: `Instance status is "${status}", not "exited"`,
           instanceId,
           ...(spotStatus !== undefined && { spotStatus }),
-          ...(spotReclaimTime !== undefined && { spotReclaimTime })
+          ...(spotReclaimTime !== undefined && { spotReclaimTime }),
+          ...(gpuIds !== undefined && { gpuIds })
         };
 
         step.endTime = new Date();
@@ -128,14 +130,71 @@ export class InstanceMigrationService {
         return result;
       }
 
-      // Second check: if spotStatus is empty AND spotReclaimTime is "0", skip
+      // Second check: GPU ID-based eligibility
+      if (gpuIds && Array.isArray(gpuIds)) {
+        // If gpuIds contains only [1], no migration needed
+        if (gpuIds.length === 1 && gpuIds[0] === 1) {
+          const result: MigrationEligibilityResult = {
+            eligible: false,
+            reason: 'Instance has gpuIds [1] - no migration needed',
+            instanceId,
+            ...(spotStatus !== undefined && { spotStatus }),
+            ...(spotReclaimTime !== undefined && { spotReclaimTime }),
+            gpuIds
+          };
+
+          step.endTime = new Date();
+          step.status = 'completed';
+          step.details = { ...step.details, result, decision: 'not_eligible_gpu_id_1' };
+
+          logger.debug('Instance not eligible for migration - GPU ID 1', {
+            instanceId,
+            result,
+            step: step.step
+          });
+          return result;
+        }
+
+        // If gpuIds contains [2], migration is needed
+        if (gpuIds.length === 1 && gpuIds[0] === 2) {
+          const result: MigrationEligibilityResult = {
+            eligible: true,
+            reason: 'Instance has gpuIds [2] - migration required',
+            instanceId,
+            ...(spotStatus !== undefined && { spotStatus }),
+            ...(spotReclaimTime !== undefined && { spotReclaimTime }),
+            gpuIds
+          };
+
+          step.endTime = new Date();
+          step.status = 'completed';
+          step.details = { ...step.details, result, decision: 'eligible_gpu_id_2' };
+
+          logger.info('Instance eligible for migration - GPU ID 2', {
+            instanceId,
+            result,
+            step: step.step
+          });
+          return result;
+        }
+
+        // For other GPU ID configurations, log and continue with spot-based checks
+        logger.debug('Instance has non-standard GPU ID configuration, checking spot status', {
+          instanceId,
+          gpuIds,
+          step: step.step
+        });
+      }
+
+      // Third check: if spotStatus is empty AND spotReclaimTime is "0", skip
       if ((!spotStatus || spotStatus.trim() === '') && spotReclaimTime === '0') {
         const result: MigrationEligibilityResult = {
           eligible: false,
           reason: 'Instance has empty spotStatus and spotReclaimTime is "0" - no action needed',
           instanceId,
           ...(spotStatus !== undefined && { spotStatus }),
-          ...(spotReclaimTime !== undefined && { spotReclaimTime })
+          ...(spotReclaimTime !== undefined && { spotReclaimTime }),
+          ...(gpuIds !== undefined && { gpuIds })
         };
 
         step.endTime = new Date();
@@ -150,14 +209,15 @@ export class InstanceMigrationService {
         return result;
       }
 
-      // Third check: if spotReclaimTime is not "0", instance is eligible
+      // Fourth check: if spotReclaimTime is not "0", instance is eligible
       if (spotReclaimTime && spotReclaimTime !== '0') {
         const result: MigrationEligibilityResult = {
           eligible: true,
           reason: `Instance was reclaimed (spotReclaimTime: ${spotReclaimTime})`,
           instanceId,
           ...(spotStatus !== undefined && { spotStatus }),
-          ...(spotReclaimTime !== undefined && { spotReclaimTime })
+          ...(spotReclaimTime !== undefined && { spotReclaimTime }),
+          ...(gpuIds !== undefined && { gpuIds })
         };
 
         step.endTime = new Date();
@@ -178,7 +238,8 @@ export class InstanceMigrationService {
         reason: 'Instance does not meet migration criteria',
         instanceId,
         ...(spotStatus !== undefined && { spotStatus }),
-        ...(spotReclaimTime !== undefined && { spotReclaimTime })
+        ...(spotReclaimTime !== undefined && { spotReclaimTime }),
+        ...(gpuIds !== undefined && { gpuIds })
       };
 
       step.endTime = new Date();
@@ -203,7 +264,7 @@ export class InstanceMigrationService {
           severity: MigrationErrorSeverity.MEDIUM,
           instanceId,
           originalError: error instanceof Error ? error : new Error('Unknown eligibility error'),
-          context: { instance: { id: instanceId, status, spotStatus, spotReclaimTime } }
+          context: { instance: { id: instanceId, status, spotStatus, spotReclaimTime, gpuIds } }
         }
       );
 

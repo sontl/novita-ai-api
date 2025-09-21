@@ -4,7 +4,7 @@
 
 import { logger } from '../utils/logger';
 import { instanceService } from './instanceService';
-import { jobQueueService } from './jobQueueService';
+import { serviceRegistry } from './serviceRegistry';
 import { config } from '../config/config';
 import { JobType, JobPriority, AutoStopCheckJobPayload } from '../types/job';
 import { InstanceStatus, InstanceState } from '../types/api';
@@ -74,6 +74,11 @@ export class AutoStopService {
         inactivityThresholdMinutes: this.defaultInactivityThresholdMinutes
       }
     };
+
+    const jobQueueService = serviceRegistry.getJobQueueService();
+    if (!jobQueueService) {
+      throw new Error('Job queue service not available');
+    }
 
     await jobQueueService.addJob(
       JobType.AUTO_STOP_CHECK,

@@ -1,7 +1,7 @@
 import { logger } from '../utils/logger';
 import { productService } from './productService';
 import { templateService } from './templateService';
-import { jobQueueService } from './jobQueueService';
+import { serviceRegistry } from './serviceRegistry';
 import { novitaApiService } from './novitaApiService';
 import { webhookClient } from '../clients/webhookClient';
 import { config } from '../config/config';
@@ -34,36 +34,36 @@ import { cacheManager } from './cacheService';
 
 export class InstanceService {
   private instanceStates: Map<string, InstanceState> = new Map();
-  
+
   // Track active startup operations to prevent duplicates
   private activeStartupOperations: Map<string, StartupOperation> = new Map();
-  
+
   private readonly instanceCache = cacheManager.getCache<InstanceDetails>('instance-details', {
     maxSize: 500,
     defaultTtl: 30 * 1000, // 30 seconds for instance status
     cleanupIntervalMs: 60 * 1000 // Cleanup every minute
   });
-  
+
   private readonly instanceStateCache = cacheManager.getCache<InstanceState>('instance-states', {
     maxSize: 1000,
     defaultTtl: 60 * 1000, // 1 minute for instance states
     cleanupIntervalMs: 2 * 60 * 1000 // Cleanup every 2 minutes
   });
-  
+
   // Merged results cache for comprehensive listings
   private readonly mergedInstancesCache = cacheManager.getCache<EnhancedInstanceDetails[]>('merged-instances', {
     maxSize: 100,
     defaultTtl: config.instanceListing.comprehensiveCacheTtl * 1000, // Convert seconds to milliseconds
     cleanupIntervalMs: 60 * 1000 // Cleanup every minute
   });
-  
+
   // Novita API response cache
   private readonly novitaApiCache = cacheManager.getCache<InstanceResponse[]>('novita-api-instances', {
     maxSize: 100,
     defaultTtl: config.instanceListing.novitaApiCacheTtl * 1000, // Convert seconds to milliseconds
     cleanupIntervalMs: 2 * 60 * 1000 // Cleanup every 2 minutes
   });
-  
+
   private readonly defaultRegion = 'CN-HK-01';
 
   /**
@@ -73,7 +73,7 @@ export class InstanceService {
     try {
       // Generate unique instance ID
       const instanceId = this.generateInstanceId();
-      
+
       // Validate request parameters
       this.validateCreateInstanceRequest(request);
 
@@ -133,9 +133,14 @@ export class InstanceService {
         rootfsSize,
         region
       };
-      
+
       if (request.webhookUrl) {
         jobPayload.webhookUrl = request.webhookUrl;
+      }
+
+      const jobQueueService = serviceRegistry.getJobQueueService();
+      if (!jobQueueService) {
+        throw new Error('Job queue service not available');
       }
 
       await jobQueueService.addJob(
@@ -195,13 +200,13 @@ export class InstanceService {
         try {
           const novitaInstance = await novitaApiService.getInstance(instanceState.novitaInstanceId);
           instanceDetails = this.mapNovitaInstanceToDetails(novitaInstance, instanceState);
-          
+
           // Update our internal state with latest status
           instanceState.status = novitaInstance.status;
           if (novitaInstance.status === InstanceStatus.RUNNING && !instanceState.timestamps.ready) {
             instanceState.timestamps.ready = new Date();
           }
-          
+
           // Update state cache
           this.instanceStateCache.set(instanceId, instanceState);
         } catch (error) {
@@ -238,7 +243,7 @@ export class InstanceService {
   async listInstances(): Promise<ListInstancesResponse> {
     try {
       const instances: InstanceDetails[] = [];
-      
+
       // Get all instance states
       for (const [instanceId, instanceState] of this.instanceStates.entries()) {
         try {
@@ -255,7 +260,7 @@ export class InstanceService {
       }
 
       // Sort by creation time (newest first)
-      instances.sort((a, b) => 
+      instances.sort((a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
 
@@ -283,7 +288,7 @@ export class InstanceService {
   }): Promise<EnhancedListInstancesResponse> {
     try {
       const startTime = Date.now();
-      
+
       // Check cache first
       const cacheKey = `comprehensive_${JSON.stringify(options || {})}`;
       const cachedResult = this.mergedInstancesCache.get(cacheKey);
@@ -302,11 +307,11 @@ export class InstanceService {
           }
         };
       }
-      
+
       // Fetch from both sources in parallel
       const localStartTime = Date.now();
       const localInstancesPromise = this.getLocalInstances();
-      
+
       const novitaStartTime = Date.now();
       const novitaInstancesPromise = this.getNovitaInstances().catch((error: Error) => {
         logger.warn('Failed to fetch instances from Novita.ai, using local only', { error: error.message });
@@ -317,7 +322,7 @@ export class InstanceService {
         localInstancesPromise,
         novitaInstancesPromise
       ]);
-      
+
       const localDataTime = Date.now() - localStartTime;
       const novitaApiTime = Date.now() - novitaStartTime;
 
@@ -325,7 +330,7 @@ export class InstanceService {
       const mergeStartTime = Date.now();
       const mergedInstances = this.mergeInstanceData(localInstances, novitaInstances, options?.includeNovitaOnly);
       const mergeProcessingTime = Date.now() - mergeStartTime;
-      
+
       // Optionally sync local state with Novita data
       if (options?.syncLocalState) {
         await this.syncLocalStateWithNovita(novitaInstances);
@@ -335,7 +340,7 @@ export class InstanceService {
       this.mergedInstancesCache.set(cacheKey, mergedInstances);
 
       const totalRequestTime = Date.now() - startTime;
-      
+
       logger.info('Listed instances comprehensively', {
         localCount: localInstances.length,
         novitaCount: novitaInstances.length,
@@ -403,12 +408,12 @@ export class InstanceService {
    * Merge local and Novita instance data with conflict resolution
    */
   private mergeInstanceData(
-    localInstances: InstanceDetails[], 
+    localInstances: InstanceDetails[],
     novitaInstances: InstanceResponse[],
     includeNovitaOnly: boolean = true
   ): EnhancedInstanceDetails[] {
     const mergedMap = new Map<string, EnhancedInstanceDetails>();
-    
+
     // Add local instances first
     localInstances.forEach(localInstance => {
       const enhanced: EnhancedInstanceDetails = {
@@ -423,7 +428,7 @@ export class InstanceService {
     // Process Novita instances
     novitaInstances.forEach(novitaInstance => {
       const localMatch = this.findLocalInstanceMatch(novitaInstance, localInstances);
-      
+
       if (localMatch) {
         // Merge data for matched instances
         const existing = mergedMap.get(localMatch.id)!;
@@ -438,7 +443,7 @@ export class InstanceService {
 
     // Convert to array and sort
     const mergedInstances = Array.from(mergedMap.values());
-    return mergedInstances.sort((a, b) => 
+    return mergedInstances.sort((a, b) =>
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }
@@ -447,19 +452,19 @@ export class InstanceService {
    * Find local instance that matches Novita instance
    */
   private findLocalInstanceMatch(
-    novitaInstance: InstanceResponse, 
+    novitaInstance: InstanceResponse,
     localInstances: InstanceDetails[]
   ): InstanceDetails | null {
     // Try to match by Novita instance ID stored in local state
     const localState = Array.from(this.instanceStates.values());
     const stateMatch = localState.find(state => state.novitaInstanceId === novitaInstance.id);
-    
+
     if (stateMatch) {
       return localInstances.find(local => local.id === stateMatch.id) || null;
     }
 
     // Fallback: match by name and creation time (approximate)
-    return localInstances.find(local => 
+    return localInstances.find(local =>
       local.name === novitaInstance.name &&
       Math.abs(new Date(local.createdAt).getTime() - new Date(novitaInstance.createdAt).getTime()) < 60000 // 1 minute tolerance
     ) || null;
@@ -474,9 +479,9 @@ export class InstanceService {
   ): EnhancedInstanceDetails {
     const localStateTime = new Date(localInstance.createdAt).getTime();
     const novitaStateTime = new Date(novitaInstance.createdAt).getTime();
-    
+
     let dataConsistency: EnhancedInstanceDetails['dataConsistency'] = 'consistent';
-    
+
     // Determine data consistency
     if (localInstance.status !== novitaInstance.status) {
       dataConsistency = localStateTime > novitaStateTime ? 'local-newer' : 'novita-newer';
@@ -489,7 +494,7 @@ export class InstanceService {
       status: novitaInstance.status,
       region: novitaInstance.region,
       portMappings: novitaInstance.portMappings || localInstance.portMappings,
-      
+
       // Metadata
       source: 'merged',
       dataConsistency,
@@ -529,13 +534,13 @@ export class InstanceService {
       region: novitaInstance.region,
       portMappings: novitaInstance.portMappings || [],
       createdAt: novitaInstance.createdAt,
-      
+
       // Metadata
       source: 'novita',
       dataConsistency: 'consistent',
       lastSyncedAt: new Date().toISOString()
     };
-    
+
     // Add optional fields from Novita only if they exist
     if (novitaInstance.clusterId) enhanced.clusterId = novitaInstance.clusterId;
     if (novitaInstance.clusterName) enhanced.clusterName = novitaInstance.clusterName;
@@ -552,7 +557,7 @@ export class InstanceService {
     if (novitaInstance.endTime) enhanced.endTime = novitaInstance.endTime;
     if (novitaInstance.spotStatus) enhanced.spotStatus = novitaInstance.spotStatus;
     if (novitaInstance.spotReclaimTime) enhanced.spotReclaimTime = novitaInstance.spotReclaimTime;
-    
+
     return enhanced;
   }
 
@@ -563,7 +568,7 @@ export class InstanceService {
     const syncPromises = novitaInstances.map(async (novitaInstance) => {
       const localState = Array.from(this.instanceStates.values())
         .find(state => state.novitaInstanceId === novitaInstance.id);
-      
+
       if (localState && localState.status !== novitaInstance.status) {
         this.updateInstanceState(localState.id, {
           status: novitaInstance.status,
@@ -571,7 +576,7 @@ export class InstanceService {
             ...localState.timestamps
           }
         });
-        
+
         logger.debug('Synced local state with Novita', {
           instanceId: localState.id,
           novitaInstanceId: novitaInstance.id,
@@ -580,7 +585,7 @@ export class InstanceService {
         });
       }
     });
-    
+
     await Promise.allSettled(syncPromises);
   }
 
@@ -589,7 +594,7 @@ export class InstanceService {
    */
   private async getLocalInstances(): Promise<InstanceDetails[]> {
     const instances: InstanceDetails[] = [];
-    
+
     for (const [instanceId, instanceState] of this.instanceStates.entries()) {
       try {
         const instanceDetails = this.mapInstanceStateToDetails(instanceState);
@@ -601,7 +606,7 @@ export class InstanceService {
         });
       }
     }
-    
+
     return instances;
   }
 
@@ -616,13 +621,13 @@ export class InstanceService {
         logger.debug('Using cached Novita instances', { count: cachedInstances.length });
         return cachedInstances;
       }
-      
+
       const response = await novitaApiService.listInstances();
       const instances = response.instances;
-      
+
       // Cache the result
       this.novitaApiCache.set('all', instances);
-      
+
       logger.info('Fetched instances from Novita.ai', { count: instances.length });
       return instances;
     } catch (error) {
@@ -662,9 +667,9 @@ export class InstanceService {
       );
     }
 
-    if (!request.templateId || (typeof request.templateId !== 'string' && typeof request.templateId !== 'number') || 
-        (typeof request.templateId === 'string' && request.templateId.trim() === '') ||
-        (typeof request.templateId === 'number' && request.templateId <= 0)) {
+    if (!request.templateId || (typeof request.templateId !== 'string' && typeof request.templateId !== 'number') ||
+      (typeof request.templateId === 'string' && request.templateId.trim() === '') ||
+      (typeof request.templateId === 'number' && request.templateId <= 0)) {
       throw new NovitaApiClientError(
         'Template ID is required and must be a non-empty string or valid positive number',
         400,
@@ -771,7 +776,7 @@ export class InstanceService {
   /**
    * Map Port[] to portMappings format
    */
-  private mapPortsToPortMappings(ports: Port[]): Array<{port: number; endpoint: string; type: string}> {
+  private mapPortsToPortMappings(ports: Port[]): Array<{ port: number; endpoint: string; type: string }> {
     return ports.map(port => ({
       port: port.port,
       endpoint: `http://localhost:${port.port}`, // Default endpoint format
@@ -811,10 +816,10 @@ export class InstanceService {
     const totalCleaned = detailsCleaned + statesCleaned;
 
     if (totalCleaned > 0) {
-      logger.debug('Cleared expired instance cache entries', { 
-        detailsCleaned, 
-        statesCleaned, 
-        totalCleaned 
+      logger.debug('Cleared expired instance cache entries', {
+        detailsCleaned,
+        statesCleaned,
+        totalCleaned
       });
     }
   }
@@ -869,9 +874,9 @@ export class InstanceService {
       await this.getInstanceStatus(instanceId);
       logger.debug('Instance preloaded into cache', { instanceId });
     } catch (error) {
-      logger.warn('Failed to preload instance', { 
-        instanceId, 
-        error: (error as Error).message 
+      logger.warn('Failed to preload instance', {
+        instanceId,
+        error: (error as Error).message
       });
       throw error;
     }
@@ -891,11 +896,11 @@ export class InstanceService {
     const removed = this.instanceStates.delete(instanceId);
     this.instanceCache.delete(instanceId);
     this.instanceStateCache.delete(instanceId);
-    
+
     if (removed) {
       logger.info('Instance state removed', { instanceId });
     }
-    
+
     return removed;
   }
 
@@ -968,7 +973,7 @@ export class InstanceService {
         if (!fallbackTime) {
           continue; // Skip if no timing information available
         }
-        
+
         // Check if fallback time exceeds threshold
         if (now - fallbackTime.getTime() > thresholdMs) {
           eligibleInstances.push(instanceState);
@@ -1003,17 +1008,17 @@ export class InstanceService {
       // If not found locally and name-based lookup is enabled, search Novita.ai API
       if (config.instanceStartup.enableNameBasedLookup) {
         logger.debug('Searching Novita.ai API for instance by name', { name });
-        
+
         try {
           const novitaInstances = await this.getNovitaInstances();
           const matchingInstance = novitaInstances.find(instance => instance.name === name);
-          
+
           if (matchingInstance) {
-            logger.debug('Found instance in Novita.ai API', { 
-              novitaInstanceId: matchingInstance.id, 
-              name 
+            logger.debug('Found instance in Novita.ai API', {
+              novitaInstanceId: matchingInstance.id,
+              name
             });
-            
+
             // Transform Novita instance to our format
             return this.transformNovitaInstanceToDetails(matchingInstance);
           }
@@ -1033,7 +1038,7 @@ export class InstanceService {
       if (error instanceof InstanceNotFoundError) {
         throw error;
       }
-      
+
       logger.error('Failed to find instance by name', {
         name,
         error: (error as Error).message
@@ -1077,7 +1082,7 @@ export class InstanceService {
    */
   isStartupInProgress(instanceId: string): boolean {
     const operation = this.activeStartupOperations.get(instanceId);
-    
+
     if (!operation) {
       return false;
     }
@@ -1086,10 +1091,10 @@ export class InstanceService {
     const activeStates = ['initiated', 'monitoring', 'health_checking'];
     const isActive = activeStates.includes(operation.status);
 
-    logger.debug('Checking startup progress', { 
-      instanceId, 
+    logger.debug('Checking startup progress', {
+      instanceId,
       operationStatus: operation.status,
-      isActive 
+      isActive
     });
 
     return isActive;
@@ -1116,10 +1121,10 @@ export class InstanceService {
 
     this.activeStartupOperations.set(instanceId, operation);
 
-    logger.info('Startup operation created', { 
-      operationId, 
-      instanceId, 
-      novitaInstanceId 
+    logger.info('Startup operation created', {
+      operationId,
+      instanceId,
+      novitaInstanceId
     });
 
     return operation;
@@ -1130,24 +1135,24 @@ export class InstanceService {
    * Requirements: 6.1
    */
   updateStartupOperation(
-    instanceId: string, 
-    status: StartupOperation['status'], 
+    instanceId: string,
+    status: StartupOperation['status'],
     phase?: keyof StartupOperation['phases'],
     error?: string
   ): void {
     const operation = this.activeStartupOperations.get(instanceId);
-    
+
     if (!operation) {
       logger.warn('Attempted to update non-existent startup operation', { instanceId });
       return;
     }
 
     operation.status = status;
-    
+
     if (phase) {
       operation.phases[phase] = new Date();
     }
-    
+
     if (error) {
       operation.error = error;
     }
@@ -1155,18 +1160,18 @@ export class InstanceService {
     // Remove operation if completed or failed
     if (status === 'completed' || status === 'failed') {
       this.activeStartupOperations.delete(instanceId);
-      logger.info('Startup operation completed', { 
-        operationId: operation.operationId, 
-        instanceId, 
+      logger.info('Startup operation completed', {
+        operationId: operation.operationId,
+        instanceId,
         status,
-        error 
+        error
       });
     } else {
-      logger.debug('Startup operation updated', { 
-        operationId: operation.operationId, 
-        instanceId, 
-        status, 
-        phase 
+      logger.debug('Startup operation updated', {
+        operationId: operation.operationId,
+        instanceId,
+        status,
+        phase
       });
     }
   }
@@ -1184,7 +1189,7 @@ export class InstanceService {
    */
   private handleStatusTransition(instanceState: InstanceState, newStatus: InstanceStatus): void {
     const now = new Date();
-    
+
     switch (newStatus) {
       case InstanceStatus.STARTING:
         if (!instanceState.timestamps.started) {
@@ -1302,8 +1307,8 @@ export class InstanceService {
     }
 
     const healthCheck = instanceState.healthCheck;
-    const latestResult = healthCheck.results.length > 0 
-      ? healthCheck.results[healthCheck.results.length - 1] 
+    const latestResult = healthCheck.results.length > 0
+      ? healthCheck.results[healthCheck.results.length - 1]
       : undefined;
 
     let duration: number | undefined;
@@ -1388,8 +1393,8 @@ export class InstanceService {
    */
   getFailedHealthCheckInstances(): InstanceState[] {
     return Array.from(this.instanceStates.values())
-      .filter(instance => 
-        instance.healthCheck?.status === 'failed' || 
+      .filter(instance =>
+        instance.healthCheck?.status === 'failed' ||
         (instance.status === InstanceStatus.FAILED && instance.healthCheck)
       );
   }
@@ -1539,6 +1544,11 @@ export class InstanceService {
           jobPayload.targetPort = startConfig.targetPort;
         }
 
+        const jobQueueService = serviceRegistry.getJobQueueService();
+        if (!jobQueueService) {
+          throw new Error('Job queue service not available');
+        }
+
         await jobQueueService.addJob(
           JobTypeEnum.MONITOR_STARTUP,
           jobPayload,
@@ -1586,7 +1596,7 @@ export class InstanceService {
       } catch (error) {
         const errorMessage = (error as Error).message;
         const errorName = (error as Error).name;
-        
+
         // Enhanced error logging with context
         logger.error('Failed to start instance via Novita.ai API', {
           instanceId: instanceDetails.id,
@@ -1606,13 +1616,13 @@ export class InstanceService {
         );
 
         // Transform API errors into more specific startup errors
-        const { 
-          StartupFailedError, 
-          ResourceConstraintsError, 
+        const {
+          StartupFailedError,
+          ResourceConstraintsError,
           NetworkError,
-          isRetryableStartupError 
+          isRetryableStartupError
         } = await import('../utils/errorHandler');
-        
+
         // Check for specific error types and transform them
         if (error instanceof NovitaApiClientError) {
           if (error.code === 'RESOURCE_CONSTRAINTS') {
@@ -1622,7 +1632,7 @@ export class InstanceService {
               'Try again later or select a different instance configuration'
             );
           }
-          
+
           if (error.code === 'NETWORK_ERROR') {
             throw new NetworkError(
               `Network error during instance startup: ${errorMessage}`,
@@ -1630,7 +1640,7 @@ export class InstanceService {
               true
             );
           }
-          
+
           // Transform other API errors into startup failed errors
           throw new StartupFailedError(
             instanceDetails.id,
@@ -1698,7 +1708,7 @@ export class InstanceService {
           instanceId: instanceDetails.id,
           novitaInstanceId: instanceState.novitaInstanceId
         });
-        
+
         return {
           instanceId: instanceDetails.id,
           novitaInstanceId: instanceState.novitaInstanceId,
@@ -1713,7 +1723,7 @@ export class InstanceService {
           instanceId: instanceDetails.id,
           novitaInstanceId: instanceState.novitaInstanceId
         });
-        
+
         return {
           instanceId: instanceDetails.id,
           novitaInstanceId: instanceState.novitaInstanceId,
@@ -1768,7 +1778,7 @@ export class InstanceService {
             novitaInstanceId: instanceState.novitaInstanceId,
             operationId
           });
-          
+
           logger.info('Webhook notification sent for instance stop', {
             instanceId: instanceDetails.id,
             operationId
