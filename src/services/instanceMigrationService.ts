@@ -896,7 +896,7 @@ export class InstanceMigrationService {
     instance: InstanceResponse,
     failedJob: NovitaJob
   ): Promise<boolean> {
-    const { id: instanceId, name, productName, templateId } = instance;
+    const { id: instanceId, name, productName } = instance;
 
     try {
       logger.info('Handling failed migration', {
@@ -904,7 +904,8 @@ export class InstanceMigrationService {
         instanceName: name,
         jobId: failedJob.Id,
         productName,
-        templateId
+        hasImageUrl: !!instance.imageUrl,
+        hasProductId: !!instance.productId
       });
 
       if (this.migrationConfig.dryRunMode) {
@@ -912,7 +913,8 @@ export class InstanceMigrationService {
           instanceId,
           instanceName: name,
           productName,
-          templateId
+          imageUrl: instance.imageUrl,
+          productId: instance.productId
         });
         return true;
       }
@@ -931,29 +933,59 @@ export class InstanceMigrationService {
         });
       }
 
-      // Step 2: Create a new instance with the same configuration
-      if (!productName || !templateId) {
-        throw new Error(`Missing required fields: productName=${productName}, templateId=${templateId}`);
+      // Step 2: Create a new instance with the same configuration using existing instance data
+      if (!instance.imageUrl) {
+        throw new Error(`Missing required imageUrl in instance data for ${instanceId}`);
       }
 
-      // Get the template to extract configuration
-      const template = await novitaApiService.getTemplate(templateId);
+      // Use existing productId if available, otherwise get optimal product
+      let productId = instance.productId;
+      if (!productId && productName) {
+        logger.info('ProductId not available, getting optimal product', {
+          instanceId,
+          productName,
+          region: instance.region
+        });
+        const product = await novitaApiService.getOptimalProduct(productName, instance.region || 'CN-HK-01');
+        productId = product.id;
+      }
 
-      // Get optimal product for the same product name and region
-      const product = await novitaApiService.getOptimalProduct(productName, instance.region || 'CN-HK-01');
+      if (!productId) {
+        throw new Error(`Unable to determine productId for instance recreation: ${instanceId}`);
+      }
+
+      // Build ports string from portMappings if available
+      let portsString = '';
+      if (instance.portMappings && instance.portMappings.length > 0) {
+        portsString = instance.portMappings
+          .map(pm => `${pm.port}:${pm.type || 'tcp'}`)
+          .join(',');
+      }
 
       const createRequest: NovitaCreateInstanceRequest = {
         name: `${name}-recreated-${Date.now()}`, // Add suffix to avoid name conflicts
-        productId: product.id,
+        productId,
         gpuNum: instance.gpuNum || 1,
         rootfsSize: instance.rootfsSize || 50,
-        imageUrl: template.imageUrl,
-        ...(template.imageAuth && { imageAuth: template.imageAuth }),
-        ports: template.ports.map(p => `${p.port}:${p.type}`).join(','),
-        envs: template.envs,
+        imageUrl: instance.imageUrl,
+        ...(instance.imageAuthId && { imageAuthId: instance.imageAuthId }),
+        ...(portsString && { ports: portsString }),
+        ...(instance.envs && { envs: instance.envs }),
+        ...(instance.command && { command: instance.command }),
+        ...(instance.clusterId && { clusterId: instance.clusterId }),
         kind: (instance.kind as 'gpu' | 'cpu') || 'gpu',
         billingMode: instance.billingMode as 'onDemand' | 'monthly' | 'spot' || 'spot'
       };
+
+      logger.debug('Creating new instance with configuration from deleted instance', {
+        originalInstanceId: instanceId,
+        createRequest: {
+          ...createRequest,
+          imageUrl: createRequest.imageUrl ? '[PRESENT]' : '[MISSING]',
+          imageAuthId: createRequest.imageAuthId ? '[PRESENT]' : undefined,
+          envs: createRequest.envs ? `${createRequest.envs.length} vars` : undefined
+        }
+      });
 
       const newInstance = await novitaApiService.createInstance(createRequest);
 
@@ -963,7 +995,9 @@ export class InstanceMigrationService {
         originalName: name,
         newName: createRequest.name,
         productName,
-        templateId
+        productId,
+        imageUrl: instance.imageUrl ? '[PRESENT]' : '[MISSING]',
+        usedExistingData: true
       });
 
       return true;
@@ -973,7 +1007,10 @@ export class InstanceMigrationService {
         instanceId,
         instanceName: name,
         jobId: failedJob.Id,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
+        hasImageUrl: !!instance.imageUrl,
+        hasProductId: !!instance.productId,
+        hasProductName: !!productName
       });
       return false;
     }
@@ -984,7 +1021,7 @@ export class InstanceMigrationService {
    */
   async scheduleFailedMigrationCheck(): Promise<string> {
     const { serviceRegistry } = await import('./serviceRegistry');
-    
+
     const jobQueueService = serviceRegistry.getJobQueueService();
     if (!jobQueueService) {
       throw new Error('Job queue service not initialized');
