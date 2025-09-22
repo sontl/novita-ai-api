@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { instanceService } from '../services/instanceService';
 import { autoStopService } from '../services/autoStopService';
-import { validateCreateInstance, validateInstanceId, validateStartInstance, validateStopInstance, validateUpdateLastUsedTime } from '../types/validation';
+import { validateCreateInstance, validateInstanceId, validateStartInstance, validateStopInstance, validateUpdateLastUsedTime, validateDeleteInstance } from '../types/validation';
 import { createContextLogger, LogContext } from '../utils/logger';
 import { asyncHandler } from '../utils/errorHandler';
 import { config } from '../config/config';
@@ -685,9 +685,9 @@ router.post('/auto-stop/trigger', asyncHandler(async (req: Request, res: Respons
   await autoStopService.triggerManualCheck(dryRun);
   const duration = Date.now() - startTime;
 
-  contextLogger.info('Manual auto-stop check queued successfully', { 
-    dryRun, 
-    duration 
+  contextLogger.info('Manual auto-stop check queued successfully', {
+    dryRun,
+    duration
   });
 
   res.json({
@@ -695,6 +695,171 @@ router.post('/auto-stop/trigger', asyncHandler(async (req: Request, res: Respons
     dryRun,
     timestamp: new Date().toISOString()
   });
+}));
+
+/**
+ * DELETE /api/instances/:instanceId
+ * Delete instance by ID
+ */
+router.delete('/:instanceId', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+  const { instanceId } = req.params;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'delete_instance_by_id',
+    instanceId
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Instance delete request received (by ID)', {
+    instanceId,
+    requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+  });
+
+  // Validate instance ID
+  const instanceIdValidation = validateInstanceId(instanceId);
+  if (instanceIdValidation.error) {
+    contextLogger.warn('Invalid instance ID provided', {
+      validationError: instanceIdValidation.error.message
+    });
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError(instanceIdValidation.error.message, instanceIdValidation.error.details);
+  }
+
+  // Validate request body
+  const bodyValidation = validateDeleteInstance(req.body);
+  if (bodyValidation.error) {
+    contextLogger.warn('Instance delete validation failed', {
+      validationErrors: bodyValidation.error.details
+    });
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError(bodyValidation.error.message, bodyValidation.error.details);
+  }
+
+  // Delete instance by ID
+  const startTime = Date.now();
+  try {
+    const result = await instanceService.deleteInstance(
+      instanceIdValidation.value,
+      bodyValidation.value,
+      'id'
+    );
+    const duration = Date.now() - startTime;
+
+    contextLogger.info('Instance deleted successfully', {
+      instanceId: result.instanceId,
+      novitaInstanceId: result.novitaInstanceId,
+      operationId: result.operationId,
+      status: result.status,
+      duration
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    const duration = Date.now() - startTime;
+
+    // Enhanced error logging for delete operations
+    contextLogger.error('Instance delete failed', {
+      instanceId: instanceIdValidation.value,
+      error: (error as Error).message,
+      errorType: (error as Error).name,
+      duration,
+      requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+    });
+
+    throw error;
+  }
+}));
+
+/**
+ * POST /api/instances/delete
+ * Delete instance by name (provided in request body)
+ */
+router.post('/delete', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'delete_instance_by_name'
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Instance delete request received (by name)', {
+    requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+  });
+
+  // Validate request body
+  const bodyValidation = validateDeleteInstance(req.body);
+  if (bodyValidation.error) {
+    contextLogger.warn('Instance delete validation failed', {
+      validationErrors: bodyValidation.error.details
+    });
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError(bodyValidation.error.message, bodyValidation.error.details);
+  }
+
+  // Ensure instanceName is provided for name-based deletion
+  if (!bodyValidation.value.instanceName) {
+    contextLogger.warn('Instance name not provided for name-based delete');
+
+    const { ValidationError } = await import('../utils/errorHandler');
+    throw new ValidationError('Instance name is required for name-based deletion', [{
+      field: 'instanceName',
+      message: 'Instance name is required for name-based deletion',
+      value: undefined
+    }]);
+  }
+
+  // Add instanceName to context for logging
+  const contextWithName: LogContext = {
+    ...context,
+    instanceName: bodyValidation.value.instanceName
+  };
+  const contextLoggerWithName = createContextLogger(contextWithName);
+
+  // Delete instance by name
+  const startTime = Date.now();
+  try {
+    const result = await instanceService.deleteInstance(
+      bodyValidation.value.instanceName,
+      bodyValidation.value,
+      'name'
+    );
+    const duration = Date.now() - startTime;
+
+    contextLoggerWithName.info('Instance deleted successfully', {
+      instanceId: result.instanceId,
+      novitaInstanceId: result.novitaInstanceId,
+      operationId: result.operationId,
+      status: result.status,
+      duration
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    const duration = Date.now() - startTime;
+
+    // Enhanced error logging for delete operations
+    contextLoggerWithName.error('Instance delete by name failed', {
+      instanceName: bodyValidation.value.instanceName,
+      error: (error as Error).message,
+      errorType: (error as Error).name,
+      duration,
+      requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+    });
+
+    throw error;
+  }
 }));
 
 export { router as instancesRouter };

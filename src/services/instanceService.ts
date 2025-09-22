@@ -26,7 +26,9 @@ import {
   StartInstanceResponse,
   StartInstanceJobPayload,
   StopInstanceRequest,
-  StopInstanceResponse
+  StopInstanceResponse,
+  DeleteInstanceRequest,
+  DeleteInstanceResponse
 } from '../types/api';
 import { InstanceNotFoundError, InstanceNotStartableError } from '../utils/errorHandler';
 import { JobPriority, CreateInstanceJobPayload, JobType as JobTypeEnum } from '../types/job';
@@ -1802,6 +1804,100 @@ export class InstanceService {
 
     } catch (error) {
       logger.error('Failed to stop instance', {
+        identifier,
+        searchBy,
+        error: (error as Error).message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Delete an instance by ID or name
+   */
+  async deleteInstance(
+    identifier: string,
+    request: DeleteInstanceRequest,
+    searchBy: 'id' | 'name' = 'id'
+  ): Promise<DeleteInstanceResponse> {
+    try {
+      logger.info('Deleting instance', { identifier, searchBy });
+
+      // Find the instance
+      let instanceDetails: InstanceDetails;
+      if (searchBy === 'name') {
+        instanceDetails = await this.findInstanceByName(identifier);
+      } else {
+        instanceDetails = await this.getInstanceStatus(identifier);
+      }
+
+      const instanceState = this.instanceStates.get(instanceDetails.id);
+      if (!instanceState) {
+        throw new InstanceNotFoundError(instanceDetails.id);
+      }
+
+      // Check if instance can be deleted
+      if (!instanceState.novitaInstanceId) {
+        throw new NovitaApiClientError(
+          'Instance has not been created in Novita.ai yet and cannot be deleted',
+          400,
+          'INSTANCE_NOT_DELETABLE'
+        );
+      }
+
+      // Generate operation ID for tracking
+      const operationId = this.generateOperationId();
+
+      logger.info('Calling Novita.ai API to delete instance', {
+        instanceId: instanceDetails.id,
+        novitaInstanceId: instanceState.novitaInstanceId,
+        operationId
+      });
+
+      // Call Novita.ai API to delete the instance
+      await novitaApiService.deleteInstance(instanceState.novitaInstanceId);
+
+      // Remove instance from our local state
+      this.removeInstanceState(instanceDetails.id);
+
+      logger.info('Instance deleted successfully', {
+        instanceId: instanceDetails.id,
+        novitaInstanceId: instanceState.novitaInstanceId,
+        operationId
+      });
+
+      // Send webhook notification if configured
+      if (request.webhookUrl || instanceState.webhookUrl) {
+        const webhookUrl = request.webhookUrl || instanceState.webhookUrl!;
+        try {
+          await webhookClient.sendDeleteNotification(webhookUrl, instanceDetails.id, {
+            novitaInstanceId: instanceState.novitaInstanceId,
+            operationId
+          });
+          
+          logger.info('Webhook notification sent for instance deletion', {
+            instanceId: instanceDetails.id,
+            operationId
+          });
+        } catch (webhookError) {
+          logger.warn('Failed to send webhook notification for instance deletion', {
+            instanceId: instanceDetails.id,
+            operationId,
+            error: (webhookError as Error).message
+          });
+        }
+      }
+
+      return {
+        instanceId: instanceDetails.id,
+        novitaInstanceId: instanceState.novitaInstanceId,
+        status: 'deleted',
+        message: 'Instance deleted successfully',
+        operationId
+      };
+
+    } catch (error) {
+      logger.error('Failed to delete instance', {
         identifier,
         searchBy,
         error: (error as Error).message

@@ -63,6 +63,19 @@ export interface UpdateLastUsedTimeResponse {
   message: string;
 }
 
+export interface DeleteInstanceRequest {
+  instanceName?: string; // For name-based deletion
+  webhookUrl?: string;
+}
+
+export interface DeleteInstanceResponse {
+  instanceId: string;
+  novitaInstanceId?: string;
+  status: 'deleted';
+  message: string;
+  operationId: string;
+}
+
 export interface InstanceDetails {
   id: string;
   name: string;

@@ -1,5 +1,5 @@
 import Joi from 'joi';
-import { CreateInstanceRequest, StartInstanceRequest, StopInstanceRequest, UpdateLastUsedTimeRequest } from './api';
+import { CreateInstanceRequest, StartInstanceRequest, StopInstanceRequest, UpdateLastUsedTimeRequest, DeleteInstanceRequest } from './api';
 
 // Validation schemas for API requests
 
@@ -104,6 +104,27 @@ export const updateLastUsedTimeSchema = Joi.object<UpdateLastUsedTimeRequest>({
     .optional()
     .messages({
       'string.isoDate': 'Last used time must be a valid ISO date string'
+    })
+});
+
+// Delete instance request validation
+export const deleteInstanceSchema = Joi.object<DeleteInstanceRequest>({
+  instanceName: Joi.string()
+    .min(1)
+    .max(100)
+    .pattern(/^[a-zA-Z0-9-_]+$/)
+    .optional()
+    .messages({
+      'string.pattern.base': 'Instance name must contain only alphanumeric characters, hyphens, and underscores',
+      'string.min': 'Instance name must be at least 1 character long',
+      'string.max': 'Instance name must be at most 100 characters long'
+    }),
+
+  webhookUrl: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .optional()
+    .messages({
+      'string.uri': 'Webhook URL must be a valid HTTP or HTTPS URL'
     })
 });
 
@@ -387,6 +408,29 @@ export function validateUpdateLastUsedTime(data: unknown): ValidationResult<Upda
   }
 
   return { value: value as UpdateLastUsedTimeRequest };
+}
+
+export function validateDeleteInstance(data: unknown): ValidationResult<DeleteInstanceRequest> {
+  const { error, value } = deleteInstanceSchema.validate(data, {
+    abortEarly: false,
+    stripUnknown: true
+  });
+
+  if (error) {
+    return {
+      value: value as DeleteInstanceRequest,
+      error: {
+        message: 'Validation failed',
+        details: error.details.map(detail => ({
+          field: detail.path.join('.'),
+          message: detail.message,
+          value: detail.context?.value
+        }))
+      }
+    };
+  }
+
+  return { value: value as DeleteInstanceRequest };
 }
 
 export function validateConfig(config: unknown): ValidationResult<any> {

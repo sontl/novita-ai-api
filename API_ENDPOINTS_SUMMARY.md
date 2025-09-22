@@ -37,7 +37,70 @@ This document provides a technical implementation summary. For client integratio
 - **Sorting**: Instances sorted by creation time (newest first)
 - **Error Handling**: Graceful handling of individual instance errors
 
-### 4. GET /health
+### 4. POST /api/instances/:instanceId/start
+- **Purpose**: Start an existing instance by ID
+- **Parameters**: instanceId (path parameter)
+- **Request Body**: Optional health check configuration and webhook URL
+- **Response**: 202 Accepted with startup operation details
+- **Features**: Startup monitoring, health checks, webhook notifications
+
+### 5. POST /api/instances/start
+- **Purpose**: Start an instance by name (provided in request body)
+- **Request Body**: instanceName (required), optional health check config
+- **Response**: 202 Accepted with startup operation details
+- **Features**: Name-based instance lookup, startup tracking
+
+### 6. POST /api/instances/:instanceId/stop
+- **Purpose**: Stop an existing instance by ID
+- **Parameters**: instanceId (path parameter)
+- **Request Body**: Optional webhook URL
+- **Response**: 200 OK with stop operation details
+- **Features**: Graceful instance shutdown, webhook notifications
+
+### 7. POST /api/instances/stop
+- **Purpose**: Stop an instance by name (provided in request body)
+- **Request Body**: instanceName (required), optional webhook URL
+- **Response**: 200 OK with stop operation details
+- **Features**: Name-based instance lookup, stop tracking
+
+### 8. DELETE /api/instances/:instanceId
+- **Purpose**: Permanently delete an instance by ID
+- **Parameters**: instanceId (path parameter)
+- **Request Body**: Optional webhook URL
+- **Response**: 200 OK with deletion confirmation
+- **Features**: Permanent instance removal, local state cleanup, webhook notifications
+
+### 9. POST /api/instances/delete
+- **Purpose**: Permanently delete an instance by name
+- **Request Body**: instanceName (required), optional webhook URL
+- **Response**: 200 OK with deletion confirmation
+- **Features**: Name-based deletion, permanent removal from Novita.ai and local state
+
+### 10. PUT /api/instances/:instanceId/last-used
+- **Purpose**: Update the last used timestamp for an instance
+- **Parameters**: instanceId (path parameter)
+- **Request Body**: Optional lastUsedAt timestamp (defaults to current time)
+- **Response**: 200 OK with updated timestamp
+- **Features**: Auto-stop service integration, usage tracking
+
+### 11. GET /api/instances/comprehensive
+- **Purpose**: List instances with comprehensive data from both local state and Novita.ai API
+- **Query Parameters**: includeNovitaOnly, syncLocalState
+- **Response**: Enhanced instance list with data source information
+- **Features**: Data merging, conflict resolution, performance metrics
+
+### 12. GET /api/instances/auto-stop/stats
+- **Purpose**: Get auto-stop service statistics and monitoring data
+- **Response**: Auto-stop service metrics and status
+- **Features**: Service monitoring, statistics tracking
+
+### 13. POST /api/instances/auto-stop/trigger
+- **Purpose**: Manually trigger an auto-stop check
+- **Request Body**: Optional dryRun flag (defaults to true)
+- **Response**: 200 OK with trigger confirmation
+- **Features**: Manual auto-stop execution, dry-run mode
+
+### 14. GET /health
 - **Purpose**: Container health checks and service monitoring
 - **Features**:
   - Dependency health checks (Novita API, Job Queue, Cache)

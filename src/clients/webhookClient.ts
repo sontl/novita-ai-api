@@ -835,6 +835,46 @@ export class WebhookClient {
   }
 
   /**
+   * Send delete notification webhook
+   */
+  async sendDeleteNotification(
+    url: string,
+    instanceId: string,
+    options: {
+      novitaInstanceId?: string;
+      operationId?: string;
+      secret?: string;
+    } = {}
+  ): Promise<void> {
+    logger.info('Sending delete notification webhook', {
+      url,
+      instanceId,
+      novitaInstanceId: options.novitaInstanceId,
+      operationId: options.operationId
+    });
+
+    const payload = {
+      instanceId,
+      status: 'deleted' as const,
+      timestamp: new Date().toISOString(),
+      ...(options.novitaInstanceId && { novitaInstanceId: options.novitaInstanceId }),
+      ...(options.operationId && { operationId: options.operationId }),
+      reason: 'Instance deleted successfully'
+    };
+
+    const request: WebhookRequest = {
+      url,
+      payload
+    };
+
+    if (options.secret) {
+      request.secret = options.secret;
+    }
+
+    await this.sendWebhook(request);
+  }
+
+  /**
    * Send webhook with enhanced retry logic for startup operations
    */
   async sendWebhookWithRetry(request: WebhookRequest, maxRetries: number = 5): Promise<void> {
