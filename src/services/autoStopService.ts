@@ -10,7 +10,7 @@ import { JobType, JobPriority, AutoStopCheckJobPayload } from '../types/job';
 import { InstanceStatus, InstanceState } from '../types/api';
 
 export class AutoStopService {
-  private readonly defaultInactivityThresholdMinutes = 20;
+  private readonly defaultInactivityThresholdMinutes = 2;
   private readonly checkIntervalMs = 5 * 60 * 1000; // Check every 5 minutes
   private isSchedulerRunning = false;
 
@@ -131,8 +131,9 @@ export class AutoStopService {
       for (const instanceState of eligibleInstances) {
         try {
           const lastUsedTime = instanceState.timestamps.lastUsed || 
-                              instanceState.timestamps.ready || 
-                              instanceState.timestamps.started;
+                              instanceState.timestamps.started || 
+                              instanceState.timestamps.created ||
+                              instanceState.timestamps.ready;
           
           const inactiveMinutes = lastUsedTime ? 
             Math.floor((Date.now() - lastUsedTime.getTime()) / (60 * 1000)) : 

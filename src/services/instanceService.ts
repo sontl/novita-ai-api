@@ -956,7 +956,7 @@ export class InstanceService {
   /**
    * Get instances that are eligible for auto-stop (running and inactive for over threshold)
    */
-  getInstancesEligibleForAutoStop(inactivityThresholdMinutes: number = 20): InstanceState[] {
+  getInstancesEligibleForAutoStop(inactivityThresholdMinutes: number = 2): InstanceState[] {
     const thresholdMs = inactivityThresholdMinutes * 60 * 1000;
     const now = Date.now();
     const eligibleInstances: InstanceState[] = [];
@@ -968,25 +968,37 @@ export class InstanceService {
       }
 
       // Check if instance has a last used time
-      const lastUsedTime = instanceState.timestamps.lastUsed;
+      const lastUsedTime = instanceState.timestamps.lastUsed || instanceState.timestamps.started || instanceState.timestamps.created || instanceState.timestamps.ready;
       if (!lastUsedTime) {
-        // If no last used time is set, use the ready time or started time as fallback
-        const fallbackTime = instanceState.timestamps.ready || instanceState.timestamps.started;
-        if (!fallbackTime) {
-          continue; // Skip if no timing information available
-        }
 
-        // Check if fallback time exceeds threshold
-        if (now - fallbackTime.getTime() > thresholdMs) {
-          eligibleInstances.push(instanceState);
-        }
+        // If no lastUsedTime, always consider it eligible for auto-stop
+        // This ensures instances without usage tracking are included
+        eligibleInstances.push(instanceState);
+
+        logger.debug('Instance eligible for auto-stop (no lastUsedTime)', {
+          instanceId,
+        });
       } else {
         // Check if last used time exceeds threshold
         if (now - lastUsedTime.getTime() > thresholdMs) {
           eligibleInstances.push(instanceState);
+
+          logger.debug('Instance eligible for auto-stop (exceeded threshold)', {
+            instanceId,
+            lastUsedTime: lastUsedTime.toISOString(),
+            timeSinceLastUse: now - lastUsedTime.getTime(),
+            thresholdMs
+          });
         }
       }
     }
+
+    logger.info('Found instances eligible for auto-stop', {
+      totalRunningInstances: Array.from(this.instanceStates.values())
+        .filter(state => state.status === InstanceStatus.RUNNING).length,
+      eligibleCount: eligibleInstances.length,
+      thresholdMinutes: inactivityThresholdMinutes
+    });
 
     return eligibleInstances;
   }
@@ -1874,7 +1886,7 @@ export class InstanceService {
             novitaInstanceId: instanceState.novitaInstanceId,
             operationId
           });
-          
+
           logger.info('Webhook notification sent for instance deletion', {
             instanceId: instanceDetails.id,
             operationId

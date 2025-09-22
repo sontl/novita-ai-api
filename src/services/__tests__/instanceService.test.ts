@@ -1,8 +1,9 @@
 import { instanceService, InstanceService } from '../instanceService';
 import { productService } from '../productService';
 import { templateService } from '../templateService';
-import { jobQueueService } from '../jobQueueService';
+import { JobQueueService } from '../jobQueueService';
 import { novitaApiService } from '../novitaApiService';
+import { serviceRegistry } from '../serviceRegistry';
 import {
   CreateInstanceRequest,
   InstanceStatus,
@@ -20,6 +21,7 @@ jest.mock('../productService');
 jest.mock('../templateService');
 jest.mock('../jobQueueService');
 jest.mock('../novitaApiService');
+jest.mock('../serviceRegistry');
 jest.mock('../../utils/logger');
 jest.mock('../../config/config', () => ({
   config: {
@@ -69,8 +71,19 @@ jest.mock('../../config/config', () => ({
 
 const mockProductService = productService as jest.Mocked<typeof productService>;
 const mockTemplateService = templateService as jest.Mocked<typeof templateService>;
-const mockJobQueueService = jobQueueService as jest.Mocked<typeof jobQueueService>;
+const mockJobQueueService = {
+  addJob: jest.fn(),
+  getJob: jest.fn(),
+  getJobs: jest.fn(),
+  getStats: jest.fn(),
+  startProcessing: jest.fn(),
+  stopProcessing: jest.fn(),
+  registerHandler: jest.fn(),
+  cleanup: jest.fn(),
+  shutdown: jest.fn()
+} as unknown as jest.Mocked<JobQueueService>;
 const mockNovitaApiService = novitaApiService as jest.Mocked<typeof novitaApiService>;
+const mockServiceRegistry = serviceRegistry as jest.Mocked<typeof serviceRegistry>;
 
 describe('InstanceService', () => {
   let service: InstanceService;
@@ -140,6 +153,7 @@ describe('InstanceService', () => {
     mockTemplateService.getTemplateConfiguration.mockResolvedValue(mockTemplateConfig);
     mockJobQueueService.addJob.mockResolvedValue('job_123');
     mockNovitaApiService.getInstance.mockResolvedValue(mockNovitaInstance);
+    mockServiceRegistry.getJobQueueService.mockReturnValue(mockJobQueueService);
   });
 
   describe('createInstance', () => {
@@ -616,6 +630,159 @@ describe('InstanceService', () => {
           webhookUrl: url
         })).rejects.toThrow(NovitaApiClientError);
       }
+    });
+  });
+
+  describe('getInstancesEligibleForAutoStop', () => {
+    let runningInstanceId: string;
+    let stoppedInstanceId: string;
+
+    beforeEach(async () => {
+      // Create a running instance
+      const runningResult = await service.createInstance({
+        name: 'running-instance',
+        productName: 'RTX 4090 24GB',
+        templateId: 'template_123'
+      });
+      runningInstanceId = runningResult.instanceId;
+      
+      // Update to running status
+      service.updateInstanceState(runningInstanceId, {
+        status: InstanceStatus.RUNNING,
+        timestamps: {
+          created: new Date(Date.now() - 10 * 60 * 1000), // 10 minutes ago
+          started: new Date(Date.now() - 8 * 60 * 1000)   // 8 minutes ago
+        }
+      });
+
+      // Create a stopped instance
+      const stoppedResult = await service.createInstance({
+        name: 'stopped-instance',
+        productName: 'RTX 4090 24GB',
+        templateId: 'template_123'
+      });
+      stoppedInstanceId = stoppedResult.instanceId;
+      
+      // Update to stopped status
+      service.updateInstanceState(stoppedInstanceId, {
+        status: InstanceStatus.STOPPED
+      });
+    });
+
+    it('should return running instances without lastUsed time', () => {
+      const eligibleInstances = service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
+      
+      expect(eligibleInstances).toHaveLength(1);
+      expect(eligibleInstances[0]?.id).toBe(runningInstanceId);
+      expect(eligibleInstances[0]?.status).toBe(InstanceStatus.RUNNING);
+    });
+
+    it('should not return non-running instances', () => {
+      const eligibleInstances = service.getInstancesEligibleForAutoStop(1); // 1 minute threshold
+      
+      // Should only include running instances
+      const eligibleIds = eligibleInstances.map(i => i.id);
+      expect(eligibleIds).toContain(runningInstanceId);
+      expect(eligibleIds).not.toContain(stoppedInstanceId);
+    });
+
+    it('should return instances with lastUsed time exceeding threshold', () => {
+      // Set lastUsed time to 10 minutes ago
+      service.updateInstanceState(runningInstanceId, {
+        timestamps: {
+          created: new Date(Date.now() - 15 * 60 * 1000),
+          started: new Date(Date.now() - 12 * 60 * 1000),
+          lastUsed: new Date(Date.now() - 10 * 60 * 1000)
+        }
+      });
+
+      const eligibleInstances = service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
+      
+      expect(eligibleInstances).toHaveLength(1);
+      expect(eligibleInstances[0]?.id).toBe(runningInstanceId);
+    });
+
+    it('should not return instances with recent lastUsed time', () => {
+      // Set lastUsed time to 2 minutes ago
+      service.updateInstanceState(runningInstanceId, {
+        timestamps: {
+          created: new Date(Date.now() - 15 * 60 * 1000),
+          started: new Date(Date.now() - 12 * 60 * 1000),
+          lastUsed: new Date(Date.now() - 2 * 60 * 1000)
+        }
+      });
+
+      const eligibleInstances = service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
+      
+      expect(eligibleInstances).toHaveLength(0);
+    });
+
+    it('should use fallback time when no lastUsed time is available', async () => {
+      // Create instance with only created time (no started time)
+      const result = await service.createInstance({
+        name: 'fallback-test-instance',
+        productName: 'RTX 4090 24GB',
+        templateId: 'template_123'
+      });
+      
+      const fallbackInstanceId = result.instanceId;
+      
+      // Update to running status with only created time
+      service.updateInstanceState(fallbackInstanceId, {
+        status: InstanceStatus.RUNNING,
+        timestamps: {
+          created: new Date(Date.now() - 10 * 60 * 1000) // 10 minutes ago
+          // No started or lastUsed time
+        }
+      });
+
+      const eligibleInstances = service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
+      
+      // Should include the instance because it has no lastUsed time
+      const eligibleIds = eligibleInstances.map(i => i.id);
+      expect(eligibleIds).toContain(fallbackInstanceId);
+    });
+
+    it('should handle multiple running instances correctly', async () => {
+      // Create another running instance with recent activity
+      const recentResult = await service.createInstance({
+        name: 'recent-instance',
+        productName: 'RTX 4090 24GB',
+        templateId: 'template_123'
+      });
+      
+      const recentInstanceId = recentResult.instanceId;
+      
+      service.updateInstanceState(recentInstanceId, {
+        status: InstanceStatus.RUNNING,
+        timestamps: {
+          created: new Date(Date.now() - 5 * 60 * 1000),
+          started: new Date(Date.now() - 3 * 60 * 1000),
+          lastUsed: new Date(Date.now() - 1 * 60 * 1000) // 1 minute ago
+        }
+      });
+
+      const eligibleInstances = service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
+      
+      // Should include the old instance (no lastUsed) but not the recent one
+      const eligibleIds = eligibleInstances.map(i => i.id);
+      expect(eligibleIds).toContain(runningInstanceId);
+      expect(eligibleIds).not.toContain(recentInstanceId);
+    });
+
+    it('should return empty array when no instances are eligible', () => {
+      // Update the running instance to have recent activity
+      service.updateInstanceState(runningInstanceId, {
+        timestamps: {
+          created: new Date(Date.now() - 5 * 60 * 1000),
+          started: new Date(Date.now() - 3 * 60 * 1000),
+          lastUsed: new Date(Date.now() - 1 * 60 * 1000) // 1 minute ago
+        }
+      });
+
+      const eligibleInstances = service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
+      
+      expect(eligibleInstances).toHaveLength(0);
     });
   });
 });

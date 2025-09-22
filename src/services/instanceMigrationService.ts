@@ -138,10 +138,10 @@ export class InstanceMigrationService {
       // Second check: GPU ID-based eligibility
       //log gpuIds
       logger.debug('Instance GPU IDs', { instanceId, gpuIds });
-      
+
       if (gpuIds && Array.isArray(gpuIds)) {
         // If gpuIds contains only [1], no migration needed
-        if (gpuIds.length === 1 && gpuIds[0] === 1) {
+        if (gpuIds.length === 1 && (gpuIds[0] === 1 || gpuIds[0] === 0 || gpuIds[0] === 9)) {
           const result: MigrationEligibilityResult = {
             eligible: false,
             reason: 'Instance has gpuIds [1] - no migration needed',
@@ -163,8 +163,8 @@ export class InstanceMigrationService {
           return result;
         }
 
-        // If gpuIds contains [2], migration is needed
-        if (gpuIds.length === 1 && gpuIds[0] === 2) {
+        // If gpuIds does not contains [1], migration is needed
+        if (gpuIds.length === 1 && (gpuIds[0] === 2 || gpuIds[0] === 6)) {
           const result: MigrationEligibilityResult = {
             eligible: true,
             reason: 'Instance has gpuIds [2] - migration required',
