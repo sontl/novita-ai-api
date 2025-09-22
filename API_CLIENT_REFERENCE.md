@@ -57,11 +57,24 @@ For troubleshooting Redis issues, see [Redis Troubleshooting Guide](docs/REDIS_T
 All API requests require authentication via API key:
 
 ```bash
-# Set your API key in environment
+# Set your API keys in environment
 export NOVITA_API_KEY="your_api_key_here"
+export NOVITA_INTERNAL_API_KEY="your_internal_api_key_here"
 ```
 
-The service uses the Novita.ai API key for backend operations. No additional authentication is required for the API endpoints.
+The service uses two different Novita.ai API keys for backend operations:
+
+- **NOVITA_API_KEY**: For standard GPU instance operations (create, start, stop, delete)
+- **NOVITA_INTERNAL_API_KEY**: For internal API operations (job queries, migration status)
+
+### API Endpoints Configuration
+
+The service connects to two different Novita.ai API endpoints:
+
+- **Standard API**: `https://api.novita.ai/gpu-instance/openapi` - For instance management
+- **Internal API**: `https://api-server.novita.ai` - For job queries and internal operations
+
+No additional authentication is required for the API endpoints themselves.
 
 ## Request Headers
 

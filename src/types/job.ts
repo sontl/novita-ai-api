@@ -8,7 +8,8 @@ export enum JobType {
   MONITOR_STARTUP = 'monitor_startup',
   SEND_WEBHOOK = 'send_webhook',
   MIGRATE_SPOT_INSTANCES = 'migrate_spot_instances',
-  AUTO_STOP_CHECK = 'auto_stop_check'
+  AUTO_STOP_CHECK = 'auto_stop_check',
+  HANDLE_FAILED_MIGRATIONS = 'handle_failed_migrations'
 }
 
 export enum JobStatus {
@@ -81,6 +82,7 @@ export interface MigrationEligibilityResult {
   instanceId: string;
   spotStatus?: string;
   spotReclaimTime?: string;
+  gpuIds?: number[];
 }
 
 export interface MigrationAttempt {
@@ -125,6 +127,14 @@ export interface AutoStopCheckJobPayload {
   config?: {
     dryRun?: boolean;
     inactivityThresholdMinutes?: number; // defaults to 20 minutes
+  };
+}
+
+export interface HandleFailedMigrationsJobPayload {
+  scheduledAt: Date;
+  jobId: string;
+  config?: {
+    dryRun?: boolean;
   };
 }
 

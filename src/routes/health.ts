@@ -11,27 +11,28 @@ const router = Router();
 
 router.get('/', async (req: Request, res: Response) => {
   const requestId = req.headers['x-request-id'] || `health_${Date.now()}`;
-  
+
   try {
     logger.debug('Health check requested', { requestId });
 
     // Check service dependencies with detailed information
-    const [services, dependencyDetails, migrationServiceDetails, redisServiceDetails] = await Promise.all([
+    const [services, dependencyDetails, migrationServiceDetails, failedMigrationServiceDetails, redisServiceDetails] = await Promise.all([
       checkServiceHealth(),
       checkDependencyDetails(),
       checkMigrationServiceDetails(),
+      checkFailedMigrationServiceDetails(),
       checkRedisServiceDetails()
     ]);
-    
+
     // Get performance metrics
     const healthMetrics = metricsService.getHealthMetrics();
     const systemMetrics = metricsService.getSystemMetrics();
-    
+
     // Determine overall health status
     const isHealthy = Object.values(services).every(status => status === 'up') &&
-                     healthMetrics.memoryUsageMB < 1024 && // Less than 1GB memory usage
-                     (process.env.NODE_ENV === 'test' || healthMetrics.cpuUsagePercent < 90); // Skip CPU check in test
-    
+      healthMetrics.memoryUsageMB < 1024 && // Less than 1GB memory usage
+      (process.env.NODE_ENV === 'test' || healthMetrics.cpuUsagePercent < 90); // Skip CPU check in test
+
     const healthCheck: EnhancedHealthCheckResponse = {
       status: isHealthy ? 'healthy' : 'unhealthy',
       timestamp: new Date().toISOString(),
@@ -57,6 +58,7 @@ router.get('/', async (req: Request, res: Response) => {
       },
       dependencies: dependencyDetails,
       migrationService: migrationServiceDetails,
+      failedMigrationService: failedMigrationServiceDetails,
       redis: redisServiceDetails
     };
 
@@ -71,14 +73,14 @@ router.get('/', async (req: Request, res: Response) => {
       };
     }
 
-    logger.debug('Health check completed', { 
-      requestId, 
+    logger.debug('Health check completed', {
+      requestId,
       status: healthCheck.status,
       services: healthCheck.services,
       memoryUsageMB: healthCheck.system.memory.usedMB,
       cpuUsage: healthCheck.system.cpu.usage
     });
-    
+
     const statusCode = isHealthy ? 200 : 503;
     res.status(statusCode).json(healthCheck);
 
@@ -96,6 +98,7 @@ router.get('/', async (req: Request, res: Response) => {
         jobQueue: 'down',
         cache: 'down',
         migrationService: 'down',
+        failedMigrationService: 'down',
         redis: 'down'
       },
       uptime: process.uptime()
@@ -114,6 +117,7 @@ async function checkServiceHealth(): Promise<HealthCheckResponse['services']> {
     checkJobQueueHealth(),
     checkCacheHealth(),
     checkMigrationServiceHealth(),
+    checkFailedMigrationServiceHealth(),
     checkRedisHealth()
   ]);
 
@@ -122,7 +126,8 @@ async function checkServiceHealth(): Promise<HealthCheckResponse['services']> {
     jobQueue: checks[1].status === 'fulfilled' && checks[1].value ? 'up' : 'down',
     cache: checks[2].status === 'fulfilled' && checks[2].value ? 'up' : 'down',
     migrationService: checks[3].status === 'fulfilled' && checks[3].value ? 'up' : 'down',
-    redis: checks[4].status === 'fulfilled' && checks[4].value ? 'up' : 'down'
+    failedMigrationService: checks[4].status === 'fulfilled' && checks[4].value ? 'up' : 'down',
+    redis: checks[5].status === 'fulfilled' && checks[5].value ? 'up' : 'down'
   };
 }
 
@@ -138,21 +143,21 @@ async function checkDependencyDetails(): Promise<Record<string, any>> {
   ]);
 
   return {
-    novitaApi: novitaCheck.status === 'fulfilled' ? novitaCheck.value : { 
-      status: 'down', 
-      error: novitaCheck.reason?.message || 'Unknown error' 
+    novitaApi: novitaCheck.status === 'fulfilled' ? novitaCheck.value : {
+      status: 'down',
+      error: novitaCheck.reason?.message || 'Unknown error'
     },
-    jobQueue: jobQueueCheck.status === 'fulfilled' ? jobQueueCheck.value : { 
-      status: 'down', 
-      error: jobQueueCheck.reason?.message || 'Unknown error' 
+    jobQueue: jobQueueCheck.status === 'fulfilled' ? jobQueueCheck.value : {
+      status: 'down',
+      error: jobQueueCheck.reason?.message || 'Unknown error'
     },
-    cache: cacheCheck.status === 'fulfilled' ? cacheCheck.value : { 
-      status: 'down', 
-      error: cacheCheck.reason?.message || 'Unknown error' 
+    cache: cacheCheck.status === 'fulfilled' ? cacheCheck.value : {
+      status: 'down',
+      error: cacheCheck.reason?.message || 'Unknown error'
     },
-    redis: redisCheck.status === 'fulfilled' ? redisCheck.value : { 
-      status: 'down', 
-      error: redisCheck.reason?.message || 'Unknown error' 
+    redis: redisCheck.status === 'fulfilled' ? redisCheck.value : {
+      status: 'down',
+      error: redisCheck.reason?.message || 'Unknown error'
     }
   };
 }
@@ -223,7 +228,7 @@ async function checkCacheHealth(): Promise<boolean> {
  */
 async function checkNovitaApiHealthDetailed(): Promise<any> {
   const startTime = Date.now();
-  
+
   try {
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('Health check timeout')), 5000);
@@ -235,7 +240,7 @@ async function checkNovitaApiHealthDetailed(): Promise<any> {
     ]);
 
     const responseTime = Date.now() - startTime;
-    
+
     return {
       status: 'up',
       responseTime,
@@ -243,7 +248,7 @@ async function checkNovitaApiHealthDetailed(): Promise<any> {
     };
   } catch (error) {
     const responseTime = Date.now() - startTime;
-    
+
     return {
       status: 'down',
       responseTime,
@@ -266,9 +271,9 @@ async function checkJobQueueHealthDetailed(): Promise<any> {
         lastChecked: new Date().toISOString()
       };
     }
-    
+
     const stats = jobQueueService.getStats();
-    
+
     return {
       status: 'up',
       queueSize: stats.pendingJobs || 0,
@@ -292,7 +297,7 @@ async function checkJobQueueHealthDetailed(): Promise<any> {
 async function checkCacheHealthDetailed(): Promise<any> {
   try {
     const instanceStats = instanceService.getCacheStats();
-    
+
     return {
       status: 'up',
       instanceCache: {
@@ -325,7 +330,7 @@ async function checkMigrationServiceHealth(): Promise<boolean> {
       // Migration scheduler not registered
       return false;
     }
-    
+
     return migrationScheduler.isHealthy();
   } catch (error) {
     logger.debug('Migration service health check failed', {
@@ -341,7 +346,7 @@ async function checkMigrationServiceHealth(): Promise<boolean> {
 async function checkMigrationServiceDetails(): Promise<EnhancedHealthCheckResponse['migrationService']> {
   try {
     const migrationScheduler = serviceRegistry.getMigrationScheduler();
-    
+
     if (!migrationScheduler) {
       // Migration scheduler not registered
       return {
@@ -352,10 +357,10 @@ async function checkMigrationServiceDetails(): Promise<EnhancedHealthCheckRespon
         uptime: 0
       };
     }
-    
+
     const healthDetails = migrationScheduler.getHealthDetails();
     const status = healthDetails.status;
-    
+
     const result: EnhancedHealthCheckResponse['migrationService'] = {
       enabled: status.isEnabled,
       status: healthDetails.healthy ? 'healthy' : 'unhealthy',
@@ -363,21 +368,94 @@ async function checkMigrationServiceDetails(): Promise<EnhancedHealthCheckRespon
       totalExecutions: status.totalExecutions,
       uptime: status.uptime
     };
-    
+
     if (status.lastExecution) {
       result.lastExecution = status.lastExecution.toISOString();
     }
-    
+
     if (status.nextExecution) {
       result.nextExecution = status.nextExecution.toISOString();
     }
-    
+
     return result;
   } catch (error) {
     logger.debug('Migration service detailed health check failed', {
       error: (error as Error).message
     });
-    
+
+    return {
+      enabled: false,
+      status: 'unhealthy',
+      recentErrors: 0,
+      totalExecutions: 0,
+      uptime: 0
+    };
+  }
+}
+
+/**
+ * Check failed migration service health
+ */
+async function checkFailedMigrationServiceHealth(): Promise<boolean> {
+  try {
+    const failedMigrationScheduler = serviceRegistry.getFailedMigrationScheduler();
+    if (!failedMigrationScheduler) {
+      // Failed migration scheduler not registered
+      return false;
+    }
+
+    return failedMigrationScheduler.isHealthy();
+  } catch (error) {
+    logger.debug('Failed migration service health check failed', {
+      error: (error as Error).message
+    });
+    return false;
+  }
+}
+
+/**
+ * Check detailed failed migration service information
+ */
+async function checkFailedMigrationServiceDetails(): Promise<EnhancedHealthCheckResponse['failedMigrationService']> {
+  try {
+    const failedMigrationScheduler = serviceRegistry.getFailedMigrationScheduler();
+
+    if (!failedMigrationScheduler) {
+      // Failed migration scheduler not registered
+      return {
+        enabled: false,
+        status: 'disabled',
+        recentErrors: 0,
+        totalExecutions: 0,
+        uptime: 0
+      };
+    }
+
+    const healthDetails = failedMigrationScheduler.getHealthDetails();
+    const status = healthDetails.status;
+
+    const result: EnhancedHealthCheckResponse['failedMigrationService'] = {
+      enabled: status.isEnabled,
+      status: healthDetails.healthy ? 'healthy' : 'unhealthy',
+      recentErrors: status.failedExecutions,
+      totalExecutions: status.totalExecutions,
+      uptime: status.uptime
+    };
+
+    if (status.lastExecution) {
+      result.lastExecution = status.lastExecution.toISOString();
+    }
+
+    if (status.nextExecution) {
+      result.nextExecution = status.nextExecution.toISOString();
+    }
+
+    return result;
+  } catch (error) {
+    logger.debug('Failed migration service detailed health check failed', {
+      error: (error as Error).message
+    });
+
     return {
       enabled: false,
       status: 'unhealthy',
@@ -397,7 +475,7 @@ async function checkRedisHealth(): Promise<boolean> {
     if (!redisClient) {
       return false; // Redis not configured
     }
-    
+
     return (redisClient as any).isHealthy?.() ?? false;
   } catch (error) {
     logger.debug('Redis health check failed', {
@@ -412,10 +490,10 @@ async function checkRedisHealth(): Promise<boolean> {
  */
 async function checkRedisHealthDetailed(): Promise<any> {
   const startTime = Date.now();
-  
+
   try {
     const redisClient = serviceRegistry.getRedisClient();
-    
+
     if (!redisClient) {
       return {
         status: 'not_configured',
@@ -428,7 +506,7 @@ async function checkRedisHealthDetailed(): Promise<any> {
     const pingResult = await redisClient.ping();
     const responseTime = Date.now() - startTime;
     const connectionStats = (redisClient as any).getConnectionStats?.() ?? {};
-    
+
     return {
       status: 'up',
       responseTime,
@@ -439,7 +517,7 @@ async function checkRedisHealthDetailed(): Promise<any> {
     };
   } catch (error) {
     const responseTime = Date.now() - startTime;
-    
+
     return {
       status: 'down',
       responseTime,
@@ -456,7 +534,7 @@ async function checkRedisServiceDetails(): Promise<any> {
   try {
     const serviceHealthStatus = getServiceHealthStatus();
     const cacheManager = serviceRegistry.getCacheManager();
-    
+
     const result: any = {
       available: serviceHealthStatus.redis.available,
       healthy: serviceHealthStatus.redis.healthy,

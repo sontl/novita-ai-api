@@ -21,7 +21,8 @@ import {
   SendWebhookJobPayload,
   MigrateSpotInstancesJobPayload,
   MigrationJobResult,
-  AutoStopCheckJobPayload
+  AutoStopCheckJobPayload,
+  HandleFailedMigrationsJobPayload
 } from '../types/job';
 import {
   NovitaCreateInstanceRequest,
@@ -56,6 +57,7 @@ export class JobWorkerService {
     this.jobQueue.registerHandler(JobType.SEND_WEBHOOK, this.handleSendWebhook.bind(this));
     this.jobQueue.registerHandler(JobType.MIGRATE_SPOT_INSTANCES, this.handleMigrateSpotInstances.bind(this));
     this.jobQueue.registerHandler(JobType.AUTO_STOP_CHECK, this.handleAutoStopCheck.bind(this));
+    this.jobQueue.registerHandler(JobType.HANDLE_FAILED_MIGRATIONS, this.handleFailedMigrations.bind(this));
   }
 
   /**
@@ -709,6 +711,70 @@ export class JobWorkerService {
       const errorMessage = error instanceof Error ? error.message : 'Unknown auto-stop check error';
 
       logger.error('Auto-stop check job failed', {
+        jobId: job.id,
+        scheduledAt: payload.scheduledAt,
+        error: errorMessage,
+        errorType: error instanceof Error ? error.constructor.name : 'UnknownError'
+      });
+
+      // Re-throw the error to mark the job as failed
+      throw error;
+    }
+  }
+
+  /**
+   * Handle failed migration jobs processing
+   */
+  private async handleFailedMigrations(job: Job): Promise<void> {
+    const payload = job.payload as HandleFailedMigrationsJobPayload;
+    
+    logger.info('Processing failed migrations job', {
+      jobId: job.id,
+      scheduledAt: payload.scheduledAt,
+      dryRun: payload.config?.dryRun
+    });
+
+    try {
+      const result = await instanceMigrationService.processFailedMigrations(payload.jobId);
+      
+      logger.info('Failed migrations job completed successfully', {
+        jobId: job.id,
+        scheduledAt: payload.scheduledAt,
+        totalChecked: result.totalChecked,
+        failedJobsFound: result.failedJobsFound,
+        instancesRecreated: result.instancesRecreated,
+        errors: result.errors,
+        executionTimeMs: result.executionTimeMs,
+        successRate: result.failedJobsFound > 0 ? 
+          ((result.instancesRecreated / result.failedJobsFound) * 100).toFixed(2) + '%' : 
+          '100%'
+      });
+
+      // Log warning if there were errors during failed migration handling
+      if (result.errors > 0) {
+        logger.warn('Failed migrations job completed with errors', {
+          jobId: job.id,
+          errorCount: result.errors,
+          totalChecked: result.totalChecked,
+          errorRate: result.totalChecked > 0 ? 
+            ((result.errors / result.totalChecked) * 100).toFixed(2) + '%' : 
+            '0%'
+        });
+      }
+
+      // Log info if no failed migrations were found
+      if (result.failedJobsFound === 0) {
+        logger.info('No failed migration jobs found', {
+          jobId: job.id,
+          scheduledAt: payload.scheduledAt,
+          totalChecked: result.totalChecked
+        });
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown failed migrations error';
+
+      logger.error('Failed migrations job failed', {
         jobId: job.id,
         scheduledAt: payload.scheduledAt,
         error: errorMessage,

@@ -4,10 +4,10 @@ import helmet from 'helmet';
 import { config, getConfigSummary } from './config/config';
 import { logger, createContextLogger } from './utils/logger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
-import { 
-  requestLoggerMiddleware, 
-  correlationIdMiddleware, 
-  performanceMiddleware 
+import {
+  requestLoggerMiddleware,
+  correlationIdMiddleware,
+  performanceMiddleware
 } from './middleware/requestLogger';
 import { metricsMiddleware } from './middleware/metricsMiddleware';
 import { healthRouter } from './routes/health';
@@ -16,6 +16,7 @@ import { metricsRouter } from './routes/metrics';
 import cacheRouter from './routes/cache';
 import { JobWorkerService } from './services/jobWorkerService';
 import { createMigrationScheduler } from './services/migrationScheduler';
+import { createFailedMigrationScheduler } from './services/failedMigrationScheduler';
 import { autoStopService } from './services/autoStopService';
 import { serviceRegistry } from './services/serviceRegistry';
 import { initializeServices, shutdownServices } from './services/serviceInitializer';
@@ -68,7 +69,7 @@ app.use(performanceMiddleware);
 app.use(metricsMiddleware);
 
 // Body parsing middleware with size limits
-app.use(express.json({ 
+app.use(express.json({
   limit: '10mb',
   verify: (req, res, buf) => {
     // Store raw body for webhook signature verification if needed
@@ -95,7 +96,7 @@ app.use(errorHandler);
 // Only start server if not in test environment
 if (config.nodeEnv !== 'test') {
   let jobWorkerService: JobWorkerService;
-  
+
   // Initialize Redis-backed services
   initializeServices(config)
     .then(async (serviceResult) => {
@@ -114,7 +115,7 @@ if (config.nodeEnv !== 'test') {
       jobWorkerService = new JobWorkerService(jobQueueService);
       jobWorkerService.start();
       logger.info('Job worker service started');
-      
+
       // Initialize and start migration scheduler
       const migrationScheduler = createMigrationScheduler(config, jobQueueService);
       serviceRegistry.registerMigrationScheduler(migrationScheduler);
@@ -124,10 +125,42 @@ if (config.nodeEnv !== 'test') {
         intervalMs: config.migration.scheduleIntervalMs
       });
 
+      // Initialize and start failed migration scheduler
+      const failedMigrationScheduler = createFailedMigrationScheduler(config, jobQueueService);
+      serviceRegistry.registerFailedMigrationScheduler(failedMigrationScheduler);
+
+      // Log detailed configuration before starting
+      logger.info('Failed migration scheduler configuration', {
+        enabled: config.migration.enabled,
+        intervalMs: config.migration.scheduleIntervalMs * 2,
+        dryRunMode: config.migration.dryRunMode,
+        jobTimeoutMs: config.migration.jobTimeoutMs,
+        logLevel: config.migration.logLevel,
+        nodeEnv: config.nodeEnv,
+        isDevelopment: config.nodeEnv === 'development'
+      });
+
+      failedMigrationScheduler.start();
+
+      // Check status after start
+      const schedulerStatus = failedMigrationScheduler.getStatus();
+      logger.info('Failed migration scheduler status after start', {
+        isRunning: schedulerStatus.isRunning,
+        isEnabled: schedulerStatus.isEnabled,
+        nextExecution: schedulerStatus.nextExecution,
+        uptime: schedulerStatus.uptime
+      });
+
+      // In development, log a reminder about the scheduler
+      if (config.nodeEnv === 'development') {
+        logger.info('Development mode: Failed migration scheduler will run every ' + 
+          Math.round((config.migration.scheduleIntervalMs * 2) / 60000) + ' minutes');
+      }
+
       // Start auto-stop service for inactive instance management
       autoStopService.startScheduler();
       logger.info('Auto-stop service initialized', autoStopService.getAutoStopStats());
-      
+
       const server = app.listen(config.port, () => {
         logger.info(`Server running on port ${config.port}`);
         logger.info(`Environment: ${config.nodeEnv}`);
@@ -137,22 +170,22 @@ if (config.nodeEnv !== 'test') {
       // Graceful shutdown helper function
       const gracefulShutdown = async (signal: string) => {
         logger.info(`${signal} received, shutting down gracefully`);
-        
+
         try {
           // Shutdown auto-stop service
           autoStopService.stopScheduler();
           logger.info('Auto-stop service shutdown complete');
-          
+
           // Shutdown job worker service first
           if (jobWorkerService) {
             await jobWorkerService.shutdown(10000);
             logger.info('Job worker service shutdown complete');
           }
-          
+
           // Shutdown all services (migration scheduler, cache manager, Redis client)
           await shutdownServices(10000);
           logger.info('All services shutdown complete');
-          
+
           // Finally close the server
           server.close(() => {
             logger.info('Process terminated');
@@ -165,14 +198,20 @@ if (config.nodeEnv !== 'test') {
       };
 
       // Graceful shutdown
-      process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-      process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+      // In development mode with ts-node-dev, ignore SIGTERM to prevent shutdown on file changes
+      if (config.nodeEnv === 'development' && process.env.npm_lifecycle_event === 'dev') {
+        logger.info('Development mode detected - ignoring SIGTERM for hot reload');
+        process.on('SIGINT', () => gracefulShutdown('SIGINT')); // Still handle Ctrl+C
+      } else {
+        process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+        process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+      }
     })
     .catch((error) => {
       logger.error('Failed to initialize services', {
         error: error instanceof Error ? error.message : String(error)
       });
-      
+
       if (!config.redis.enableFallback) {
         logger.error('Redis fallback disabled, exiting');
         process.exit(1);

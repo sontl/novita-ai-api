@@ -167,6 +167,7 @@ export interface HealthCheckResponse {
     jobQueue: 'up' | 'down';
     cache: 'up' | 'down';
     migrationService: 'up' | 'down';
+    failedMigrationService: 'up' | 'down';
     redis: 'up' | 'down';
   };
   uptime: number;
@@ -193,6 +194,15 @@ export interface EnhancedHealthCheckResponse extends HealthCheckResponse {
   };
   dependencies: Record<string, any>;
   migrationService: {
+    enabled: boolean;
+    lastExecution?: string;
+    nextExecution?: string;
+    status: 'healthy' | 'unhealthy' | 'disabled';
+    recentErrors: number;
+    totalExecutions: number;
+    uptime: number;
+  };
+  failedMigrationService: {
     enabled: boolean;
     lastExecution?: string;
     nextExecution?: string;
@@ -379,6 +389,8 @@ export interface InstanceResponse {
   endTime?: string;
   spotStatus?: string;
   spotReclaimTime?: string;
+  gpuIds?: number[];
+  templateId?: string | number;
 }
 
 export enum InstanceStatus {
@@ -392,7 +404,8 @@ export enum InstanceStatus {
   STOPPED = 'stopped',
   FAILED = 'failed',
   TERMINATED = 'terminated',
-  EXITED = 'exited'
+  EXITED = 'exited',
+  MIGRATING = 'migrating'
 }
 
 export interface NovitaListInstancesResponse {
@@ -630,4 +643,41 @@ export interface MigrationResponse {
   error?: string;
   newInstanceId?: string;
   migrationTime?: string;
+}
+
+// Job-related types for Novita API
+export interface NovitaJob {
+  Id: string;
+  user: string;
+  type: string;
+  envs: string[];
+  maxRetry: number;
+  timeout: string;
+  state: {
+    state: 'success' | 'fail' | 'running' | 'pending';
+    error: string;
+    errorMessage: string;
+  };
+  logAddress: string;
+  createdAt: string;
+  creator: string;
+  uuid: string;
+  deletedTime: string;
+  updateAt: string;
+  instanceId: string;
+}
+
+export interface NovitaJobsResponse {
+  jobs: NovitaJob[];
+  total: number;
+}
+
+export interface JobQueryParams {
+  pageNum?: number;
+  pageSize?: number;
+  jobId?: string;
+  type?: string;
+  state?: string;
+  startTime?: number;
+  endTime?: number;
 }

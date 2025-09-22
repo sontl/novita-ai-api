@@ -862,4 +862,199 @@ router.post('/delete', asyncHandler(async (req: Request, res: Response): Promise
   }
 }));
 
+/**
+ * POST /api/instances/migration/check-failed
+ * Trigger a check for failed migration jobs and handle them
+ */
+router.post('/migration/check-failed', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'check_failed_migrations'
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Failed migration check request received');
+
+  const startTime = Date.now();
+
+  try {
+    // Import the migration service
+    const { instanceMigrationService } = await import('../services/instanceMigrationService');
+
+    // Check if we should run immediately or schedule
+    const runImmediately = req.body?.immediate === true;
+
+    if (runImmediately) {
+      // Run the check immediately
+      const result = await instanceMigrationService.handleFailedMigrationJobs();
+      const duration = Date.now() - startTime;
+
+      contextLogger.info('Failed migration check completed immediately', {
+        ...result,
+        duration
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Failed migration check completed',
+        result,
+        executedAt: new Date().toISOString(),
+        duration
+      });
+    } else {
+      // Schedule the failed migration check job
+      const jobId = await instanceMigrationService.scheduleFailedMigrationCheck();
+      const duration = Date.now() - startTime;
+
+      contextLogger.info('Failed migration check job scheduled successfully', {
+        jobId,
+        duration
+      });
+
+      res.status(202).json({
+        success: true,
+        message: 'Failed migration check job scheduled successfully',
+        jobId,
+        scheduledAt: new Date().toISOString(),
+        duration
+      });
+    }
+
+  } catch (error) {
+    const duration = Date.now() - startTime;
+
+    contextLogger.error('Failed migration check failed', {
+      error: (error as Error).message,
+      errorType: (error as Error).name,
+      duration
+    });
+
+    throw error;
+  }
+}));
+
+/**
+ * GET /api/instances/migration/scheduler/status
+ * Get the status of the failed migration scheduler
+ */
+router.get('/migration/scheduler/status', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'get_failed_migration_scheduler_status'
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Failed migration scheduler status request received');
+
+  try {
+    // Import the service registry to get the scheduler
+    const { serviceRegistry } = await import('../services/serviceRegistry');
+    
+    const failedMigrationScheduler = serviceRegistry.getFailedMigrationScheduler();
+    
+    if (!failedMigrationScheduler) {
+      res.status(404).json({
+        success: false,
+        message: 'Failed migration scheduler not initialized',
+        status: null
+      });
+      return;
+    }
+
+    const status = failedMigrationScheduler.getStatus();
+    const healthDetails = failedMigrationScheduler.getHealthDetails();
+
+    contextLogger.info('Failed migration scheduler status retrieved', {
+      isRunning: status.isRunning,
+      isEnabled: status.isEnabled
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Failed migration scheduler status retrieved',
+      status,
+      healthDetails,
+      retrievedAt: new Date().toISOString()
+    });
+
+  } catch (error) {
+    contextLogger.error('Failed migration scheduler status retrieval failed', {
+      error: (error as Error).message,
+      errorType: (error as Error).name
+    });
+
+    throw error;
+  }
+}));
+
+/**
+ * POST /api/instances/migration/scheduler/trigger
+ * Manually trigger the failed migration scheduler
+ */
+router.post('/migration/scheduler/trigger', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'trigger_failed_migration_scheduler'
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Failed migration scheduler trigger request received');
+
+  const startTime = Date.now();
+  
+  try {
+    // Import the service registry to get the scheduler
+    const { serviceRegistry } = await import('../services/serviceRegistry');
+    
+    const failedMigrationScheduler = serviceRegistry.getFailedMigrationScheduler();
+    
+    if (!failedMigrationScheduler) {
+      throw new Error('Failed migration scheduler not initialized');
+    }
+
+    // Execute the scheduler immediately
+    const jobId = await failedMigrationScheduler.executeNow();
+    const duration = Date.now() - startTime;
+
+    contextLogger.info('Failed migration scheduler triggered successfully', {
+      jobId,
+      duration
+    });
+
+    res.status(202).json({
+      success: true,
+      message: 'Failed migration scheduler triggered successfully',
+      jobId,
+      triggeredAt: new Date().toISOString(),
+      duration
+    });
+
+  } catch (error) {
+    const duration = Date.now() - startTime;
+
+    contextLogger.error('Failed migration scheduler trigger failed', {
+      error: (error as Error).message,
+      errorType: (error as Error).name,
+      duration
+    });
+
+    throw error;
+  }
+}));
+
 export { router as instancesRouter };

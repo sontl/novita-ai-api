@@ -5,12 +5,17 @@ import {
   InstanceResponse,
   InstanceStatus,
   MigrationResponse,
-  NovitaApiClientError
+  NovitaApiClientError,
+  NovitaJob,
+  NovitaCreateInstanceRequest
 } from '../types/api';
 import {
   MigrationEligibilityResult,
   MigrationAttempt,
-  MigrationJobResult
+  MigrationJobResult,
+  JobType,
+  JobPriority,
+  HandleFailedMigrationsJobPayload
 } from '../types/job';
 import {
   MigrationError,
@@ -425,6 +430,53 @@ export class InstanceMigrationService {
   }
 
   /**
+   * Process failed migrations as part of the migration workflow
+   */
+  async processFailedMigrations(jobId: string = 'unknown'): Promise<{
+    totalChecked: number;
+    failedJobsFound: number;
+    instancesRecreated: number;
+    errors: number;
+    executionTimeMs: number;
+  }> {
+    const startTime = Date.now();
+
+    try {
+      logger.info('Starting failed migration processing job', { jobId });
+
+      const result = await this.handleFailedMigrationJobs();
+      const executionTime = Date.now() - startTime;
+
+      logger.info('Failed migration processing job completed', {
+        jobId,
+        ...result,
+        executionTimeMs: executionTime
+      });
+
+      return {
+        ...result,
+        executionTimeMs: executionTime
+      };
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+
+      logger.error('Failed migration processing job failed', {
+        jobId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        executionTimeMs: executionTime
+      });
+
+      return {
+        totalChecked: 0,
+        failedJobsFound: 0,
+        instancesRecreated: 0,
+        errors: 1,
+        executionTimeMs: executionTime
+      };
+    }
+  }
+
+  /**
    * Process a batch of instances for migration with comprehensive error handling
    */
   async processMigrationBatch(jobId: string = 'unknown'): Promise<MigrationJobResult> {
@@ -716,6 +768,249 @@ export class InstanceMigrationService {
       migrationMetrics.recordJobCompletion(jobId, result, executionContext);
       return result;
     }
+  }
+
+  /**
+   * Check for failed migration jobs and handle them
+   */
+  async handleFailedMigrationJobs(): Promise<{
+    totalChecked: number;
+    failedJobsFound: number;
+    instancesRecreated: number;
+    errors: number;
+  }> {
+    const startTime = Date.now();
+    let totalChecked = 0;
+    let failedJobsFound = 0;
+    let instancesRecreated = 0;
+    let errors = 0;
+
+    try {
+      logger.info('Starting failed migration job check');
+
+      // Step 1: Get all instances with "migrating" status
+      const allInstances = await this.fetchAllInstances();
+      const migratingInstances = allInstances.filter(instance =>
+        instance.status === InstanceStatus.MIGRATING
+      );
+
+      totalChecked = migratingInstances.length;
+
+      if (migratingInstances.length === 0) {
+        logger.info('No migrating instances found');
+        return { totalChecked, failedJobsFound, instancesRecreated, errors };
+      }
+
+      logger.info('Found migrating instances', { count: migratingInstances.length });
+
+      // Step 2: Query recent migration jobs from Novita API
+      const endTime = Math.floor(Date.now() / 1000);
+      const startTimeQuery = endTime - (24 * 60 * 60); // Last 24 hours
+
+      const jobsResponse = await novitaApiService.queryJobs({
+        type: 'instanceMigrate',
+        startTime: startTimeQuery,
+        endTime: endTime,
+        pageSize: 100
+      });
+
+      logger.info('Queried migration jobs', {
+        totalJobs: jobsResponse.total,
+        returnedJobs: jobsResponse.jobs.length
+      });
+
+      // Step 3: Check each migrating instance for failed jobs
+      for (const instance of migratingInstances) {
+        try {
+          // Find the migration job for this instance
+          const migrationJob = jobsResponse.jobs.find(job =>
+            job.instanceId === instance.id && job.type === 'instanceMigrate'
+          );
+
+          if (!migrationJob) {
+            logger.warn('No migration job found for migrating instance', {
+              instanceId: instance.id,
+              instanceName: instance.name
+            });
+            continue;
+          }
+
+          // Check if the job failed
+          if (migrationJob.state.state === 'fail') {
+            failedJobsFound++;
+            logger.warn('Found failed migration job', {
+              instanceId: instance.id,
+              instanceName: instance.name,
+              jobId: migrationJob.Id,
+              error: migrationJob.state.errorMessage || migrationJob.state.error
+            });
+
+            // Step 4: Handle the failed migration
+            const recreated = await this.handleFailedMigration(instance, migrationJob);
+            if (recreated) {
+              instancesRecreated++;
+            }
+          } else {
+            logger.debug('Migration job still in progress', {
+              instanceId: instance.id,
+              jobState: migrationJob.state.state,
+              jobId: migrationJob.Id
+            });
+          }
+        } catch (error) {
+          errors++;
+          logger.error('Error processing migrating instance', {
+            instanceId: instance.id,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }
+
+      const executionTime = Date.now() - startTime;
+      logger.info('Failed migration job check completed', {
+        totalChecked,
+        failedJobsFound,
+        instancesRecreated,
+        errors,
+        executionTimeMs: executionTime
+      });
+
+      return { totalChecked, failedJobsFound, instancesRecreated, errors };
+
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      logger.error('Failed migration job check failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        executionTimeMs: executionTime,
+        processedSoFar: totalChecked
+      });
+
+      return { totalChecked, failedJobsFound, instancesRecreated, errors: errors + 1 };
+    }
+  }
+
+  /**
+   * Handle a single failed migration by deleting the instance and creating a new one
+   */
+  private async handleFailedMigration(
+    instance: InstanceResponse,
+    failedJob: NovitaJob
+  ): Promise<boolean> {
+    const { id: instanceId, name, productName, templateId } = instance;
+
+    try {
+      logger.info('Handling failed migration', {
+        instanceId,
+        instanceName: name,
+        jobId: failedJob.Id,
+        productName,
+        templateId
+      });
+
+      if (this.migrationConfig.dryRunMode) {
+        logger.info('DRY RUN: Would delete and recreate instance', {
+          instanceId,
+          instanceName: name,
+          productName,
+          templateId
+        });
+        return true;
+      }
+
+      // Step 1: Delete the failed instance
+      try {
+        await novitaApiService.deleteInstance(instanceId);
+        logger.info('Successfully deleted failed migration instance', {
+          instanceId,
+          instanceName: name
+        });
+      } catch (deleteError) {
+        logger.error('Failed to delete instance, but continuing with recreation', {
+          instanceId,
+          error: deleteError instanceof Error ? deleteError.message : 'Unknown error'
+        });
+      }
+
+      // Step 2: Create a new instance with the same configuration
+      if (!productName || !templateId) {
+        throw new Error(`Missing required fields: productName=${productName}, templateId=${templateId}`);
+      }
+
+      // Get the template to extract configuration
+      const template = await novitaApiService.getTemplate(templateId);
+
+      // Get optimal product for the same product name and region
+      const product = await novitaApiService.getOptimalProduct(productName, instance.region || 'CN-HK-01');
+
+      const createRequest: NovitaCreateInstanceRequest = {
+        name: `${name}-recreated-${Date.now()}`, // Add suffix to avoid name conflicts
+        productId: product.id,
+        gpuNum: instance.gpuNum || 1,
+        rootfsSize: instance.rootfsSize || 50,
+        imageUrl: template.imageUrl,
+        ...(template.imageAuth && { imageAuth: template.imageAuth }),
+        ports: template.ports.map(p => `${p.port}:${p.type}`).join(','),
+        envs: template.envs,
+        kind: (instance.kind as 'gpu' | 'cpu') || 'gpu',
+        billingMode: instance.billingMode as 'onDemand' | 'monthly' | 'spot' || 'spot'
+      };
+
+      const newInstance = await novitaApiService.createInstance(createRequest);
+
+      logger.info('Successfully recreated instance after failed migration', {
+        originalInstanceId: instanceId,
+        newInstanceId: newInstance.id,
+        originalName: name,
+        newName: createRequest.name,
+        productName,
+        templateId
+      });
+
+      return true;
+
+    } catch (error) {
+      logger.error('Failed to handle failed migration', {
+        instanceId,
+        instanceName: name,
+        jobId: failedJob.Id,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Schedule a job to handle failed migrations
+   */
+  async scheduleFailedMigrationCheck(): Promise<string> {
+    const { serviceRegistry } = await import('./serviceRegistry');
+    
+    const jobQueueService = serviceRegistry.getJobQueueService();
+    if (!jobQueueService) {
+      throw new Error('Job queue service not initialized');
+    }
+
+    const payload: HandleFailedMigrationsJobPayload = {
+      scheduledAt: new Date(),
+      jobId: `failed-migration-check-${Date.now()}`,
+      config: {
+        dryRun: this.migrationConfig.dryRunMode
+      }
+    };
+
+    const jobId = await jobQueueService.addJob(
+      JobType.HANDLE_FAILED_MIGRATIONS,
+      payload,
+      JobPriority.NORMAL
+    );
+
+    logger.info('Scheduled failed migration check job', {
+      jobId,
+      scheduledAt: payload.scheduledAt,
+      dryRun: payload.config?.dryRun
+    });
+
+    return jobId;
   }
 
   /**

@@ -23,6 +23,8 @@ export interface Config {
   readonly novita: {
     readonly apiKey: string;
     readonly baseUrl: string;
+    readonly internalApiKey: string;
+    readonly internalBaseUrl: string;
   };
   readonly webhook: {
     readonly url?: string;
@@ -177,6 +179,8 @@ class ConfigLoader {
       novita: {
         apiKey: envVars.NOVITA_API_KEY,
         baseUrl: envVars.NOVITA_API_BASE_URL,
+        internalApiKey: envVars.NOVITA_INTERNAL_API_KEY,
+        internalBaseUrl: envVars.NOVITA_INTERNAL_API_BASE_URL,
       },
       webhook: {
         url: envVars.WEBHOOK_URL,
@@ -275,6 +279,16 @@ class ConfigLoader {
         .uri({ scheme: ['http', 'https'] })
         .default('https://api.novita.ai')
         .description('Novita.ai API base URL'),
+      
+      NOVITA_INTERNAL_API_KEY: Joi.string()
+        .required()
+        .min(10)
+        .description('Novita.ai internal API key for jobs endpoint (required)'),
+      
+      NOVITA_INTERNAL_API_BASE_URL: Joi.string()
+        .uri({ scheme: ['http', 'https'] })
+        .default('https://api-server.novita.ai')
+        .description('Novita.ai internal API base URL for jobs endpoint'),
       
       // Webhook Configuration
       WEBHOOK_URL: Joi.string()
@@ -589,7 +603,9 @@ class ConfigLoader {
       port: config.port,
       logLevel: config.logLevel,
       novitaBaseUrl: config.novita.baseUrl,
+      novitaInternalBaseUrl: config.novita.internalBaseUrl,
       hasApiKey: !!config.novita.apiKey,
+      hasInternalApiKey: !!config.novita.internalApiKey,
       hasWebhookUrl: !!config.webhook.url,
       hasWebhookSecret: !!config.webhook.secret,
       defaults: config.defaults,
@@ -682,6 +698,8 @@ function createTestConfig(): Config {
     novita: {
       apiKey: 'test-api-key',
       baseUrl: 'https://api.novita.ai',
+      internalApiKey: 'test-internal-api-key',
+      internalBaseUrl: 'https://api-server.novita.ai',
     },
     webhook: {},
     defaults: {

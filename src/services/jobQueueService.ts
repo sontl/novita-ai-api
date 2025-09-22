@@ -131,7 +131,8 @@ export class JobQueueService {
         [JobType.MONITOR_STARTUP]: 0,
         [JobType.SEND_WEBHOOK]: 0,
         [JobType.MIGRATE_SPOT_INSTANCES]: 0,
-        [JobType.AUTO_STOP_CHECK]: 0
+        [JobType.AUTO_STOP_CHECK]: 0,
+        [JobType.HANDLE_FAILED_MIGRATIONS]: 0
       }
     };
 

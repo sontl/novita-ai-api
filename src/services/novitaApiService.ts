@@ -1,5 +1,6 @@
 import { AxiosError } from 'axios';
 import { novitaClient } from '../clients/novitaClient';
+import { novitaInternalClient } from '../clients/novitaInternalClient';
 import { logger } from '../utils/logger';
 import {
   NovitaApiResponse,
@@ -17,7 +18,9 @@ import {
   RegistryAuth,
   RegistryAuthsResponse,
   NovitaInstanceResponse,
-  MigrationResponse
+  MigrationResponse,
+  JobQueryParams,
+  NovitaJobsResponse
 } from '../types/api';
 import { log } from 'console';
 
@@ -551,6 +554,47 @@ export class NovitaApiService {
 
       // Still throw the error for proper error handling in the calling code
       throw this.handleApiError(error, 'Failed to migrate instance');
+    }
+  }
+
+  /**
+   * Query jobs from Novita internal API
+   * Uses the internal API endpoint with different base URL and authentication
+   */
+  async queryJobs(params: JobQueryParams = {}): Promise<NovitaJobsResponse> {
+    try {
+      const queryParams: Record<string, string> = {
+        pageNum: (params.pageNum || 1).toString(),
+        pageSize: (params.pageSize || 10).toString()
+      };
+
+      if (params.jobId) queryParams.jobId = params.jobId;
+      if (params.type) queryParams.type = params.type;
+      if (params.state) queryParams.state = params.state;
+      if (params.startTime) queryParams.startTime = params.startTime.toString();
+      if (params.endTime) queryParams.endTime = params.endTime.toString();
+
+      logger.debug('Querying jobs from Novita internal API', {
+        params: queryParams,
+        endpoint: '/api/v1/jobs',
+        baseUrl: 'https://api-server.novita.ai'
+      });
+
+      // Use the internal client for jobs API
+      const response = await novitaInternalClient.get<NovitaJobsResponse>(
+        '/api/v1/jobs',
+        { params: queryParams }
+      );
+
+      logger.debug('Jobs query response from internal API', {
+        totalJobs: response.data.total,
+        returnedJobs: response.data.jobs?.length || 0,
+        endpoint: '/api/v1/jobs'
+      });
+
+      return response.data;
+    } catch (error) {
+      throw this.handleApiError(error, 'Failed to query jobs from internal API');
     }
   }
 

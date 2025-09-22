@@ -234,6 +234,17 @@ export async function shutdownServices(timeoutMs: number = 30000): Promise<void>
     );
   }
 
+  // Shutdown failed migration scheduler
+  if (services.failedMigrationScheduler) {
+    shutdownPromises.push(
+      services.failedMigrationScheduler.shutdown(timeoutMs).catch(error => {
+        logger.error('Failed migration scheduler shutdown failed', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      })
+    );
+  }
+
   // Shutdown job queue service
   if (services.jobQueueService) {
     shutdownPromises.push(
