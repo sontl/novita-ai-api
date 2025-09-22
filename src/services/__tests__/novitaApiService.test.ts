@@ -583,7 +583,24 @@ describe('NovitaApiService', () => {
   });
 
   describe('getInstance', () => {
-    const mockInstance: InstanceResponse = {
+    // Mock raw API response (what Novita API returns)
+    const mockRawInstance = {
+      id: 'instance-1',
+      name: 'test-instance',
+      status: 'running',
+      productId: 'prod-1',
+      clusterName: 'CN-HK-01',
+      gpuNum: '1',
+      rootfsSize: 60,
+      billingMode: 'spot',
+      createdAt: '1672531200', // Unix timestamp for 2023-01-01T00:00:00Z
+      portMappings: [
+        { port: 8080, type: 'http' }
+      ]
+    };
+
+    // Expected transformed result
+    const expectedInstance: InstanceResponse = {
       id: 'instance-1',
       name: 'test-instance',
       status: InstanceStatus.RUNNING,
@@ -592,16 +609,15 @@ describe('NovitaApiService', () => {
       gpuNum: 1,
       rootfsSize: 60,
       billingMode: 'spot',
-      createdAt: '2023-01-01T00:00:00Z',
-      startedAt: '2023-01-01T00:05:00Z'
+      createdAt: '2023-01-01T00:00:00.000Z',
+      portMappings: [
+        { port: 8080, endpoint: '', type: 'http' }
+      ]
     };
 
     it('should fetch instance successfully', async () => {
       mockedNovitaClient.get.mockResolvedValue({
-        data: {
-          success: true,
-          data: mockInstance
-        },
+        data: mockRawInstance,
         status: 200,
         statusText: 'OK',
         headers: {},
@@ -610,16 +626,13 @@ describe('NovitaApiService', () => {
 
       const result = await novitaApiService.getInstance('instance-1');
 
-      expect(result).toEqual(mockInstance);
+      expect(result).toEqual(expectedInstance);
       expect(mockedNovitaClient.get).toHaveBeenCalledWith('/v1/gpu/instance?instanceId=instance-1');
     });
 
     it('should handle instance not found', async () => {
       mockedNovitaClient.get.mockResolvedValue({
-        data: {
-          success: true,
-          data: null
-        },
+        data: null,
         status: 200,
         statusText: 'OK',
         headers: {},

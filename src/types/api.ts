@@ -102,7 +102,7 @@ export interface EnhancedInstanceDetails extends InstanceDetails {
   // Source indicators
   source: 'local' | 'novita' | 'merged';
   dataConsistency: 'consistent' | 'local-newer' | 'novita-newer' | 'conflicted';
-  
+
   // Additional Novita.ai fields
   clusterId?: string;
   clusterName?: string;
@@ -130,7 +130,7 @@ export interface EnhancedInstanceDetails extends InstanceDetails {
   endTime?: string;
   spotStatus?: string;
   spotReclaimTime?: string;
-  
+
   // Metadata
   lastSyncedAt?: string;
   syncErrors?: string[];
@@ -327,6 +327,11 @@ export interface NovitaInstanceResponse {
   spotStatus?: string;
   spotReclaimTime?: string;
   createdAt: string;
+  // Additional fields that may be present in Novita API responses
+  startedAt?: string;
+  stoppedAt?: string;
+  gpuIds?: number[];
+  templateId?: string | number;
 }
 
 export interface Tool {

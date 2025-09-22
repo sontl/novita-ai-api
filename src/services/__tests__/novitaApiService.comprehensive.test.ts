@@ -1,10 +1,22 @@
 import { novitaApiService } from '../novitaApiService';
 import { novitaClient } from '../../clients/novitaClient';
 import { NovitaInstanceResponse, InstanceStatus } from '../../types/api';
+import { AxiosResponse } from 'axios';
 
 // Mock the novita client
 jest.mock('../../clients/novitaClient');
 const mockNovitaClient = novitaClient as jest.Mocked<typeof novitaClient>;
+
+// Helper function to create proper Axios response mock
+function createMockAxiosResponse<T>(data: T): AxiosResponse<T> {
+  return {
+    data,
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config: {} as any
+  };
+}
 
 describe('NovitaApiService - Comprehensive Listing', () => {
   beforeEach(() => {
@@ -13,28 +25,24 @@ describe('NovitaApiService - Comprehensive Listing', () => {
 
   describe('listInstances with correct endpoint', () => {
     it('should use the correct Novita.ai API endpoint', async () => {
-      const mockResponse = {
-        data: {
-          instances: []
-        }
-      };
+      const mockResponse = createMockAxiosResponse({
+        instances: []
+      });
 
       mockNovitaClient.get.mockResolvedValue(mockResponse);
 
       await novitaApiService.listInstances();
 
       expect(mockNovitaClient.get).toHaveBeenCalledWith(
-        '/gpu-instance/openapi/v1/gpu/instances',
+        '/v1/gpu/instances',
         { params: {} }
       );
     });
 
     it('should pass query parameters correctly', async () => {
-      const mockResponse = {
-        data: {
-          instances: []
-        }
-      };
+      const mockResponse = createMockAxiosResponse({
+        instances: []
+      });
 
       mockNovitaClient.get.mockResolvedValue(mockResponse);
 
@@ -47,7 +55,7 @@ describe('NovitaApiService - Comprehensive Listing', () => {
       await novitaApiService.listInstances(options);
 
       expect(mockNovitaClient.get).toHaveBeenCalledWith(
-        '/gpu-instance/openapi/v1/gpu/instances',
+        '/v1/gpu/instances',
         {
           params: {
             page: '2',
@@ -98,18 +106,16 @@ describe('NovitaApiService - Comprehensive Listing', () => {
         endTime: '2024-12-31T23:59:59Z',
         spotStatus: 'active',
         spotReclaimTime: '2024-12-30T23:59:59Z',
-        createdAt: '2024-01-01T00:00:00Z'
+        createdAt: '2024-01-01T00:00:00Z',
+        startedAt: '2024-01-01T00:01:00Z',
+        stoppedAt: '2024-01-01T01:00:00Z',
+        gpuIds: [0, 1],
+        templateId: 'template-123'
       };
 
-      const mockResponse = {
-        data: {
-          instances: [mockNovitaInstance]
-        },
-        status: 200,
-        statusText: 'OK',
-        headers: {},
-        config: {} as any
-      };
+      const mockResponse = createMockAxiosResponse({
+        instances: [mockNovitaInstance]
+      });
 
       mockNovitaClient.get.mockResolvedValue(mockResponse);
 
@@ -152,6 +158,12 @@ describe('NovitaApiService - Comprehensive Listing', () => {
       expect(transformedInstance.spotStatus).toBe('active');
       expect(transformedInstance.spotReclaimTime).toBe('2024-12-30T23:59:59Z');
 
+      // Check newly added fields
+      expect(transformedInstance.startedAt).toBe('2024-01-01T00:01:00Z');
+      expect(transformedInstance.stoppedAt).toBe('2024-01-01T01:00:00Z');
+      expect(transformedInstance.gpuIds).toEqual([0, 1]);
+      expect(transformedInstance.templateId).toBe('template-123');
+
       // Check port mappings transformation
       expect(transformedInstance.portMappings).toEqual([
         { port: 8080, endpoint: '', type: 'http' },
@@ -160,11 +172,9 @@ describe('NovitaApiService - Comprehensive Listing', () => {
     });
 
     it('should handle empty response correctly', async () => {
-      const mockResponse = {
-        data: {
-          instances: []
-        }
-      };
+      const mockResponse = createMockAxiosResponse({
+        instances: []
+      });
 
       mockNovitaClient.get.mockResolvedValue(mockResponse);
 
@@ -197,18 +207,16 @@ describe('NovitaApiService - Comprehensive Listing', () => {
         createdAt: '2024-01-01T00:00:00Z'
       };
 
-      const mockResponse = {
-        data: {
-          instances: [mockNovitaInstance as NovitaInstanceResponse]
-        }
-      };
+      const mockResponse = createMockAxiosResponse({
+        instances: [mockNovitaInstance as NovitaInstanceResponse]
+      });
 
       mockNovitaClient.get.mockResolvedValue(mockResponse);
 
       const result = await novitaApiService.listInstances();
 
       expect(result.instances).toHaveLength(1);
-      const transformedInstance = result.instances[0];
+      const transformedInstance = result.instances[0]!;
 
       expect(transformedInstance.id).toBe('novita-minimal');
       expect(transformedInstance.name).toBe('minimal-instance');
@@ -242,31 +250,29 @@ describe('NovitaApiService - Comprehensive Listing', () => {
     });
 
     it('should log request details correctly', async () => {
-      const mockResponse = {
-        data: {
-          instances: [
-            {
-              id: 'test-1',
-              name: 'instance-1',
-              clusterId: 'cluster-1',
-              clusterName: 'Test Cluster',
-              status: 'running',
-              imageUrl: 'test:latest',
-              cpuNum: '4',
-              memory: '16GB',
-              gpuNum: '1',
-              portMappings: [],
-              productId: 'product-1',
-              productName: 'Test GPU',
-              rootfsSize: 50,
-              envs: [],
-              kind: 'gpu',
-              billingMode: 'spot',
-              createdAt: '2024-01-01T00:00:00Z'
-            }
-          ]
-        }
-      };
+      const mockResponse = createMockAxiosResponse({
+        instances: [
+          {
+            id: 'test-1',
+            name: 'instance-1',
+            clusterId: 'cluster-1',
+            clusterName: 'Test Cluster',
+            status: 'running',
+            imageUrl: 'test:latest',
+            cpuNum: '4',
+            memory: '16GB',
+            gpuNum: '1',
+            portMappings: [],
+            productId: 'product-1',
+            productName: 'Test GPU',
+            rootfsSize: 50,
+            envs: [],
+            kind: 'gpu',
+            billingMode: 'spot',
+            createdAt: '2024-01-01T00:00:00Z'
+          }
+        ]
+      });
 
       mockNovitaClient.get.mockResolvedValue(mockResponse);
 

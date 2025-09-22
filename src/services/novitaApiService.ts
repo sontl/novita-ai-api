@@ -357,7 +357,11 @@ export class NovitaApiService {
         rootfsSize: instanceData.rootfsSize || 0,
         billingMode: instanceData.billingMode || 'spot',
         createdAt: instanceData.createdAt ? new Date(parseInt(instanceData.createdAt) * 1000).toISOString() : new Date().toISOString(),
-        portMappings: instanceData.portMappings || []
+        portMappings: instanceData.portMappings?.map((port: any) => ({
+          port: port.port,
+          endpoint: '', // Will be filled by connection info if available
+          type: port.type
+        })) || []
       };
 
       logger.info('Instance fetched successfully', {
@@ -416,7 +420,7 @@ export class NovitaApiService {
         count: transformedInstances.length,
         total: result.total,
         page: result.page,
-        endpoint: '/gpu-instance/openapi/v1/gpu/instances'
+        endpoint: '/v1/gpu/instances'
       });
 
       return result;
@@ -504,7 +508,7 @@ export class NovitaApiService {
     try {
       logger.info('Initiating instance migration', {
         instanceId,
-        endpoint: '/gpu-instance/openapi/v1/gpu/instance/migrate'
+        endpoint: '/v1/gpu/instance/migrate'
       });
 
       const requestPayload = { instanceId };
@@ -512,11 +516,11 @@ export class NovitaApiService {
       logger.debug('Migration API request details', {
         instanceId,
         payload: requestPayload,
-        endpoint: '/gpu-instance/openapi/v1/gpu/instance/migrate'
+        endpoint: '/v1/gpu/instance/migrate'
       });
 
       const response = await novitaClient.post<any>(
-        '/gpu-instance/openapi/v1/gpu/instance/migrate',
+        '/v1/gpu/instance/migrate',
         requestPayload
       );
 
@@ -656,6 +660,12 @@ export class NovitaApiService {
       if (novitaInstance.endTime) optionalFields.endTime = novitaInstance.endTime;
       if (novitaInstance.spotStatus) optionalFields.spotStatus = novitaInstance.spotStatus;
       if (novitaInstance.spotReclaimTime) optionalFields.spotReclaimTime = novitaInstance.spotReclaimTime;
+      
+      // Handle additional fields that were missing
+      if (novitaInstance.startedAt) optionalFields.startedAt = novitaInstance.startedAt;
+      if (novitaInstance.stoppedAt) optionalFields.stoppedAt = novitaInstance.stoppedAt;
+      if (novitaInstance.gpuIds) optionalFields.gpuIds = novitaInstance.gpuIds;
+      if (novitaInstance.templateId !== undefined) optionalFields.templateId = novitaInstance.templateId;
 
       return Object.assign(transformed, optionalFields);
     });

@@ -136,6 +136,9 @@ export class InstanceMigrationService {
       }
 
       // Second check: GPU ID-based eligibility
+      //log gpuIds
+      logger.debug('Instance GPU IDs', { instanceId, gpuIds });
+      
       if (gpuIds && Array.isArray(gpuIds)) {
         // If gpuIds contains only [1], no migration needed
         if (gpuIds.length === 1 && gpuIds[0] === 1) {
