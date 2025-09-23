@@ -309,6 +309,7 @@ export interface NovitaInstanceResponse {
   gpuNum: string;
   portMappings: Array<{
     port: number;
+    endpoint: string;
     type: string;
   }>;
   productId: string;

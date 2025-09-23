@@ -312,7 +312,11 @@ export class NovitaApiService {
         rootfsSize: instanceData.rootfsSize || 0,
         billingMode: instanceData.billingMode || 'spot',
         createdAt: instanceData.createdAt ? new Date(parseInt(instanceData.createdAt) * 1000).toISOString() : new Date().toISOString(),
-        portMappings: instanceData.portMappings || []
+        portMappings: instanceData.portMappings?.map((port: any) => ({
+          port: port.port,
+          endpoint: port.endpoint || '',
+          type: port.type
+        })) || []
       };
 
       logger.info('Instance start initiated', {
@@ -461,7 +465,11 @@ export class NovitaApiService {
         rootfsSize: instanceData.rootfsSize || 0,
         billingMode: instanceData.billingMode || 'spot',
         createdAt: instanceData.createdAt ? new Date(parseInt(instanceData.createdAt) * 1000).toISOString() : new Date().toISOString(),
-        portMappings: instanceData.portMappings || []
+        portMappings: instanceData.portMappings?.map((port: any) => ({
+          port: port.port,
+          endpoint: port.endpoint || '',
+          type: port.type
+        })) || []
       };
 
       logger.info('Instance stop initiated', {
@@ -637,7 +645,7 @@ export class NovitaApiService {
         createdAt: novitaInstance.createdAt || new Date().toISOString(),
         portMappings: novitaInstance.portMappings?.map(port => ({
           port: port.port,
-          endpoint: '', // Will be filled by connection info if available
+          endpoint: port.endpoint || '', // Use the actual endpoint from API response
           type: port.type
         })) || []
       };
