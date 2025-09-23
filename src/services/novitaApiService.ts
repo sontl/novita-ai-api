@@ -359,7 +359,7 @@ export class NovitaApiService {
         createdAt: instanceData.createdAt ? new Date(parseInt(instanceData.createdAt) * 1000).toISOString() : new Date().toISOString(),
         portMappings: instanceData.portMappings?.map((port: any) => ({
           port: port.port,
-          endpoint: '', // Will be filled by connection info if available
+          endpoint: port.endpoint,
           type: port.type
         })) || []
       };

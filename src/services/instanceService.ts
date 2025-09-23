@@ -983,6 +983,17 @@ export class InstanceService {
 
       // Step 2: Evaluate each instance for auto-stop eligibility
       for (const instanceState of allInstanceStates) {
+        logger.debug( 
+          'Evaluating instance for auto-stop eligibility',
+          {
+            instanceId: instanceState.id,
+            name: instanceState.name,
+            novitaInstanceId: instanceState.novitaInstanceId,
+            status: instanceState.status,
+            lastUsedTime: instanceState.timestamps.lastUsed?.toISOString(),
+            timestamps: instanceState.timestamps
+          }
+        )
         // Only consider running instances
         if (instanceState.status !== InstanceStatus.RUNNING) {
           continue;
@@ -1009,6 +1020,15 @@ export class InstanceService {
             eligibleInstances.push(instanceState);
 
             logger.debug('Instance eligible for auto-stop (exceeded threshold)', {
+              instanceId: instanceState.id,
+              name: instanceState.name,
+              novitaInstanceId: instanceState.novitaInstanceId,
+              lastUsedTime: lastUsedTime.toISOString(),
+              timeSinceLastUse: now - lastUsedTime.getTime(),
+              thresholdMs
+            });
+          } else {
+            logger.info('Instance not eligible for auto-stop (within threshold)', {
               instanceId: instanceState.id,
               name: instanceState.name,
               novitaInstanceId: instanceState.novitaInstanceId,

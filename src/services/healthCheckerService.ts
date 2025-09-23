@@ -147,7 +147,7 @@ export class HealthCheckerService {
       endpointCount: portMappings.length,
       config: mergedConfig,
       targetPort: mergedConfig.targetPort,
-      portMappings: portMappings.map(pm => ({ port: pm.port, type: pm.type }))
+      portMappings: portMappings.map(pm => ({ port: pm.port, type: pm.type , endpoint: pm.endpoint}))
     });
 
     // Validate input parameters
