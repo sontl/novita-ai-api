@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Novita GPU Instance Manager</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f7;
+            color: #1d1d1f;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: #86868b;
+            font-size: 16px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-card h3 {
+            font-size: 14px;
+            font-weight: 500;
+            color: #86868b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .stat-card .value {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .stat-card .subtitle {
+            font-size: 14px;
+            color: #86868b;
+        }
+
+        .actions {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .actions h2 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background: #007aff;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #0056cc;
+        }
+
+        .btn-secondary {
+            background: #f2f2f7;
+            color: #1d1d1f;
+        }
+
+        .btn-secondary:hover {
+            background: #e5e5ea;
+        }
+
+        .btn-danger {
+            background: #ff3b30;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #d70015;
+        }
+
+        .instances-section {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .instances-section h2 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .instances-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .instances-table th,
+        .instances-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #f2f2f7;
+        }
+
+        .instances-table th {
+            font-weight: 600;
+            color: #86868b;
+            font-size: 14px;
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .status-running {
+            background: #d1f2eb;
+            color: #00875a;
+        }
+
+        .status-stopped {
+            background: #ffebe6;
+            color: #de350b;
+        }
+
+        .status-creating {
+            background: #e3f2fd;
+            color: #0052cc;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+            color: #86868b;
+        }
+
+        .error {
+            background: #ffebe6;
+            color: #de350b;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .success {
+            background: #d1f2eb;
+            color: #00875a;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .refresh-indicator {
+            display: inline-block;
+            margin-left: 8px;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .refresh-indicator.active {
+            opacity: 1;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .spinning {
+            animation: spin 1s linear infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Novita GPU Instance Manager</h1>
+            <p>Manage your GPU instances and monitor system health</p>
+        </div>
+
+        <div class="error" id="error-message"></div>
+        <div class="success" id="success-message"></div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Instances</h3>
+                <div class="value" id="total-instances">-</div>
+                <div class="subtitle">Across all regions</div>
+            </div>
+            <div class="stat-card">
+                <h3>Running Instances</h3>
+                <div class="value" id="running-instances">-</div>
+                <div class="subtitle">Currently active</div>
+            </div>
+            <div class="stat-card">
+                <h3>Cache Status</h3>
+                <div class="value" id="cache-status">-</div>
+                <div class="subtitle">Redis connection</div>
+            </div>
+            <div class="stat-card">
+                <h3>Last Sync</h3>
+                <div class="value" id="last-sync">-</div>
+                <div class="subtitle">Data synchronization</div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <h2>Actions</h2>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="refreshData()">
+                    Refresh Data
+                    <span class="refresh-indicator" id="refresh-indicator">🔄</span>
+                </button>
+                <button class="btn btn-secondary" onclick="syncInstances()">Sync with Novita.ai</button>
+                <button class="btn btn-secondary" onclick="clearCache()">Clear Cache</button>
+                <button class="btn btn-danger" onclick="stopAllInstances()">Stop All Instances</button>
+            </div>
+        </div>
+
+        <div class="instances-section">
+            <h2>GPU Instances</h2>
+            <div class="loading" id="loading">Loading instances...</div>
+            <table class="instances-table" id="instances-table" style="display: none;">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Status</th>
+                        <th>Region</th>
+                        <th>GPU Type</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="instances-tbody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let refreshInterval;
+
+        // Initialize the dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshData();
+            // Auto-refresh every 30 seconds
+            refreshInterval = setInterval(refreshData, 30000);
+        });
+
+        async function refreshData() {
+            const indicator = document.getElementById('refresh-indicator');
+            indicator.classList.add('active', 'spinning');
+            
+            try {
+                await Promise.all([
+                    loadHealthStats(),
+                    loadInstances()
+                ]);
+                showSuccess('Data refreshed successfully');
+            } catch (error) {
+                showError('Failed to refresh data: ' + error.message);
+            } finally {
+                indicator.classList.remove('active', 'spinning');
+            }
+        }
+
+        async function loadHealthStats() {
+            try {
+                const response = await fetch('/health');
+                const data = await response.json();
+                
+                document.getElementById('cache-status').textContent = 
+                    data.redis?.healthy ? 'Healthy' : 'Disconnected';
+                
+                if (data.sync) {
+                    document.getElementById('last-sync').textContent = 
+                        data.sync.lastSync ? new Date(data.sync.lastSync).toLocaleTimeString() : 'Never';
+                }
+            } catch (error) {
+                console.error('Failed to load health stats:', error);
+            }
+        }
+
+        async function loadInstances() {
+            const loading = document.getElementById('loading');
+            const table = document.getElementById('instances-table');
+            
+            loading.style.display = 'block';
+            table.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/instances');
+                const data = await response.json();
+                
+                const instances = data.instances || [];
+                
+                // Update stats
+                document.getElementById('total-instances').textContent = instances.length;
+                document.getElementById('running-instances').textContent = 
+                    instances.filter(i => i.status === 'running').length;
+                
+                // Update table
+                const tbody = document.getElementById('instances-tbody');
+                tbody.innerHTML = '';
+                
+                instances.forEach(instance => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${instance.name}</td>
+                        <td><span class="status-badge status-${instance.status.toLowerCase()}">${instance.status}</span></td>
+                        <td>${instance.region}</td>
+                        <td>${instance.productName || 'Unknown'}</td>
+                        <td>${new Date(instance.createdAt).toLocaleDateString()}</td>
+                        <td>
+                            <button class="btn btn-secondary" onclick="manageInstance('${instance.id}', '${instance.status}')">
+                                ${instance.status === 'running' ? 'Stop' : 'Start'}
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+                
+                loading.style.display = 'none';
+                table.style.display = 'table';
+                
+            } catch (error) {
+                loading.style.display = 'none';
+                showError('Failed to load instances: ' + error.message);
+            }
+        }
+
+        async function syncInstances() {
+            try {
+                showSuccess('Synchronizing with Novita.ai...');
+                const response = await fetch('/api/instances/sync', { method: 'POST' });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showSuccess(`Sync completed: ${data.synchronized} synchronized, ${data.deleted} deleted`);
+                    await refreshData();
+                } else {
+                    showError('Sync failed: ' + (data.message || 'Unknown error'));
+                }
+            } catch (error) {
+                showError('Sync failed: ' + error.message);
+            }
+        }
+
+        async function clearCache() {
+            if (!confirm('Are you sure you want to clear the cache?')) return;
+            
+            try {
+                const response = await fetch('/api/cache/clear', { method: 'POST' });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showSuccess('Cache cleared successfully');
+                    await refreshData();
+                } else {
+                    showError('Failed to clear cache: ' + (data.message || 'Unknown error'));
+                }
+            } catch (error) {
+                showError('Failed to clear cache: ' + error.message);
+            }
+        }
+
+        async function stopAllInstances() {
+            if (!confirm('Are you sure you want to stop ALL running instances?')) return;
+            
+            try {
+                const response = await fetch('/api/instances/stop-all', { method: 'POST' });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showSuccess(`Stop initiated for ${data.count} instances`);
+                    await refreshData();
+                } else {
+                    showError('Failed to stop instances: ' + (data.message || 'Unknown error'));
+                }
+            } catch (error) {
+                showError('Failed to stop instances: ' + error.message);
+            }
+        }
+
+        async function manageInstance(instanceId, currentStatus) {
+            const action = currentStatus === 'running' ? 'stop' : 'start';
+            
+            try {
+                const response = await fetch(`/api/instances/${instanceId}/${action}`, { method: 'POST' });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showSuccess(`Instance ${action} initiated successfully`);
+                    await refreshData();
+                } else {
+                    showError(`Failed to ${action} instance: ` + (data.message || 'Unknown error'));
+                }
+            } catch (error) {
+                showError(`Failed to ${action} instance: ` + error.message);
+            }
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            const successDiv = document.getElementById('success-message');
+            
+            successDiv.style.display = 'none';
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        function showSuccess(message) {
+            const errorDiv = document.getElementById('error-message');
+            const successDiv = document.getElementById('success-message');
+            
+            errorDiv.style.display = 'none';
+            successDiv.textContent = message;
+            successDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                successDiv.style.display = 'none';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

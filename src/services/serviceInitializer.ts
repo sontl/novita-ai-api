@@ -11,12 +11,23 @@ import { RedisClient, IRedisClient } from '../utils/redisClient';
 import { RedisConnectionManager } from '../utils/redisConnectionManager';
 import { RedisSerializer } from '../utils/redisSerializer';
 import { JobQueueService } from './jobQueueService';
+import { StartupSyncService } from './startupSyncService';
+import { NovitaApiService } from './novitaApiService';
+import { RedisCacheService } from './redisCacheService';
+import { InstanceResponse } from '../types/api';
 
 export interface ServiceInitializationResult {
   redisClient: IRedisClient | undefined;
   cacheManager: RedisCacheManager;
   jobQueueService: JobQueueService;
   redisHealthy: boolean;
+  syncResult?: {
+    novitaInstances: number;
+    redisInstances: number;
+    synchronized: number;
+    deleted: number;
+    errors: string[];
+  } | undefined;
 }
 
 /**
@@ -197,18 +208,77 @@ export async function initializeServices(config: Config): Promise<ServiceInitial
   const jobQueueService = initializeJobQueueService(config, redisClient);
   serviceRegistry.registerJobQueueService(jobQueueService);
 
+  // Perform startup synchronization if Redis is available
+  let syncResult;
+  if (redisClient && redisHealthy) {
+    try {
+      logger.info('Starting instance synchronization with Novita.ai');
+      
+      // Create instance cache service
+      const instanceCache = new RedisCacheService<InstanceResponse>(
+        'instances',
+        redisClient,
+        {
+          maxSize: 10000,
+          defaultTtl: 30 * 60 * 1000, // 30 minutes
+          cleanupIntervalMs: 5 * 60 * 1000 // 5 minutes
+        }
+      );
+
+      // Create Novita API service
+      const novitaApiService = new NovitaApiService();
+
+      // Create and run startup sync service
+      const startupSyncService = new StartupSyncService(
+        novitaApiService,
+        redisClient,
+        instanceCache
+      );
+
+      syncResult = await startupSyncService.synchronizeInstances();
+
+      logger.info('Startup synchronization completed', {
+        novitaInstances: syncResult.novitaInstances,
+        redisInstances: syncResult.redisInstances,
+        synchronized: syncResult.synchronized,
+        deleted: syncResult.deleted,
+        errors: syncResult.errors.length
+      });
+
+      // Register the instance cache in service registry for later use
+      serviceRegistry.registerInstanceCache(instanceCache);
+
+    } catch (error) {
+      logger.error('Startup synchronization failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      // Don't fail the entire startup for sync issues
+      syncResult = {
+        novitaInstances: 0,
+        redisInstances: 0,
+        synchronized: 0,
+        deleted: 0,
+        errors: [error instanceof Error ? error.message : String(error)]
+      };
+    }
+  } else {
+    logger.warn('Skipping startup synchronization - Redis not available or unhealthy');
+  }
+
   const result: ServiceInitializationResult = {
     redisClient,
     cacheManager,
     jobQueueService,
-    redisHealthy
+    redisHealthy,
+    syncResult
   };
 
   logger.info('Service initialization completed', {
     redisAvailable: !!redisClient,
     redisHealthy,
     cacheManagerType: cacheManager.getConfiguration().defaultBackend,
-    jobQueueType: 'in-memory' // Will be dynamic when Redis job queue is implemented
+    jobQueueType: 'in-memory', // Will be dynamic when Redis job queue is implemented
+    syncCompleted: !!syncResult
   });
 
   return result;

@@ -33,6 +33,7 @@ import {
 import { InstanceNotFoundError, InstanceNotStartableError } from '../utils/errorHandler';
 import { JobPriority, CreateInstanceJobPayload, JobType as JobTypeEnum } from '../types/job';
 import { cacheManager } from './cacheService';
+import { log } from 'console';
 
 export class InstanceService {
   private instanceStates: Map<string, InstanceState> = new Map();
@@ -390,6 +391,14 @@ export class InstanceService {
 
     // Clear instance details cache for this instance to force refresh
     this.instanceCache.delete(instanceId);
+
+    // Persist to Redis asynchronously (don't block the operation)
+    this.persistInstanceStateToRedis(instanceState).catch(error => {
+      logger.warn('Failed to persist instance state to Redis', {
+        instanceId,
+        error: (error as Error).message
+      });
+    });
 
     logger.debug('Instance state updated', {
       instanceId,
@@ -955,50 +964,388 @@ export class InstanceService {
 
   /**
    * Get instances that are eligible for auto-stop (running and inactive for over threshold)
+   * Enhanced version that syncs with Redis and Novita API for data consistency
    */
-  getInstancesEligibleForAutoStop(inactivityThresholdMinutes: number = 2): InstanceState[] {
+  async getInstancesEligibleForAutoStop(inactivityThresholdMinutes: number = 2): Promise<InstanceState[]> {
+    const thresholdMs = inactivityThresholdMinutes * 60 * 1000;
+    const now = Date.now();
+    const eligibleInstances: InstanceState[] = [];
+
+    try {
+      // Step 1: Sync instance states from Redis and Novita API
+      const allInstanceStates = await this.syncInstanceStatesForAutoStop();
+
+      logger.info('Synced instance states for auto-stop evaluation', {
+        totalInstances: allInstanceStates.length,
+        inMemoryInstances: this.instanceStates.size,
+        thresholdMinutes: inactivityThresholdMinutes
+      });
+
+      // Step 2: Evaluate each instance for auto-stop eligibility
+      for (const instanceState of allInstanceStates) {
+        // Only consider running instances
+        if (instanceState.status !== InstanceStatus.RUNNING) {
+          continue;
+        }
+
+        // Check if instance has a last used time
+        const lastUsedTime = instanceState.timestamps.lastUsed || 
+                            instanceState.timestamps.started || 
+                            instanceState.timestamps.created;
+        
+        if (!lastUsedTime) {
+          // If no lastUsedTime, always consider it eligible for auto-stop
+          // This ensures instances without usage tracking are included
+          eligibleInstances.push(instanceState);
+
+          logger.debug('Instance eligible for auto-stop (no lastUsedTime)', {
+            instanceId: instanceState.id,
+            name: instanceState.name,
+            novitaInstanceId: instanceState.novitaInstanceId
+          });
+        } else {
+          // Check if last used time exceeds threshold
+          if (now - lastUsedTime.getTime() > thresholdMs) {
+            eligibleInstances.push(instanceState);
+
+            logger.debug('Instance eligible for auto-stop (exceeded threshold)', {
+              instanceId: instanceState.id,
+              name: instanceState.name,
+              novitaInstanceId: instanceState.novitaInstanceId,
+              lastUsedTime: lastUsedTime.toISOString(),
+              timeSinceLastUse: now - lastUsedTime.getTime(),
+              thresholdMs
+            });
+          }
+        }
+      }
+
+      logger.info('Found instances eligible for auto-stop', {
+        totalRunningInstances: allInstanceStates.filter(state => state.status === InstanceStatus.RUNNING).length,
+        eligibleCount: eligibleInstances.length,
+        thresholdMinutes: inactivityThresholdMinutes
+      });
+
+      return eligibleInstances;
+
+    } catch (error) {
+      logger.error('Failed to get instances eligible for auto-stop', {
+        error: (error as Error).message,
+        thresholdMinutes: inactivityThresholdMinutes
+      });
+
+      // Fallback to in-memory instances only
+      logger.warn('Falling back to in-memory instance states only');
+      return this.getInstancesEligibleForAutoStopFallback(inactivityThresholdMinutes);
+    }
+  }
+
+  /**
+   * Sync instance states from Redis and Novita API for comprehensive auto-stop evaluation
+   */
+  private async syncInstanceStatesForAutoStop(): Promise<InstanceState[]> {
+    const allInstanceStates = new Map<string, InstanceState>();
+
+    try {
+      // Step 1: Load instance states from Redis
+      const redisStates = await this.loadInstanceStatesFromRedis();
+      logger.debug('Loaded instance states from Redis', { count: redisStates.length });
+
+      // Add Redis states to the map
+      redisStates.forEach(state => {
+        allInstanceStates.set(state.id, state);
+      });
+
+      // Step 2: Add in-memory states (these might be newer or not yet persisted)
+      for (const [instanceId, instanceState] of this.instanceStates.entries()) {
+        const existingState = allInstanceStates.get(instanceId);
+        
+        // Use in-memory state if it's newer or doesn't exist in Redis
+        if (!existingState || 
+            instanceState.timestamps.created.getTime() > existingState.timestamps.created.getTime()) {
+          allInstanceStates.set(instanceId, instanceState);
+        }
+      }
+
+      // Step 3: Sync with Novita API to get current status of instances
+      try {
+        const novitaInstances = await this.getNovitaInstances();
+        logger.debug('Fetched instances from Novita API', { count: novitaInstances.length });
+
+        // Update states with current Novita status
+        for (const novitaInstance of novitaInstances) {
+          // Find matching local state by novitaInstanceId
+          const matchingState = Array.from(allInstanceStates.values())
+            .find(state => state.novitaInstanceId === novitaInstance.id);
+
+          if (matchingState) {
+            // Update status from Novita API (authoritative source)
+            if (matchingState.status !== novitaInstance.status) {
+              logger.debug('Updating instance status from Novita API', {
+                instanceId: matchingState.id,
+                oldStatus: matchingState.status,
+                newStatus: novitaInstance.status,
+                novitaInstanceId: novitaInstance.id
+              });
+
+              matchingState.status = novitaInstance.status;
+              
+              // Update timestamps based on status
+              if (novitaInstance.status === InstanceStatus.RUNNING && !matchingState.timestamps.started) {
+                matchingState.timestamps.started = new Date();
+              }
+            }
+          } else {
+            // This is a Novita instance we don't have locally - create a minimal state
+            // This handles cases where instances were created outside our application
+            const orphanedState = this.createStateFromNovitaInstance(novitaInstance);
+            if (orphanedState) {
+              allInstanceStates.set(orphanedState.id, orphanedState);
+              logger.info('Found orphaned Novita instance, created local state', {
+                instanceId: orphanedState.id,
+                novitaInstanceId: novitaInstance.id,
+                status: novitaInstance.status
+              });
+            }
+          }
+        }
+      } catch (novitaError) {
+        logger.warn('Failed to sync with Novita API, using cached states only', {
+          error: (novitaError as Error).message
+        });
+      }
+
+      // Step 4: Persist updated states back to Redis
+      const statesToPersist = Array.from(allInstanceStates.values());
+      await this.persistInstanceStatesToRedis(statesToPersist);
+
+      // Step 5: Update in-memory states with synced data
+      for (const state of statesToPersist) {
+        this.instanceStates.set(state.id, state);
+      }
+
+      return statesToPersist;
+
+    } catch (error) {
+      logger.error('Failed to sync instance states', {
+        error: (error as Error).message
+      });
+      
+      // Return in-memory states as fallback
+      return Array.from(this.instanceStates.values());
+    }
+  }
+
+  /**
+   * Load instance states from Redis
+   */
+  private async loadInstanceStatesFromRedis(): Promise<InstanceState[]> {
+    try {
+      const cacheManager = serviceRegistry.getCacheManager();
+      if (!cacheManager) {
+        logger.debug('No cache manager available, skipping Redis load');
+        return [];
+      }
+
+      const instanceStatesCache = await cacheManager.getCache<InstanceState>('instance-states-persistent', {
+        maxSize: 10000,
+        defaultTtl: 24 * 60 * 60 * 1000, // 24 hours for persistent states
+        cleanupIntervalMs: 60 * 60 * 1000 // Cleanup every hour
+      });
+
+      const keys = await instanceStatesCache.keys();
+      const states: InstanceState[] = [];
+
+      for (const key of keys) {
+        const state = await instanceStatesCache.get(key);
+        if (state) {
+          // Convert timestamp strings back to Date objects
+          state.timestamps.created = new Date(state.timestamps.created);
+          if (state.timestamps.started) state.timestamps.started = new Date(state.timestamps.started);
+          if (state.timestamps.ready) state.timestamps.ready = new Date(state.timestamps.ready);
+          if (state.timestamps.failed) state.timestamps.failed = new Date(state.timestamps.failed);
+          if (state.timestamps.stopping) state.timestamps.stopping = new Date(state.timestamps.stopping);
+          if (state.timestamps.stopped) state.timestamps.stopped = new Date(state.timestamps.stopped);
+          if (state.timestamps.lastUsed) state.timestamps.lastUsed = new Date(state.timestamps.lastUsed);
+
+          states.push(state);
+        }
+      }
+
+      return states;
+    } catch (error) {
+      logger.error('Failed to load instance states from Redis', {
+        error: (error as Error).message
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Persist instance states to Redis
+   */
+  private async persistInstanceStatesToRedis(states: InstanceState[]): Promise<void> {
+    try {
+      const cacheManager = serviceRegistry.getCacheManager();
+      if (!cacheManager) {
+        logger.debug('No cache manager available, skipping Redis persistence');
+        return;
+      }
+
+      const instanceStatesCache = await cacheManager.getCache<InstanceState>('instance-states-persistent', {
+        maxSize: 10000,
+        defaultTtl: 24 * 60 * 60 * 1000, // 24 hours for persistent states
+        cleanupIntervalMs: 60 * 60 * 1000 // Cleanup every hour
+      });
+
+      const persistPromises = states.map(async (state) => {
+        try {
+          await instanceStatesCache.set(state.id, state, 24 * 60 * 60 * 1000); // 24 hours TTL
+        } catch (error) {
+          logger.warn('Failed to persist instance state to Redis', {
+            instanceId: state.id,
+            error: (error as Error).message
+          });
+        }
+      });
+
+      await Promise.allSettled(persistPromises);
+      
+      logger.debug('Persisted instance states to Redis', { count: states.length });
+    } catch (error) {
+      logger.error('Failed to persist instance states to Redis', {
+        error: (error as Error).message
+      });
+    }
+  }
+
+  /**
+   * Persist a single instance state to Redis
+   */
+  private async persistInstanceStateToRedis(state: InstanceState): Promise<void> {
+    try {
+      const cacheManager = serviceRegistry.getCacheManager();
+      if (!cacheManager) {
+        return;
+      }
+
+      const instanceStatesCache = await cacheManager.getCache<InstanceState>('instance-states-persistent', {
+        maxSize: 10000,
+        defaultTtl: 24 * 60 * 60 * 1000, // 24 hours for persistent states
+        cleanupIntervalMs: 60 * 60 * 1000 // Cleanup every hour
+      });
+
+      await instanceStatesCache.set(state.id, state, 24 * 60 * 60 * 1000); // 24 hours TTL
+    } catch (error) {
+      logger.error('Failed to persist single instance state to Redis', {
+        instanceId: state.id,
+        error: (error as Error).message
+      });
+    }
+  }
+
+
+
+  /**
+   * Update last used time by instance name (useful for external integrations)
+   */
+  async updateLastUsedTimeByName(instanceName: string, lastUsedTime?: Date): Promise<{ instanceId: string; lastUsedAt: string; message: string }> {
+    try {
+      // First try to find in memory
+      for (const [instanceId, instanceState] of this.instanceStates.entries()) {
+        if (instanceState.name === instanceName) {
+          return await this.updateLastUsedTime(instanceId, lastUsedTime);
+        }
+      }
+
+      // If not found in memory, try Redis
+      const redisStates = await this.loadInstanceStatesFromRedis();
+      const matchingState = redisStates.find(state => state.name === instanceName);
+      
+      if (matchingState) {
+        // Load the state into memory first
+        this.instanceStates.set(matchingState.id, matchingState);
+        return await this.updateLastUsedTime(matchingState.id, lastUsedTime);
+      }
+
+      throw new NovitaApiClientError(
+        `Instance not found by name: ${instanceName}`,
+        404,
+        'INSTANCE_NOT_FOUND'
+      );
+
+    } catch (error) {
+      logger.error('Failed to update last used time by name', {
+        instanceName,
+        error: (error as Error).message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Create a minimal instance state from a Novita instance (for orphaned instances)
+   */
+  private createStateFromNovitaInstance(novitaInstance: InstanceResponse): InstanceState | null {
+    try {
+      // Generate a local instance ID for the orphaned instance
+      const localInstanceId = `orphaned_${novitaInstance.id}_${Date.now()}`;
+
+      const state: InstanceState = {
+        id: localInstanceId,
+        name: novitaInstance.name,
+        status: novitaInstance.status,
+        novitaInstanceId: novitaInstance.id,
+        productId: novitaInstance.productId || 'unknown',
+        templateId: 'unknown',
+        configuration: {
+          gpuNum: novitaInstance.gpuNum,
+          rootfsSize: 60, // Default value
+          region: novitaInstance.region,
+          imageUrl: novitaInstance.imageUrl || 'unknown',
+          ports: [],
+          envs: []
+        },
+        timestamps: {
+          created: new Date(novitaInstance.createdAt),
+          // Add started time if instance is running
+          ...(novitaInstance.status === InstanceStatus.RUNNING && {
+            started: new Date(novitaInstance.startedAt || novitaInstance.createdAt)
+          })
+        }
+      };
+
+      return state;
+    } catch (error) {
+      logger.error('Failed to create state from Novita instance', {
+        novitaInstanceId: novitaInstance.id,
+        error: (error as Error).message
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Fallback method using only in-memory instance states
+   */
+  private getInstancesEligibleForAutoStopFallback(inactivityThresholdMinutes: number): InstanceState[] {
     const thresholdMs = inactivityThresholdMinutes * 60 * 1000;
     const now = Date.now();
     const eligibleInstances: InstanceState[] = [];
 
     for (const [instanceId, instanceState] of this.instanceStates.entries()) {
-      // Only consider running instances
       if (instanceState.status !== InstanceStatus.RUNNING) {
         continue;
       }
 
-      // Check if instance has a last used time
-      const lastUsedTime = instanceState.timestamps.lastUsed || instanceState.timestamps.started || instanceState.timestamps.created || instanceState.timestamps.ready;
-      if (!lastUsedTime) {
-
-        // If no lastUsedTime, always consider it eligible for auto-stop
-        // This ensures instances without usage tracking are included
+      const lastUsedTime = instanceState.timestamps.lastUsed || 
+                          instanceState.timestamps.started || 
+                          instanceState.timestamps.created;
+      
+      if (!lastUsedTime || (now - lastUsedTime.getTime() > thresholdMs)) {
         eligibleInstances.push(instanceState);
-
-        logger.debug('Instance eligible for auto-stop (no lastUsedTime)', {
-          instanceId,
-        });
-      } else {
-        // Check if last used time exceeds threshold
-        if (now - lastUsedTime.getTime() > thresholdMs) {
-          eligibleInstances.push(instanceState);
-
-          logger.debug('Instance eligible for auto-stop (exceeded threshold)', {
-            instanceId,
-            lastUsedTime: lastUsedTime.toISOString(),
-            timeSinceLastUse: now - lastUsedTime.getTime(),
-            thresholdMs
-          });
-        }
       }
     }
-
-    logger.info('Found instances eligible for auto-stop', {
-      totalRunningInstances: Array.from(this.instanceStates.values())
-        .filter(state => state.status === InstanceStatus.RUNNING).length,
-      eligibleCount: eligibleInstances.length,
-      thresholdMinutes: inactivityThresholdMinutes
-    });
 
     return eligibleInstances;
   }

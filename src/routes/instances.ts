@@ -1057,4 +1057,169 @@ router.post('/migration/scheduler/trigger', asyncHandler(async (req: Request, re
   }
 }));
 
+/**
+ * POST /api/instances/sync
+ * Synchronize instances with Novita.ai
+ */
+router.post('/sync', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'sync_instances'
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Instance synchronization request received');
+
+  const startTime = Date.now();
+
+  try {
+    // Import the startup sync service
+    const { serviceRegistry } = await import('../services/serviceRegistry');
+    const { StartupSyncService } = await import('../services/startupSyncService');
+    const { NovitaApiService } = await import('../services/novitaApiService');
+
+    // Get services from registry
+    const redisClient = serviceRegistry.getRedisClient();
+    const instanceCache = serviceRegistry.getInstanceCache();
+
+    if (!redisClient || !instanceCache) {
+      throw new Error('Redis client or instance cache not available');
+    }
+
+    // Create services and perform sync
+    const novitaApiService = new NovitaApiService();
+    const startupSyncService = new StartupSyncService(
+      novitaApiService,
+      redisClient,
+      instanceCache
+    );
+
+    const result = await startupSyncService.synchronizeInstances();
+    const duration = Date.now() - startTime;
+
+    contextLogger.info('Instance synchronization completed', {
+      ...result,
+      duration
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Synchronization completed successfully',
+      ...result,
+      timestamp: new Date().toISOString(),
+      duration
+    });
+
+  } catch (error) {
+    const duration = Date.now() - startTime;
+
+    contextLogger.error('Instance synchronization failed', {
+      error: (error as Error).message,
+      errorType: (error as Error).name,
+      duration
+    });
+
+    throw error;
+  }
+}));
+
+/**
+ * POST /api/instances/stop-all
+ * Stop all running instances
+ */
+router.post('/stop-all', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'stop_all_instances'
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Stop all instances request received');
+
+  const startTime = Date.now();
+
+  try {
+    // Get all instances
+    const instancesResult = await instanceService.listInstances();
+    const runningInstances = instancesResult.instances.filter(
+      instance => instance.status === 'running'
+    );
+
+    contextLogger.info('Found running instances to stop', {
+      count: runningInstances.length
+    });
+
+    // Stop each running instance
+    const stopResults = [];
+    for (const instance of runningInstances) {
+      try {
+        const result = await instanceService.stopInstance(
+          instance.id,
+          { webhookUrl: req.body.webhookUrl },
+          'id'
+        );
+        stopResults.push({
+          instanceId: instance.id,
+          name: instance.name,
+          success: true,
+          result
+        });
+      } catch (error) {
+        contextLogger.error('Failed to stop instance', {
+          instanceId: instance.id,
+          name: instance.name,
+          error: (error as Error).message
+        });
+        stopResults.push({
+          instanceId: instance.id,
+          name: instance.name,
+          success: false,
+          error: (error as Error).message
+        });
+      }
+    }
+
+    const duration = Date.now() - startTime;
+    const successCount = stopResults.filter(r => r.success).length;
+
+    contextLogger.info('Stop all instances completed', {
+      totalInstances: runningInstances.length,
+      successCount,
+      failedCount: stopResults.length - successCount,
+      duration
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Stop initiated for ${successCount} of ${runningInstances.length} running instances`,
+      count: successCount,
+      total: runningInstances.length,
+      results: stopResults,
+      timestamp: new Date().toISOString(),
+      duration
+    });
+
+  } catch (error) {
+    const duration = Date.now() - startTime;
+
+    contextLogger.error('Stop all instances failed', {
+      error: (error as Error).message,
+      errorType: (error as Error).name,
+      duration
+    });
+
+    throw error;
+  }
+}));
+
 export { router as instancesRouter };

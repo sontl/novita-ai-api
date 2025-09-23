@@ -14,6 +14,7 @@ import { healthRouter } from './routes/health';
 import { instancesRouter } from './routes/instances';
 import { metricsRouter } from './routes/metrics';
 import cacheRouter from './routes/cache';
+import { uiRouter } from './routes/ui';
 import { JobWorkerService } from './services/jobWorkerService';
 import { createMigrationScheduler } from './services/migrationScheduler';
 import { createFailedMigrationScheduler } from './services/failedMigrationScheduler';
@@ -81,11 +82,15 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Enhanced request/response logging
 app.use(requestLoggerMiddleware);
 
+// Serve static files for UI
+app.use(express.static('src/public'));
+
 // Routes
 app.use('/health', healthRouter);
 app.use('/api/instances', instancesRouter);
 app.use('/api/cache', cacheRouter);
 app.use('/api/metrics', metricsRouter);
+app.use('/', uiRouter);
 
 // 404 handler for unmatched routes
 app.use(notFoundHandler);
@@ -102,7 +107,9 @@ if (config.nodeEnv !== 'test') {
     .then(async (serviceResult) => {
       logger.info('Services initialized successfully', {
         redisHealthy: serviceResult.redisHealthy,
-        cacheManagerType: serviceResult.cacheManager.getConfiguration().defaultBackend
+        cacheManagerType: serviceResult.cacheManager.getConfiguration().defaultBackend,
+        syncCompleted: !!serviceResult.syncResult,
+        syncResult: serviceResult.syncResult
       });
 
       // Get job queue service from registry (initialized by serviceInitializer)

@@ -153,7 +153,26 @@ describe('InstanceService', () => {
     mockTemplateService.getTemplateConfiguration.mockResolvedValue(mockTemplateConfig);
     mockJobQueueService.addJob.mockResolvedValue('job_123');
     mockNovitaApiService.getInstance.mockResolvedValue(mockNovitaInstance);
+    mockNovitaApiService.listInstances.mockResolvedValue({ 
+      instances: [], 
+      total: 0, 
+      page: 1, 
+      pageSize: 100 
+    });
     mockServiceRegistry.getJobQueueService.mockReturnValue(mockJobQueueService);
+    
+    // Mock cache manager for Redis functionality
+    const mockCache = {
+      get: jest.fn().mockResolvedValue(undefined),
+      set: jest.fn().mockResolvedValue(undefined),
+      keys: jest.fn().mockResolvedValue([]),
+      delete: jest.fn().mockResolvedValue(true),
+      clear: jest.fn().mockResolvedValue(undefined)
+    };
+    const mockCacheManager = {
+      getCache: jest.fn().mockResolvedValue(mockCache)
+    };
+    mockServiceRegistry.getCacheManager.mockReturnValue(mockCacheManager as any);
   });
 
   describe('createInstance', () => {
@@ -669,16 +688,16 @@ describe('InstanceService', () => {
       });
     });
 
-    it('should return running instances without lastUsed time', () => {
-      const eligibleInstances = service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
+    it('should return running instances without lastUsed time', async () => {
+      const eligibleInstances = await service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
       
       expect(eligibleInstances).toHaveLength(1);
       expect(eligibleInstances[0]?.id).toBe(runningInstanceId);
       expect(eligibleInstances[0]?.status).toBe(InstanceStatus.RUNNING);
     });
 
-    it('should not return non-running instances', () => {
-      const eligibleInstances = service.getInstancesEligibleForAutoStop(1); // 1 minute threshold
+    it('should not return non-running instances', async () => {
+      const eligibleInstances = await service.getInstancesEligibleForAutoStop(1); // 1 minute threshold
       
       // Should only include running instances
       const eligibleIds = eligibleInstances.map(i => i.id);
@@ -686,7 +705,7 @@ describe('InstanceService', () => {
       expect(eligibleIds).not.toContain(stoppedInstanceId);
     });
 
-    it('should return instances with lastUsed time exceeding threshold', () => {
+    it('should return instances with lastUsed time exceeding threshold', async () => {
       // Set lastUsed time to 10 minutes ago
       service.updateInstanceState(runningInstanceId, {
         timestamps: {
@@ -696,13 +715,13 @@ describe('InstanceService', () => {
         }
       });
 
-      const eligibleInstances = service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
+      const eligibleInstances = await service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
       
       expect(eligibleInstances).toHaveLength(1);
       expect(eligibleInstances[0]?.id).toBe(runningInstanceId);
     });
 
-    it('should not return instances with recent lastUsed time', () => {
+    it('should not return instances with recent lastUsed time', async () => {
       // Set lastUsed time to 2 minutes ago
       service.updateInstanceState(runningInstanceId, {
         timestamps: {
@@ -712,7 +731,7 @@ describe('InstanceService', () => {
         }
       });
 
-      const eligibleInstances = service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
+      const eligibleInstances = await service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
       
       expect(eligibleInstances).toHaveLength(0);
     });
@@ -736,7 +755,7 @@ describe('InstanceService', () => {
         }
       });
 
-      const eligibleInstances = service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
+      const eligibleInstances = await service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
       
       // Should include the instance because it has no lastUsed time
       const eligibleIds = eligibleInstances.map(i => i.id);
@@ -762,7 +781,7 @@ describe('InstanceService', () => {
         }
       });
 
-      const eligibleInstances = service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
+      const eligibleInstances = await service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
       
       // Should include the old instance (no lastUsed) but not the recent one
       const eligibleIds = eligibleInstances.map(i => i.id);
@@ -770,7 +789,7 @@ describe('InstanceService', () => {
       expect(eligibleIds).not.toContain(recentInstanceId);
     });
 
-    it('should return empty array when no instances are eligible', () => {
+    it('should return empty array when no instances are eligible', async () => {
       // Update the running instance to have recent activity
       service.updateInstanceState(runningInstanceId, {
         timestamps: {
@@ -780,9 +799,91 @@ describe('InstanceService', () => {
         }
       });
 
-      const eligibleInstances = service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
+      const eligibleInstances = await service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
       
       expect(eligibleInstances).toHaveLength(0);
+    });
+
+    it('should sync with Redis and Novita API for comprehensive evaluation', async () => {
+      // Reset the mock to ensure clean state
+      jest.clearAllMocks();
+      
+      // Mock Redis returning some cached states
+      const mockCache = {
+        get: jest.fn().mockResolvedValue(undefined),
+        set: jest.fn().mockResolvedValue(undefined),
+        keys: jest.fn().mockResolvedValue(['cached_instance_1']),
+        delete: jest.fn().mockResolvedValue(true),
+        clear: jest.fn().mockResolvedValue(undefined)
+      };
+
+      // Mock a cached instance state
+      mockCache.get.mockResolvedValueOnce({
+        id: 'cached_instance_1',
+        name: 'cached-instance',
+        status: InstanceStatus.RUNNING,
+        novitaInstanceId: 'novita_cached_123',
+        productId: 'prod_123',
+        templateId: 'template_123',
+        configuration: {
+          gpuNum: 1,
+          rootfsSize: 60,
+          region: 'CN-HK-01',
+          imageUrl: 'test-image',
+          ports: [],
+          envs: []
+        },
+        timestamps: {
+          created: new Date(Date.now() - 10 * 60 * 1000), // 10 minutes ago
+          started: new Date(Date.now() - 8 * 60 * 1000)   // 8 minutes ago
+        }
+      });
+
+      const mockCacheManager = {
+        getCache: jest.fn().mockResolvedValue(mockCache)
+      };
+      mockServiceRegistry.getCacheManager.mockReturnValue(mockCacheManager as any);
+
+      // Mock Novita API returning instances
+      mockNovitaApiService.listInstances.mockResolvedValue({
+        instances: [{
+          id: 'novita_cached_123',
+          name: 'cached-instance',
+          status: InstanceStatus.RUNNING,
+          gpuNum: 1,
+          region: 'CN-HK-01',
+          rootfsSize: 60,
+          billingMode: 'spot',
+          createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+          productId: 'prod_123'
+        }],
+        total: 1,
+        page: 1,
+        pageSize: 100
+      });
+
+      const eligibleInstances = await service.getInstancesEligibleForAutoStop(5); // 5 minutes threshold
+
+      // Should include both the cached instance and the running instance from beforeEach
+      // since both have no lastUsed time
+      expect(eligibleInstances).toHaveLength(2);
+      
+      const eligibleIds = eligibleInstances.map(i => i.id);
+      expect(eligibleIds).toContain('cached_instance_1');
+      expect(eligibleIds).toContain(runningInstanceId);
+      
+      // All should be running
+      eligibleInstances.forEach(instance => {
+        expect(instance.status).toBe(InstanceStatus.RUNNING);
+      });
+
+      // Verify Redis operations were called
+      expect(mockCache.keys).toHaveBeenCalled();
+      expect(mockCache.get).toHaveBeenCalledWith('cached_instance_1');
+      expect(mockCache.set).toHaveBeenCalled(); // For persistence
+
+      // Verify Novita API was called for sync
+      expect(mockNovitaApiService.listInstances).toHaveBeenCalled();
     });
   });
 });

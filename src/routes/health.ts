@@ -33,6 +33,9 @@ router.get('/', async (req: Request, res: Response) => {
       healthMetrics.memoryUsageMB < 1024 && // Less than 1GB memory usage
       (process.env.NODE_ENV === 'test' || healthMetrics.cpuUsagePercent < 90); // Skip CPU check in test
 
+    // Get sync status
+    const syncStatus = await getSyncStatus();
+
     const healthCheck: EnhancedHealthCheckResponse = {
       status: isHealthy ? 'healthy' : 'unhealthy',
       timestamp: new Date().toISOString(),
@@ -59,7 +62,8 @@ router.get('/', async (req: Request, res: Response) => {
       dependencies: dependencyDetails,
       migrationService: migrationServiceDetails,
       failedMigrationService: failedMigrationServiceDetails,
-      redis: redisServiceDetails
+      redis: redisServiceDetails,
+      sync: syncStatus
     };
 
     // Add additional debug information in development
@@ -553,6 +557,51 @@ async function checkRedisServiceDetails(): Promise<any> {
       healthy: false,
       error: (error as Error).message,
       lastChecked: new Date().toISOString()
+    };
+  }
+}
+
+/**
+ * Get synchronization status
+ */
+async function getSyncStatus(): Promise<any> {
+  try {
+    const redisClient = serviceRegistry.getRedisClient();
+    const instanceCache = serviceRegistry.getInstanceCache();
+
+    if (!redisClient || !instanceCache) {
+      return {
+        available: false,
+        lastSync: null,
+        isLocked: false,
+        cacheSize: 0
+      };
+    }
+
+    // Import and create sync service to get status
+    const { StartupSyncService } = await import('../services/startupSyncService');
+    const { NovitaApiService } = await import('../services/novitaApiService');
+
+    const novitaApiService = new NovitaApiService();
+    const startupSyncService = new StartupSyncService(
+      novitaApiService,
+      redisClient,
+      instanceCache
+    );
+
+    const syncStatus = await startupSyncService.getSyncStatus();
+
+    return {
+      available: true,
+      ...syncStatus
+    };
+  } catch (error) {
+    return {
+      available: false,
+      lastSync: null,
+      isLocked: false,
+      cacheSize: 0,
+      error: (error as Error).message
     };
   }
 }

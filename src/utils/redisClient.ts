@@ -39,6 +39,7 @@ export interface IRedisClient {
   keys(pattern: string): Promise<string[]>;
   ttl(key: string): Promise<number>;
   expire(key: string, ttlMs: number): Promise<boolean>;
+  setNX<T>(key: string, value: T, ttlMs?: number): Promise<boolean>;
   
   // Connection management
   ping(): Promise<string>;
@@ -374,6 +375,24 @@ export class RedisClient implements IRedisClient {
       const result = await client.pexpire(key, ttlMs);
       return result === 1;
     }, 'EXPIRE', key);
+  }
+
+  /**
+   * Set a key only if it doesn't exist (SET if Not eXists)
+   */
+  async setNX<T>(key: string, value: T, ttlMs?: number): Promise<boolean> {
+    return this.executeWithTimeout(async () => {
+      const client = this.connectionManager.getClient();
+      const serializedValue = this.serializer.serialize(value);
+      
+      const options: any = { nx: true };
+      if (ttlMs && ttlMs > 0) {
+        options.px = ttlMs;
+      }
+      
+      const result = await client.set(key, serializedValue, options);
+      return result === 'OK';
+    }, 'SETNX', key);
   }
 
   /**

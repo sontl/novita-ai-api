@@ -136,7 +136,7 @@ class MigrationTestRunner {
     console.log('='.repeat(80));
 
     const passedTests = this.results.filter(r => r.passed);
-    const failedTests = this.results.filter(r => r.failed);
+    const failedTests = this.results.filter(r => !r.passed);
 
     console.log(`Total test suites: ${this.results.length}`);
     console.log(`Passed: ${passedTests.length}`);
@@ -285,7 +285,11 @@ async function main() {
   if (args.length > 0) {
     // Run specific test suite
     const suiteName = args[0];
-    await runner.runSpecificSuite(suiteName);
+    if (suiteName) {
+      await runner.runSpecificSuite(suiteName);
+    } else {
+      await runner.runAllTests();
+    }
   } else {
     // Run all test suites
     await runner.runAllTests();

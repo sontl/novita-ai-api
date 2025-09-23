@@ -218,6 +218,13 @@ export interface EnhancedHealthCheckResponse extends HealthCheckResponse {
     cacheManagerConfig?: any;
     redisHealthStatus?: any;
   };
+  sync?: {
+    available: boolean;
+    lastSync: string | null;
+    isLocked: boolean;
+    cacheSize: number;
+    error?: string;
+  };
 }
 
 export interface NovitaApiResponse<T = any> {

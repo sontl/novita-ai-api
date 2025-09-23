@@ -11,7 +11,7 @@ import { InstanceStatus, InstanceState } from '../types/api';
 
 export class AutoStopService {
   private readonly defaultInactivityThresholdMinutes = 2;
-  private readonly checkIntervalMs = 5 * 60 * 1000; // Check every 5 minutes
+  private readonly checkIntervalMs = 2 * 60 * 1000; // Check every 5 minutes
   private isSchedulerRunning = false;
 
   /**
@@ -116,7 +116,7 @@ export class AutoStopService {
 
     try {
       // Get all instances eligible for auto-stop
-      const eligibleInstances = instanceService.getInstancesEligibleForAutoStop(inactivityThreshold);
+      const eligibleInstances = await instanceService.getInstancesEligibleForAutoStop(inactivityThreshold);
       
       logger.info('Found instances eligible for auto-stop', {
         jobId: payload.jobId,
