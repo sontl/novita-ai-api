@@ -117,6 +117,7 @@ POST /api/cache/clear       # Clear cache
 
 #### Frontend
 - Pure HTML/CSS/JavaScript (no framework dependencies)
+- External JavaScript file (CSP compliant)
 - Responsive design with modern styling
 - Error handling and user feedback
 - Auto-refresh functionality
@@ -128,7 +129,9 @@ POST /api/cache/clear       # Clear cache
 
 #### Static Files
 - `src/public/index.html`: Main UI file
+- `src/public/app.js`: JavaScript functionality
 - Served via Express static middleware
+- CSP compliant (no inline scripts)
 
 ## Usage Examples
 
@@ -219,6 +222,8 @@ curl http://localhost:3000/health
 - Ensure application is running on expected port
 - Check that static files are properly served
 - Verify no firewall blocking access
+- If seeing CSP errors, ensure JavaScript is in external file (not inline)
+- Check browser console for any script loading errors
 
 ### Performance Considerations
 - Large instance counts may increase sync time
