@@ -311,13 +311,31 @@ export class NovitaApiService {
         gpuNum: parseInt(instanceData.gpuNum) || 1,
         rootfsSize: instanceData.rootfsSize || 0,
         billingMode: instanceData.billingMode || 'spot',
-        createdAt: instanceData.createdAt ? new Date(parseInt(instanceData.createdAt) * 1000).toISOString() : new Date().toISOString(),
+        createdAt: this.convertUnixTimestampToISO(instanceData.createdAt) || new Date().toISOString(),
         portMappings: instanceData.portMappings?.map((port: any) => ({
           port: port.port,
           endpoint: port.endpoint || '',
           type: port.type
         })) || []
       };
+
+      // Add optional timestamp fields
+      if (instanceData.lastStartedAt) {
+        const lastStartedAt = this.convertUnixTimestampToISO(instanceData.lastStartedAt);
+        if (lastStartedAt) transformedInstance.lastStartedAt = lastStartedAt;
+      }
+      if (instanceData.lastStoppedAt) {
+        const lastStoppedAt = this.convertUnixTimestampToISO(instanceData.lastStoppedAt);
+        if (lastStoppedAt) transformedInstance.lastStoppedAt = lastStoppedAt;
+      }
+      if (instanceData.startedAt) {
+        const startedAt = this.convertUnixTimestampToISO(instanceData.startedAt);
+        if (startedAt) transformedInstance.startedAt = startedAt;
+      }
+      if (instanceData.stoppedAt) {
+        const stoppedAt = this.convertUnixTimestampToISO(instanceData.stoppedAt);
+        if (stoppedAt) transformedInstance.stoppedAt = stoppedAt;
+      }
 
       logger.info('Instance start initiated', {
         instanceId: transformedInstance.id,
@@ -360,13 +378,31 @@ export class NovitaApiService {
         gpuNum: parseInt(instanceData.gpuNum) || 1,
         rootfsSize: instanceData.rootfsSize || 0,
         billingMode: instanceData.billingMode || 'spot',
-        createdAt: instanceData.createdAt ? new Date(parseInt(instanceData.createdAt) * 1000).toISOString() : new Date().toISOString(),
+        createdAt: this.convertUnixTimestampToISO(instanceData.createdAt) || new Date().toISOString(),
         portMappings: instanceData.portMappings?.map((port: any) => ({
           port: port.port,
           endpoint: port.endpoint,
           type: port.type
         })) || []
       };
+
+      // Add optional timestamp fields
+      if (instanceData.lastStartedAt) {
+        const lastStartedAt = this.convertUnixTimestampToISO(instanceData.lastStartedAt);
+        if (lastStartedAt) transformedInstance.lastStartedAt = lastStartedAt;
+      }
+      if (instanceData.lastStoppedAt) {
+        const lastStoppedAt = this.convertUnixTimestampToISO(instanceData.lastStoppedAt);
+        if (lastStoppedAt) transformedInstance.lastStoppedAt = lastStoppedAt;
+      }
+      if (instanceData.startedAt) {
+        const startedAt = this.convertUnixTimestampToISO(instanceData.startedAt);
+        if (startedAt) transformedInstance.startedAt = startedAt;
+      }
+      if (instanceData.stoppedAt) {
+        const stoppedAt = this.convertUnixTimestampToISO(instanceData.stoppedAt);
+        if (stoppedAt) transformedInstance.stoppedAt = stoppedAt;
+      }
 
       logger.info('Instance fetched successfully', {
         instanceId: transformedInstance.id,
@@ -464,13 +500,31 @@ export class NovitaApiService {
         gpuNum: parseInt(instanceData.gpuNum) || 1,
         rootfsSize: instanceData.rootfsSize || 0,
         billingMode: instanceData.billingMode || 'spot',
-        createdAt: instanceData.createdAt ? new Date(parseInt(instanceData.createdAt) * 1000).toISOString() : new Date().toISOString(),
+        createdAt: this.convertUnixTimestampToISO(instanceData.createdAt) || new Date().toISOString(),
         portMappings: instanceData.portMappings?.map((port: any) => ({
           port: port.port,
           endpoint: port.endpoint || '',
           type: port.type
         })) || []
       };
+
+      // Add optional timestamp fields
+      if (instanceData.lastStartedAt) {
+        const lastStartedAt = this.convertUnixTimestampToISO(instanceData.lastStartedAt);
+        if (lastStartedAt) transformedInstance.lastStartedAt = lastStartedAt;
+      }
+      if (instanceData.lastStoppedAt) {
+        const lastStoppedAt = this.convertUnixTimestampToISO(instanceData.lastStoppedAt);
+        if (lastStoppedAt) transformedInstance.lastStoppedAt = lastStoppedAt;
+      }
+      if (instanceData.startedAt) {
+        const startedAt = this.convertUnixTimestampToISO(instanceData.startedAt);
+        if (startedAt) transformedInstance.startedAt = startedAt;
+      }
+      if (instanceData.stoppedAt) {
+        const stoppedAt = this.convertUnixTimestampToISO(instanceData.stoppedAt);
+        if (stoppedAt) transformedInstance.stoppedAt = stoppedAt;
+      }
 
       logger.info('Instance stop initiated', {
         instanceId: transformedInstance.id,
@@ -628,6 +682,23 @@ export class NovitaApiService {
   }
 
   /**
+   * Convert Unix timestamp to ISO string
+   */
+  private convertUnixTimestampToISO(timestamp: string | number | undefined): string | undefined {
+    if (!timestamp) return undefined;
+    
+    try {
+      const timestampNum = typeof timestamp === 'string' ? parseInt(timestamp) : timestamp;
+      if (isNaN(timestampNum) || timestampNum <= 0) return undefined;
+      
+      return new Date(timestampNum * 1000).toISOString();
+    } catch (error) {
+      logger.warn('Failed to convert timestamp', { timestamp, error: (error as Error).message });
+      return undefined;
+    }
+  }
+
+  /**
    * Transform Novita instances from raw API response to our InstanceResponse format
    */
   private transformNovitaInstances(novitaInstances: NovitaInstanceResponse[]): InstanceResponse[] {
@@ -642,7 +713,7 @@ export class NovitaApiService {
         gpuNum: parseInt(novitaInstance.gpuNum) || 1,
         rootfsSize: novitaInstance.rootfsSize || 0,
         billingMode: novitaInstance.billingMode || 'spot',
-        createdAt: novitaInstance.createdAt || new Date().toISOString(),
+        createdAt: this.convertUnixTimestampToISO(novitaInstance.createdAt) || new Date().toISOString(),
         portMappings: novitaInstance.portMappings?.map(port => ({
           port: port.port,
           endpoint: port.endpoint || '', // Use the actual endpoint from API response
@@ -669,9 +740,25 @@ export class NovitaApiService {
       if (novitaInstance.spotStatus) optionalFields.spotStatus = novitaInstance.spotStatus;
       if (novitaInstance.spotReclaimTime) optionalFields.spotReclaimTime = novitaInstance.spotReclaimTime;
       
-      // Handle additional fields that were missing
-      if (novitaInstance.startedAt) optionalFields.startedAt = novitaInstance.startedAt;
-      if (novitaInstance.stoppedAt) optionalFields.stoppedAt = novitaInstance.stoppedAt;
+      // Handle additional timestamp fields with proper conversion
+      if (novitaInstance.startedAt) {
+        const startedAt = this.convertUnixTimestampToISO(novitaInstance.startedAt);
+        if (startedAt) optionalFields.startedAt = startedAt;
+      }
+      if (novitaInstance.stoppedAt) {
+        const stoppedAt = this.convertUnixTimestampToISO(novitaInstance.stoppedAt);
+        if (stoppedAt) optionalFields.stoppedAt = stoppedAt;
+      }
+      if (novitaInstance.lastStartedAt) {
+        const lastStartedAt = this.convertUnixTimestampToISO(novitaInstance.lastStartedAt);
+        if (lastStartedAt) optionalFields.lastStartedAt = lastStartedAt;
+      }
+      if (novitaInstance.lastStoppedAt) {
+        const lastStoppedAt = this.convertUnixTimestampToISO(novitaInstance.lastStoppedAt);
+        if (lastStoppedAt) optionalFields.lastStoppedAt = lastStoppedAt;
+      }
+      
+      // Handle other additional fields
       if (novitaInstance.gpuIds) optionalFields.gpuIds = novitaInstance.gpuIds;
       if (novitaInstance.templateId !== undefined) optionalFields.templateId = novitaInstance.templateId;
 

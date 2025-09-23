@@ -569,6 +569,12 @@ export class InstanceService {
     if (novitaInstance.spotStatus) enhanced.spotStatus = novitaInstance.spotStatus;
     if (novitaInstance.spotReclaimTime) enhanced.spotReclaimTime = novitaInstance.spotReclaimTime;
 
+    // Add timestamp fields
+    if (novitaInstance.startedAt) enhanced.startedAt = novitaInstance.startedAt;
+    if (novitaInstance.stoppedAt) enhanced.stoppedAt = novitaInstance.stoppedAt;
+    if (novitaInstance.lastStartedAt) enhanced.lastStartedAt = novitaInstance.lastStartedAt;
+    if (novitaInstance.lastStoppedAt) enhanced.lastStoppedAt = novitaInstance.lastStoppedAt;
+
     return enhanced;
   }
 
@@ -748,6 +754,21 @@ export class InstanceService {
       details.connectionDetails = novitaInstance.connectionInfo;
     }
 
+    // Sync timestamps from Novita API response (these are already converted to ISO strings)
+    if (novitaInstance.startedAt) {
+      details.startedAt = novitaInstance.startedAt;
+    }
+    if (novitaInstance.stoppedAt) {
+      details.stoppedAt = novitaInstance.stoppedAt;
+    }
+    if (novitaInstance.lastStartedAt) {
+      details.lastStartedAt = novitaInstance.lastStartedAt;
+    }
+    if (novitaInstance.lastStoppedAt) {
+      details.lastStoppedAt = novitaInstance.lastStoppedAt;
+    }
+
+    // Use local timestamps if available
     if (instanceState.timestamps.ready) {
       details.readyAt = instanceState.timestamps.ready.toISOString();
     }

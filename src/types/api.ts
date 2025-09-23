@@ -95,6 +95,10 @@ export interface InstanceDetails {
   createdAt: string;
   readyAt?: string;
   lastUsedAt?: string;
+  startedAt?: string;
+  stoppedAt?: string;
+  lastStartedAt?: string;
+  lastStoppedAt?: string;
 }
 
 // Enhanced instance details with comprehensive data
@@ -335,7 +339,9 @@ export interface NovitaInstanceResponse {
   spotStatus?: string;
   spotReclaimTime?: string;
   createdAt: string;
-  // Additional fields that may be present in Novita API responses
+  // Additional timestamp fields from Novita API
+  lastStartedAt?: string;
+  lastStoppedAt?: string;
   startedAt?: string;
   stoppedAt?: string;
   gpuIds?: number[];
@@ -365,6 +371,8 @@ export interface InstanceResponse {
   createdAt: string;
   startedAt?: string;
   stoppedAt?: string;
+  lastStartedAt?: string;
+  lastStoppedAt?: string;
   connectionInfo?: {
     ssh?: string;
     jupyter?: string;

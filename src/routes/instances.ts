@@ -863,6 +863,141 @@ router.post('/delete', asyncHandler(async (req: Request, res: Response): Promise
 }));
 
 /**
+ * POST /api/instances/sync
+ * Synchronize local instance state with Novita.ai
+ */
+router.post('/sync', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'sync_instances'
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Instance sync request received');
+
+  const startTime = Date.now();
+  try {
+    // Use comprehensive listing to sync with Novita.ai
+    const result = await instanceService.listInstancesComprehensive({
+      includeNovitaOnly: true,
+      syncLocalState: true
+    });
+
+    const duration = Date.now() - startTime;
+
+    contextLogger.info('Instance sync completed successfully', {
+      totalInstances: result.total,
+      synchronized: result.sources?.novita || 0,
+      merged: result.sources?.merged || 0,
+      duration
+    });
+
+    res.json({
+      success: true,
+      message: 'Instances synchronized successfully',
+      synchronized: result.sources?.novita || 0,
+      deleted: 0, // This would need to be tracked separately if needed
+      total: result.total,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+
+    contextLogger.error('Instance sync failed', {
+      error: (error as Error).message,
+      errorType: (error as Error).name,
+      duration
+    });
+
+    throw error;
+  }
+}));
+
+/**
+ * POST /api/instances/stop-all
+ * Stop all running instances
+ */
+router.post('/stop-all', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const requestId = req.headers['x-request-id'] as string;
+  const correlationId = req.headers['x-correlation-id'] as string;
+
+  const context: LogContext = {
+    requestId,
+    correlationId,
+    operation: 'stop_all_instances'
+  };
+
+  const contextLogger = createContextLogger(context);
+
+  contextLogger.info('Stop all instances request received');
+
+  const startTime = Date.now();
+  try {
+    // Get all running instances
+    const instancesList = await instanceService.listInstances();
+    const runningInstances = instancesList.instances.filter(instance =>
+      instance.status === 'running' || instance.status === 'starting'
+    );
+
+    contextLogger.info('Found running instances to stop', {
+      count: runningInstances.length,
+      instanceIds: runningInstances.map(i => i.id)
+    });
+
+    // Stop each running instance
+    const stopPromises = runningInstances.map(async (instance) => {
+      try {
+        await instanceService.stopInstance(instance.id, {}, 'id');
+        return { instanceId: instance.id, success: true };
+      } catch (error) {
+        contextLogger.warn('Failed to stop individual instance', {
+          instanceId: instance.id,
+          error: (error as Error).message
+        });
+        return { instanceId: instance.id, success: false, error: (error as Error).message };
+      }
+    });
+
+    const results = await Promise.all(stopPromises);
+    const successCount = results.filter(r => r.success).length;
+    const failureCount = results.filter(r => !r.success).length;
+
+    const duration = Date.now() - startTime;
+
+    contextLogger.info('Stop all instances completed', {
+      totalAttempted: runningInstances.length,
+      successful: successCount,
+      failed: failureCount,
+      duration
+    });
+
+    res.json({
+      success: true,
+      message: `Stop initiated for ${successCount} instances`,
+      count: successCount,
+      failed: failureCount,
+      results: results,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+
+    contextLogger.error('Stop all instances failed', {
+      error: (error as Error).message,
+      errorType: (error as Error).name,
+      duration
+    });
+
+    throw error;
+  }
+}));
+
+/**
  * POST /api/instances/migration/check-failed
  * Trigger a check for failed migration jobs and handle them
  */
@@ -959,9 +1094,9 @@ router.get('/migration/scheduler/status', asyncHandler(async (req: Request, res:
   try {
     // Import the service registry to get the scheduler
     const { serviceRegistry } = await import('../services/serviceRegistry');
-    
+
     const failedMigrationScheduler = serviceRegistry.getFailedMigrationScheduler();
-    
+
     if (!failedMigrationScheduler) {
       res.status(404).json({
         success: false,
@@ -1016,13 +1151,13 @@ router.post('/migration/scheduler/trigger', asyncHandler(async (req: Request, re
   contextLogger.info('Failed migration scheduler trigger request received');
 
   const startTime = Date.now();
-  
+
   try {
     // Import the service registry to get the scheduler
     const { serviceRegistry } = await import('../services/serviceRegistry');
-    
+
     const failedMigrationScheduler = serviceRegistry.getFailedMigrationScheduler();
-    
+
     if (!failedMigrationScheduler) {
       throw new Error('Failed migration scheduler not initialized');
     }

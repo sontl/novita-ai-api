@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import path from 'path';
 import { config, getConfigSummary } from './config/config';
 import { logger, createContextLogger } from './utils/logger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
@@ -84,6 +85,11 @@ app.use(requestLoggerMiddleware);
 
 // Serve static files for UI
 app.use(express.static('src/public'));
+
+// Serve app.js specifically
+app.get('/app.js', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/app.js'));
+});
 
 // Routes
 app.use('/health', healthRouter);
