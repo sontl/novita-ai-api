@@ -44,7 +44,7 @@ services:
     
     # Production health check (more frequent)
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
       interval: 15s
       timeout: 5s
       retries: 5

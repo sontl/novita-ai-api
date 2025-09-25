@@ -34,7 +34,7 @@ timeout=60
 counter=0
 
 while [ $counter -lt $timeout ]; do
-    if docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec -T novita-gpu-api curl -f http://localhost:3000/health > /dev/null 2>&1; then
+    if docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec -T novita-gpu-api curl -f http://localhost:3003/health > /dev/null 2>&1; then
         echo "✅ Service is healthy and ready!"
         break
     fi
@@ -56,9 +56,9 @@ echo "📊 Deployment Status:"
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
 
 echo "🎉 Production deployment completed successfully!"
-echo "🌐 Service available at: http://localhost:3000"
-echo "❤️  Health check: http://localhost:3000/health"
-echo "📊 Metrics: http://localhost:3000/metrics"
+echo "🌐 Service available at: http://localhost:3003"
+echo "❤️  Health check: http://localhost:3003/health"
+echo "📊 Metrics: http://localhost:3003/metrics"
 echo ""
 echo "📋 To view logs: docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f"
 echo "🛑 To stop: docker-compose -f docker-compose.yml -f docker-compose.prod.yml down"

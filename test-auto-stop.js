@@ -4,7 +4,7 @@
 
 const axios = require('axios');
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'http://localhost:3003';
 
 async function testAutoStopFeature() {
   try {

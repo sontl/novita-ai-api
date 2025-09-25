@@ -171,6 +171,12 @@ async function checkDependencyDetails(): Promise<Record<string, any>> {
  */
 async function checkNovitaApiHealth(): Promise<boolean> {
   try {
+    // In development mode, skip the actual API call to avoid blocking health checks
+    if (process.env.NODE_ENV === 'development') {
+      logger.debug('Skipping Novita API health check in development mode');
+      return true;
+    }
+
     // Try to fetch products as a simple connectivity test
     // Use a timeout to avoid hanging the health check
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -234,6 +240,17 @@ async function checkNovitaApiHealthDetailed(): Promise<any> {
   const startTime = Date.now();
 
   try {
+    // In development mode, return a mock healthy status
+    if (process.env.NODE_ENV === 'development') {
+      const responseTime = Date.now() - startTime;
+      return {
+        status: 'up',
+        responseTime,
+        lastChecked: new Date().toISOString(),
+        note: 'Development mode - API check skipped'
+      };
+    }
+
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('Health check timeout')), 5000);
     });

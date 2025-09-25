@@ -42,9 +42,9 @@ export class MigrationTrackingService {
       }
 
       const value = migrationTime.toISOString();
-      
+
       await cache.set(instanceId, value);
-      
+
       logger.debug('Migration time recorded', {
         instanceId,
         migrationTime: value
@@ -69,7 +69,7 @@ export class MigrationTrackingService {
       }
 
       const value = await cache.get(instanceId);
-      
+
       if (!value) {
         logger.debug('No migration time found for instance', { instanceId });
         return null;
@@ -80,7 +80,7 @@ export class MigrationTrackingService {
         instanceId,
         migrationTime: migrationTime.toISOString()
       });
-      
+
       return migrationTime;
     } catch (error) {
       logger.error('Failed to get migration time', {
@@ -94,17 +94,20 @@ export class MigrationTrackingService {
   /**
    * Calculate hours since last migration
    */
-  async getHoursSinceLastMigration(instanceId: string): Promise<number | null> {
-    const lastMigrationTime = await this.getLastMigrationTime(instanceId);
-    
+  async getHoursSinceLastMigration(instanceId: string): Promise<number> {
+    let lastMigrationTime = await this.getLastMigrationTime(instanceId);
+
     if (!lastMigrationTime) {
-      return null;
+      // If no migration time found, set it to now so migration can happen on next check
+      const now = new Date();
+      await this.recordMigrationTime(instanceId, now);
+      return 0;
     }
 
     const now = new Date();
     const diffMs = now.getTime() - lastMigrationTime.getTime();
     const diffHours = diffMs / (1000 * 60 * 60);
-    
+
     return Math.floor(diffHours * 100) / 100; // Round to 2 decimal places
   }
 
@@ -113,20 +116,11 @@ export class MigrationTrackingService {
    */
   async isEligibleByTime(instanceId: string, requiredIntervalHours: number): Promise<{
     eligible: boolean;
-    hoursSinceLastMigration: number | null;
+    hoursSinceLastMigration: number;
     lastMigrationTime: Date | null;
   }> {
     const lastMigrationTime = await this.getLastMigrationTime(instanceId);
     const hoursSinceLastMigration = await this.getHoursSinceLastMigration(instanceId);
-
-    // If no previous migration time, instance is eligible
-    if (lastMigrationTime === null || hoursSinceLastMigration === null) {
-      return {
-        eligible: true,
-        hoursSinceLastMigration,
-        lastMigrationTime
-      };
-    }
 
     // Check if enough time has passed
     const eligible = hoursSinceLastMigration >= requiredIntervalHours;
@@ -150,7 +144,7 @@ export class MigrationTrackingService {
       }
 
       await cache.delete(instanceId);
-      
+
       logger.debug('Migration time cleared', { instanceId });
     } catch (error) {
       logger.error('Failed to clear migration time', {

@@ -10,16 +10,20 @@ services:
     container_name: novita-gpu-instance-api
     restart: unless-stopped
     ports:
-      - "${PORT:-3000}:3000"
+      - "${PORT:-3003}:3003"
+    env_file:
+      - .env
     environment:
       # Core Configuration
-      - NODE_ENV=${NODE_ENV:-production}
-      - PORT=3000
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=3003
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
       
       # Novita.ai API Configuration (Required)
       - NOVITA_API_KEY=${NOVITA_API_KEY:?NOVITA_API_KEY is required}
-      - NOVITA_API_BASE_URL=${NOVITA_API_BASE_URL:-https://api.novita.ai}
+      - NOVITA_API_BASE_URL=${NOVITA_API_BASE_URL:-https://api.novita.ai/gpu-instance/openapi}
+      - NOVITA_INTERNAL_API_KEY=${NOVITA_INTERNAL_API_KEY:?NOVITA_INTERNAL_API_KEY is required}
+      - NOVITA_INTERNAL_API_BASE_URL=${NOVITA_INTERNAL_API_BASE_URL:-https://api-server.novita.ai}
       
       # Webhook Configuration (Optional)
       - WEBHOOK_URL=${WEBHOOK_URL:-}
@@ -39,6 +43,40 @@ services:
       - ENABLE_HELMET=${ENABLE_HELMET:-true}
       - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-900000}
       - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-100}
+      
+      # Redis Configuration (Required for persistence)
+      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL:?UPSTASH_REDIS_REST_URL is required}
+      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN:?UPSTASH_REDIS_REST_TOKEN is required}
+      - REDIS_CONNECTION_TIMEOUT_MS=${REDIS_CONNECTION_TIMEOUT_MS:-10000}
+      - REDIS_COMMAND_TIMEOUT_MS=${REDIS_COMMAND_TIMEOUT_MS:-5000}
+      - REDIS_RETRY_ATTEMPTS=${REDIS_RETRY_ATTEMPTS:-3}
+      - REDIS_RETRY_DELAY_MS=${REDIS_RETRY_DELAY_MS:-1000}
+      - REDIS_KEY_PREFIX=${REDIS_KEY_PREFIX:-novita_api}
+      - REDIS_ENABLE_FALLBACK=${REDIS_ENABLE_FALLBACK:-true}
+      
+      # Health Check Configuration
+      - HEALTH_CHECK_TIMEOUT_MS=${HEALTH_CHECK_TIMEOUT_MS:-10000}
+      - HEALTH_CHECK_RETRY_ATTEMPTS=${HEALTH_CHECK_RETRY_ATTEMPTS:-3}
+      - HEALTH_CHECK_RETRY_DELAY_MS=${HEALTH_CHECK_RETRY_DELAY_MS:-2000}
+      - HEALTH_CHECK_MAX_WAIT_TIME_MS=${HEALTH_CHECK_MAX_WAIT_TIME_MS:-300000}
+      
+      # Migration Configuration
+      - MIGRATION_ENABLED=${MIGRATION_ENABLED:-true}
+      - MIGRATION_INTERVAL_MINUTES=${MIGRATION_INTERVAL_MINUTES:-3}
+      - MIGRATION_JOB_TIMEOUT_MS=${MIGRATION_JOB_TIMEOUT_MS:-600000}
+      - MIGRATION_MAX_CONCURRENT=${MIGRATION_MAX_CONCURRENT:-5}
+      - MIGRATION_DRY_RUN=${MIGRATION_DRY_RUN:-false}
+      - MIGRATION_RETRY_FAILED=${MIGRATION_RETRY_FAILED:-true}
+      - MIGRATION_LOG_LEVEL=${MIGRATION_LOG_LEVEL:-info}
+      
+      # Instance Startup Configuration
+      - INSTANCE_STARTUP_MAX_WAIT_TIME=${INSTANCE_STARTUP_MAX_WAIT_TIME:-600000}
+      - INSTANCE_STARTUP_HEALTH_CHECK_TIMEOUT_MS=${INSTANCE_STARTUP_HEALTH_CHECK_TIMEOUT_MS:-10000}
+      - INSTANCE_STARTUP_HEALTH_CHECK_RETRY_ATTEMPTS=${INSTANCE_STARTUP_HEALTH_CHECK_RETRY_ATTEMPTS:-3}
+      - INSTANCE_STARTUP_HEALTH_CHECK_RETRY_DELAY_MS=${INSTANCE_STARTUP_HEALTH_CHECK_RETRY_DELAY_MS:-2000}
+      - INSTANCE_STARTUP_HEALTH_CHECK_MAX_WAIT_TIME_MS=${INSTANCE_STARTUP_HEALTH_CHECK_MAX_WAIT_TIME_MS:-300000}
+      - INSTANCE_STARTUP_ENABLE_NAME_LOOKUP=${INSTANCE_STARTUP_ENABLE_NAME_LOOKUP:-true}
+      - INSTANCE_STARTUP_OPERATION_TIMEOUT_MS=${INSTANCE_STARTUP_OPERATION_TIMEOUT_MS:-900000}
     
     volumes:
       # Persistent logs directory
@@ -47,7 +85,7 @@ services:
       # - ./config:/app/config:ro
     
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
       interval: 30s
       timeout: 10s
       retries: 3

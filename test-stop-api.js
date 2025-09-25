@@ -1,7 +1,7 @@
 // Simple test script to verify the stop API endpoints
 const axios = require('axios');
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'http://localhost:3003';
 
 async function testStopAPI() {
   console.log('Testing Stop API endpoints...\n');

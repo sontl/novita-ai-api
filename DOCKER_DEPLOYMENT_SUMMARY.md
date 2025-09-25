@@ -108,7 +108,7 @@ Both development and production configurations have been validated:
 
 ### Optional (with defaults)
 - `NODE_ENV`: Environment mode (production)
-- `PORT`: Server port (3000)
+- `PORT`: Server port (3003)
 - `LOG_LEVEL`: Logging level (info)
 - `WEBHOOK_URL`: Webhook endpoint URL
 - `DEFAULT_REGION`: Default Novita.ai region (CN-HK-01)
@@ -143,7 +143,7 @@ Both development and production configurations have been validated:
 ## Network Configuration
 
 - **Network**: `novita-network` (bridge)
-- **Port**: 3000 (configurable via PORT env var)
+- **Port**: 3003 (configurable via PORT env var)
 - **Bridge Name**: `novita-br0`
 
 ## Logging

@@ -259,7 +259,7 @@ export const configSchema = Joi.object({
     .integer()
     .min(1)
     .max(65535)
-    .default(3000)
+    .default(3003)
     .messages({
       'number.min': 'PORT must be at least 1',
       'number.max': 'PORT must be at most 65535',

@@ -28,7 +28,7 @@ timeout=30
 counter=0
 
 while [ $counter -lt $timeout ]; do
-    if curl -f http://localhost:3000/health > /dev/null 2>&1; then
+    if curl -f http://localhost:3003/health > /dev/null 2>&1; then
         echo "✅ Service is ready!"
         break
     fi
@@ -50,9 +50,9 @@ echo "📊 Development Status:"
 docker-compose ps
 
 echo "🎉 Development deployment completed successfully!"
-echo "🌐 Service available at: http://localhost:3000"
-echo "❤️  Health check: http://localhost:3000/health"
-echo "📊 Metrics: http://localhost:3000/metrics"
+echo "🌐 Service available at: http://localhost:3003"
+echo "❤️  Health check: http://localhost:3003/health"
+echo "📊 Metrics: http://localhost:3003/metrics"
 echo ""
 echo "📋 To view logs: docker-compose logs -f"
 echo "🛑 To stop: docker-compose down"

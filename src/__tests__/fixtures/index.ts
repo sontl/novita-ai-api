@@ -313,7 +313,7 @@ export const mockWebhookPayloads = {
  */
 export const mockConfig = {
   nodeEnv: 'test',
-  port: 3000,
+  port: 3003,
   logLevel: 'error',
   novita: {
     apiKey: 'test-api-key-12345',

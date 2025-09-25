@@ -10,7 +10,7 @@ services:
     
     # Example: Custom port mapping
     ports:
-      - "8080:3000"  # Map to port 8080 instead of 3000
+      - "8080:3003"  # Map to port 8080 instead of 3003
     
     # Example: Additional environment variables
     environment:
@@ -36,7 +36,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.novita-api.rule=Host(`api.example.com`)"
-      - "traefik.http.services.novita-api.loadbalancer.server.port=3000"
+      - "traefik.http.services.novita-api.loadbalancer.server.port=3003"
 
   # Example: Add reverse proxy
   nginx:

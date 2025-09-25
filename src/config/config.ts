@@ -263,7 +263,7 @@ class ConfigLoader {
       
       PORT: Joi.number()
         .port()
-        .default(3000)
+        .default(3003)
         .description('Server port number'),
       
       LOG_LEVEL: Joi.string()
@@ -702,7 +702,7 @@ export const config = process.env.NODE_ENV === 'test' && process.env.FORCE_CONFI
 function createTestConfig(): Config {
   return {
     nodeEnv: 'test',
-    port: 3000,
+    port: 3003,
     logLevel: 'error',
     novita: {
       apiKey: 'test-api-key',

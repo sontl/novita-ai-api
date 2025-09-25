@@ -7,7 +7,7 @@
 
 const axios = require('axios');
 
-const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3000';
+const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3003';
 const instanceId = process.argv[2];
 
 if (!instanceId) {
