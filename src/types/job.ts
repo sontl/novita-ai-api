@@ -80,17 +80,14 @@ export interface MigrationEligibilityResult {
   eligible: boolean;
   reason: string;
   instanceId: string;
-  spotStatus?: string;
-  spotReclaimTime?: string;
-  gpuIds?: number[];
+  lastMigrationTime?: string | undefined;
+  hoursSinceLastMigration?: number | undefined;
 }
 
 export interface MigrationAttempt {
   instanceId: string;
   instanceName: string;
   status: import('./api').InstanceStatus;
-  spotStatus?: string;
-  spotReclaimTime?: string;
   eligibilityCheck: MigrationEligibilityResult;
   migrationResult?: {
     success: boolean;

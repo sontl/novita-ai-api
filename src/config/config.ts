@@ -68,6 +68,7 @@ export interface Config {
     readonly dryRunMode: boolean;
     readonly retryFailedMigrations: boolean;
     readonly logLevel: string;
+    readonly eligibilityIntervalHours: number;
   };
   readonly instanceStartup: {
     readonly defaultMaxWaitTime: number;
@@ -224,6 +225,7 @@ class ConfigLoader {
         dryRunMode: envVars.MIGRATION_DRY_RUN,
         retryFailedMigrations: envVars.MIGRATION_RETRY_FAILED,
         logLevel: envVars.MIGRATION_LOG_LEVEL,
+        eligibilityIntervalHours: envVars.MIGRATION_ELIGIBILITY_INTERVAL_HOURS,
       },
       instanceStartup: {
         defaultMaxWaitTime: envVars.INSTANCE_STARTUP_MAX_WAIT_TIME,
@@ -476,6 +478,13 @@ class ConfigLoader {
         .valid('error', 'warn', 'info', 'debug')
         .default('info')
         .description('Migration-specific log level'),
+      
+      MIGRATION_ELIGIBILITY_INTERVAL_HOURS: Joi.number()
+        .integer()
+        .min(1)
+        .max(168)
+        .default(4)
+        .description('Hours after last migration before instance becomes eligible again (1-168)'),
       
       // Instance Startup Configuration
       INSTANCE_STARTUP_MAX_WAIT_TIME: Joi.number()
@@ -740,6 +749,7 @@ function createTestConfig(): Config {
       dryRunMode: false,
       retryFailedMigrations: true,
       logLevel: 'info',
+      eligibilityIntervalHours: 4,
     },
     instanceStartup: {
       defaultMaxWaitTime: 600000, // 10 minutes
