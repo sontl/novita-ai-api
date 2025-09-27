@@ -4,6 +4,7 @@ import { cacheManager } from '../services/cacheService';
 import { instanceService } from '../services/instanceService';
 import { productService } from '../services/productService';
 import { templateService } from '../services/templateService';
+import { serviceRegistry } from '../services/serviceRegistry';
 
 const router = Router();
 
@@ -11,15 +12,15 @@ const router = Router();
  * GET /api/cache/stats
  * Get comprehensive cache statistics for monitoring
  */
-router.get('/stats', (req: Request, res: Response) => {
+router.get('/stats', async (req: Request, res: Response) => {
   try {
-    const allCacheStats = cacheManager.getAllStats();
+    const allCacheStats = await cacheManager.getAllStats();
     const allCacheMetrics = cacheManager.getAllMetrics();
     
     // Get service-specific cache stats
-    const instanceStats = instanceService.getCacheStats();
-    const productStats = productService.getCacheStats();
-    const templateStats = templateService.getCacheStats();
+    const instanceStats = await instanceService.getCacheStats();
+    const productStats = await productService.getCacheStats();
+    const templateStats = await templateService.getCacheStats();
     
     const response = {
       timestamp: new Date().toISOString(),
@@ -72,14 +73,14 @@ router.get('/stats', (req: Request, res: Response) => {
  * POST /api/cache/clear
  * Clear all caches or specific cache by name
  */
-router.post('/clear', (req: Request, res: Response) => {
+router.post('/clear', async (req: Request, res: Response) => {
   try {
     const { cacheName } = req.body;
 
     if (cacheName && typeof cacheName === 'string') {
       // Clear specific cache
-      const cache = cacheManager.getCache(cacheName);
-      cache.clear();
+      const cache = await cacheManager.getCache(cacheName);
+      await cache.clear();
       
       logger.info('Specific cache cleared', { cacheName });
       
@@ -89,12 +90,12 @@ router.post('/clear', (req: Request, res: Response) => {
       });
     } else {
       // Clear all caches
-      cacheManager.clearAll();
+      await cacheManager.clearAll();
       
       // Also clear service-specific caches
-      instanceService.clearCache();
-      productService.clearCache();
-      templateService.clearCache();
+      await instanceService.clearCache();
+      await productService.clearCache();
+      await templateService.clearCache();
       
       logger.info('All caches cleared');
       
@@ -122,14 +123,14 @@ router.post('/clear', (req: Request, res: Response) => {
  * POST /api/cache/cleanup
  * Clean up expired entries from all caches
  */
-router.post('/cleanup', (req: Request, res: Response) => {
+router.post('/cleanup', async (req: Request, res: Response) => {
   try {
-    const totalCleaned = cacheManager.cleanupAllExpired();
+    const totalCleaned = await cacheManager.cleanupAllExpired();
     
     // Also cleanup service-specific caches
-    instanceService.clearExpiredCache();
-    productService.clearExpiredCache();
-    templateService.clearExpiredCache();
+    await instanceService.clearExpiredCache();
+    await productService.clearExpiredCache();
+    await templateService.clearExpiredCache();
     
     logger.info('Cache cleanup completed', { totalCleaned });
     
@@ -153,10 +154,55 @@ router.post('/cleanup', (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/cache/hard-reset
+ * Delete all data from Redis database (DANGEROUS OPERATION)
+ */
+router.post('/hard-reset', async (req: Request, res: Response) => {
+  try {
+    // Get the Redis client instance from the service registry
+    const redisClient = serviceRegistry.getRedisClient();
+    
+    if (!redisClient) {
+      return res.status(500).json({
+        error: {
+          code: 'REDIS_NOT_AVAILABLE',
+          message: 'Redis client is not available',
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+    
+    // Get the underlying Redis connection to execute flushall
+    const client = (redisClient as any).connectionManager.getClient();
+    
+    // Flush all data from Redis
+    await client.flushall();
+    
+    logger.warn('Hard reset executed - ALL Redis data deleted');
+    
+    res.json({
+      message: 'Hard reset completed successfully. All Redis data has been deleted.',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Hard reset failed', {
+      error: (error as Error).message
+    });
+    res.status(500).json({
+      error: {
+        code: 'HARD_RESET_ERROR',
+        message: 'Failed to execute hard reset',
+        timestamp: new Date().toISOString()
+      }
+    });
+  }
+});
+
+/**
  * GET /api/cache/:cacheName/stats
  * Get statistics for a specific cache
  */
-router.get('/:cacheName/stats', (req: Request, res: Response) => {
+router.get('/:cacheName/stats', async (req: Request, res: Response) => {
   try {
     const { cacheName } = req.params;
     
@@ -170,14 +216,14 @@ router.get('/:cacheName/stats', (req: Request, res: Response) => {
       });
     }
     
-    const cache = cacheManager.getCache(cacheName);
-    const stats = cache.getStats();
+    const cache = await cacheManager.getCache(cacheName);
+    const stats = await cache.getStats();
     const metrics = cache.getMetrics();
     
     const response = {
       cacheName,
       timestamp: new Date().toISOString(),
-      size: cache.size(),
+      size: await cache.size(),
       hitRatio: cache.getHitRatio(),
       stats,
       metrics
@@ -205,7 +251,7 @@ router.get('/:cacheName/stats', (req: Request, res: Response) => {
  * DELETE /api/cache/:cacheName/:key
  * Delete specific key from cache
  */
-router.delete('/:cacheName/:key', (req: Request, res: Response) => {
+router.delete('/:cacheName/:key', async (req: Request, res: Response) => {
   try {
     const { cacheName, key } = req.params;
     
@@ -229,8 +275,8 @@ router.delete('/:cacheName/:key', (req: Request, res: Response) => {
       });
     }
     
-    const cache = cacheManager.getCache(cacheName);
-    const deleted = cache.delete(key);
+    const cache = await cacheManager.getCache(cacheName);
+    const deleted = await cache.delete(key);
     
     if (deleted) {
       logger.debug('Cache key deleted', { cacheName, key });

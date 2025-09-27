@@ -2,6 +2,15 @@ let refreshInterval;
 
 // Initialize the dashboard
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing dashboard'); // Debug log
+    
+    // Attach event listeners to buttons
+    document.getElementById('refresh-data-btn').addEventListener('click', refreshData);
+    document.getElementById('sync-instances-btn').addEventListener('click', syncInstances);
+    document.getElementById('clear-cache-btn').addEventListener('click', clearCache);
+    document.getElementById('stop-all-instances-btn').addEventListener('click', stopAllInstances);
+    document.getElementById('hard-reset-btn').addEventListener('click', hardReset);
+    
     refreshData();
     // Auto-refresh every 30 seconds
     refreshInterval = setInterval(refreshData, 30000);
@@ -157,6 +166,31 @@ async function manageInstance(instanceId, currentStatus) {
         }
     } catch (error) {
         showError(`Failed to ${action} instance: ` + error.message);
+    }
+}
+
+async function hardReset() {
+    console.log('Hard Reset function called'); // Debug log
+    if (!confirm('WARNING: This will delete ALL data from the Redis database. This action cannot be undone. Are you sure you want to proceed?')) {
+        console.log('Hard Reset cancelled by user'); // Debug log
+        return;
+    }
+    
+    console.log('Hard Reset confirmed by user'); // Debug log
+    try {
+        const response = await fetch('/api/cache/hard-reset', { method: 'POST' });
+        const data = await response.json();
+        console.log('Hard Reset API response:', data); // Debug log
+        
+        if (response.ok) {
+            showSuccess('Hard reset completed successfully. All Redis data has been deleted.');
+            await refreshData();
+        } else {
+            showError('Hard reset failed: ' + (data.message || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Hard Reset error:', error); // Debug log
+        showError('Hard reset failed: ' + error.message);
     }
 }
 
