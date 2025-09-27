@@ -33,6 +33,7 @@ import {
 import { InstanceNotFoundError, InstanceNotStartableError } from '../utils/errorHandler';
 import { JobPriority, CreateInstanceJobPayload, JobType as JobTypeEnum } from '../types/job';
 import { cacheManager } from './cacheService';
+import { ICacheService } from './redisCacheManager';
 import { log } from 'console';
 
 export class InstanceService {
@@ -647,8 +648,8 @@ export class InstanceService {
 
     // Handle obsolete instances (exist in Redis but not in Novita)
     const obsoletePromises = Array.from(this.instanceStates.values())
-      .filter(localState => 
-        localState.novitaInstanceId && 
+      .filter(localState =>
+        localState.novitaInstanceId &&
         !novitaInstanceMap.has(localState.novitaInstanceId)
       )
       .map(async (obsoleteState) => {
@@ -657,14 +658,14 @@ export class InstanceService {
           if (this.shouldRemoveObsoleteInstance(obsoleteState)) {
             await this.removeInstanceState(obsoleteState.id);
             removedCount++;
-            
+
             logger.info('Removed obsolete instance from Redis', {
               instanceId: obsoleteState.id,
               novitaInstanceId: obsoleteState.novitaInstanceId,
               lastStatus: obsoleteState.status,
               reason: 'Instance no longer exists in Novita'
             });
-          } 
+          }
           // Option 2: Mark as obsolete/terminated in Redis
           else {
             await this.updateInstanceState(obsoleteState.id, {
@@ -713,16 +714,16 @@ export class InstanceService {
    */
   private shouldRemoveObsoleteInstance(instanceState: InstanceState): boolean {
     const configData = config;
-    
+
     // Always remove if configured to do so
     if (configData.sync?.removeObsoleteInstances === true) {
       return true;
     }
 
     // Remove instances that were never successfully started
-    if (instanceState.status === InstanceStatus.CREATING || 
-        instanceState.status === InstanceStatus.CREATED ||
-        instanceState.status === InstanceStatus.STARTING) {
+    if (instanceState.status === InstanceStatus.CREATING ||
+      instanceState.status === InstanceStatus.CREATED ||
+      instanceState.status === InstanceStatus.STARTING) {
       return true;
     }
 
@@ -1012,7 +1013,7 @@ export class InstanceService {
   }> {
     const cache = await this.instanceCache;
     const stateCache = await this.instanceStateCache;
-    
+
     return {
       instanceDetailsCache: {
         size: await cache.size(),
@@ -1149,7 +1150,7 @@ export class InstanceService {
       // Step 2: Evaluate each instance for auto-stop eligibility
       for (const instanceState of allInstanceStates) {
         try {
-          logger.debug( 
+          logger.debug(
             'Evaluating instance for auto-stop eligibility',
             {
               instanceId: instanceState.id,
@@ -1160,7 +1161,7 @@ export class InstanceService {
               timestamps: instanceState.timestamps
             }
           )
-          
+
           // Only consider running instances
           if (instanceState.status !== InstanceStatus.RUNNING) {
             continue;
@@ -1170,14 +1171,14 @@ export class InstanceService {
           this.validateAndFixTimestamps(instanceState);
 
           // Check if instance has a last used time, with fallback handling for invalid dates
-          let lastUsedTime = instanceState.timestamps.lastUsed || 
-                            instanceState.timestamps.started || 
-                            instanceState.timestamps.created;
-          
+          let lastUsedTime = instanceState.timestamps.lastUsed ||
+            instanceState.timestamps.started ||
+            instanceState.timestamps.created;
+
           // Handle invalid dates by setting lastUsed to now and updating the state
           if (!lastUsedTime || isNaN(lastUsedTime.getTime())) {
             const currentTime = new Date();
-            
+
             logger.warn('Instance has invalid timestamp, setting lastUsed to current time', {
               instanceId: instanceState.id,
               name: instanceState.name,
@@ -1192,8 +1193,8 @@ export class InstanceService {
                 ...instanceState.timestamps,
                 lastUsed: currentTime,
                 // Ensure created timestamp is valid
-                created: instanceState.timestamps.created && !isNaN(instanceState.timestamps.created.getTime()) 
-                  ? instanceState.timestamps.created 
+                created: instanceState.timestamps.created && !isNaN(instanceState.timestamps.created.getTime())
+                  ? instanceState.timestamps.created
                   : currentTime
               }
             });
@@ -1201,7 +1202,7 @@ export class InstanceService {
             // Set lastUsedTime to current time so it won't be eligible for auto-stop this round
             lastUsedTime = currentTime;
           }
-          
+
           if (!lastUsedTime) {
             // If still no lastUsedTime after fallback, always consider it eligible for auto-stop
             // This ensures instances without usage tracking are included
@@ -1215,7 +1216,7 @@ export class InstanceService {
           } else {
             // Check if last used time exceeds threshold
             const timeSinceLastUse = now - lastUsedTime.getTime();
-            
+
             if (timeSinceLastUse > thresholdMs) {
               eligibleInstances.push(instanceState);
 
@@ -1287,10 +1288,10 @@ export class InstanceService {
       // Step 2: Add in-memory states (these might be newer or not yet persisted)
       for (const [instanceId, instanceState] of this.instanceStates.entries()) {
         const existingState = allInstanceStates.get(instanceId);
-        
+
         // Use in-memory state if it's newer or doesn't exist in Redis
-        if (!existingState || 
-            instanceState.timestamps.created.getTime() > existingState.timestamps.created.getTime()) {
+        if (!existingState ||
+          instanceState.timestamps.created.getTime() > existingState.timestamps.created.getTime()) {
           allInstanceStates.set(instanceId, instanceState);
         }
       }
@@ -1320,7 +1321,7 @@ export class InstanceService {
               });
 
               matchingState.status = novitaInstance.status;
-              
+
               // Update timestamps based on status
               if (novitaInstance.status === InstanceStatus.RUNNING && !matchingState.timestamps.started) {
                 matchingState.timestamps.started = new Date();
@@ -1363,7 +1364,7 @@ export class InstanceService {
       logger.error('Failed to sync instance states', {
         error: (error as Error).message
       });
-      
+
       // Return in-memory states as fallback
       return Array.from(this.instanceStates.values());
     }
@@ -1455,7 +1456,7 @@ export class InstanceService {
       });
 
       await Promise.allSettled(persistPromises);
-      
+
       logger.debug('Persisted instance states to Redis', { count: states.length });
     } catch (error) {
       logger.error('Failed to persist instance states to Redis', {
@@ -1506,7 +1507,7 @@ export class InstanceService {
       // If not found in memory, try Redis
       const redisStates = await this.loadInstanceStatesFromRedis();
       const matchingState = redisStates.find(state => state.name === instanceName);
-      
+
       if (matchingState) {
         // Load the state into memory first
         this.instanceStates.set(matchingState.id, matchingState);
@@ -1688,10 +1689,10 @@ export class InstanceService {
       // Validate and fix timestamps before processing
       this.validateAndFixTimestamps(instanceState);
 
-      const lastUsedTime = instanceState.timestamps.lastUsed || 
-                          instanceState.timestamps.started || 
-                          instanceState.timestamps.created;
-      
+      const lastUsedTime = instanceState.timestamps.lastUsed ||
+        instanceState.timestamps.started ||
+        instanceState.timestamps.created;
+
       if (!lastUsedTime || (now - lastUsedTime.getTime() > thresholdMs)) {
         eligibleInstances.push(instanceState);
       }

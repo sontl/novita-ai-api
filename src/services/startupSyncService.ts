@@ -6,6 +6,7 @@
 import { logger } from '../utils/logger';
 import { NovitaApiService } from './novitaApiService';
 import { RedisCacheService } from './redisCacheService';
+import { RedisBulkOperationsService, BulkSetData } from './redisBulkOperationsService';
 import { InstanceResponse, InstanceStatus } from '../types/api';
 import { IRedisClient } from '../utils/redisClient';
 
@@ -25,7 +26,8 @@ export class StartupSyncService {
   constructor(
     private readonly novitaApiService: NovitaApiService,
     private readonly redisClient: IRedisClient,
-    private readonly instanceCache: RedisCacheService<InstanceResponse>
+    private readonly instanceCache: RedisCacheService<InstanceResponse>,
+    private readonly bulkOperations: RedisBulkOperationsService = new RedisBulkOperationsService(redisClient)
   ) {}
 
   /**
@@ -79,43 +81,42 @@ export class StartupSyncService {
           cachedInstances.map(instance => [instance.id, instance])
         );
 
-        // Synchronize instances: update existing and add new ones
-        for (const novitaInstance of novitaInstances) {
-          try {
-            await this.instanceCache.set(novitaInstance.id, novitaInstance);
-            result.synchronized++;
+        // Prepare bulk operations data
+        const bulkUpdates: BulkSetData<InstanceResponse>[] = novitaInstances.map(instance => {
+          // Always include ttl property to satisfy exactOptionalPropertyTypes
+          return {
+            key: instance.id,
+            value: instance,
+            ttl: 5 * 60 * 1000 // 5 minutes default TTL
+          };
+        });
 
-            logger.debug('Synchronized instance', {
-              instanceId: novitaInstance.id,
-              name: novitaInstance.name,
-              status: novitaInstance.status
-            });
-          } catch (error) {
-            const errorMsg = `Failed to sync instance ${novitaInstance.id}: ${error instanceof Error ? error.message : String(error)}`;
-            logger.error(errorMsg);
-            result.errors.push(errorMsg);
-          }
-        }
+        const orphanedKeys = cachedInstances
+          .filter(cachedInstance => !novitaInstanceMap.has(cachedInstance.id))
+          .map(instance => instance.id);
 
-        // Remove instances from Redis that no longer exist in Novita.ai
-        for (const cachedInstance of cachedInstances) {
-          if (!novitaInstanceMap.has(cachedInstance.id)) {
-            try {
-              await this.instanceCache.delete(cachedInstance.id);
-              result.deleted++;
+        // Execute bulk operations - significantly reduces Redis commands
+        const bulkResult = await this.bulkOperations.bulkSyncCache(bulkUpdates, orphanedKeys);
 
-              logger.info('Deleted orphaned instance from cache', {
-                instanceId: cachedInstance.id,
-                name: cachedInstance.name,
-                lastStatus: cachedInstance.status
-              });
-            } catch (error) {
-              const errorMsg = `Failed to delete orphaned instance ${cachedInstance.id}: ${error instanceof Error ? error.message : String(error)}`;
-              logger.error(errorMsg);
-              result.errors.push(errorMsg);
-            }
-          }
-        }
+        // Update results
+        result.synchronized = bulkResult.updates.successful;
+        result.deleted = bulkResult.deletions.successful;
+        result.errors.push(...bulkResult.updates.errors, ...bulkResult.deletions.errors);
+
+        logger.info('Bulk synchronization completed', {
+          updates: {
+            attempted: bulkUpdates.length,
+            successful: bulkResult.updates.successful,
+            failed: bulkResult.updates.failed
+          },
+          deletions: {
+            attempted: orphanedKeys.length,
+            successful: bulkResult.deletions.successful,
+            failed: bulkResult.deletions.failed
+          },
+          totalDuration: `${bulkResult.totalDuration}ms`,
+          redisCommandsReduced: `~${bulkUpdates.length + orphanedKeys.length} individual commands → ${Math.ceil(bulkUpdates.length / 30) + Math.ceil(orphanedKeys.length / 30)} batch operations`
+        });
 
         // Log synchronization summary
         const duration = Date.now() - startTime;

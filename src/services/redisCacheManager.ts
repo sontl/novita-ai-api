@@ -1,12 +1,12 @@
-import { RedisCacheService, CacheServiceOptions } from './redisCacheService';
+import { RedisCacheService, CacheServiceOptions, CacheMetrics, CacheStats } from './redisCacheService';
 import { IRedisClient, RedisClient } from '../utils/redisClient';
 import { RedisConnectionManager } from '../utils/redisConnectionManager';
 import { RedisSerializer } from '../utils/redisSerializer';
 import { logger } from '../utils/logger';
 import { getConfig } from '../config/config';
 
-// Import types from RedisCacheService since CacheService is removed
-export type { CacheMetrics, CacheStats } from './redisCacheService';
+// Re-export types for external consumers
+export type { CacheMetrics, CacheStats };
 
 export interface CacheManagerOptions extends CacheServiceOptions {
   // Redis-only options - no backend selection needed

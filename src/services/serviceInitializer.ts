@@ -99,7 +99,7 @@ function initializeCacheManager(config: Config, redisClient: IRedisClient): Redi
 
   const cacheManagerOptions = {
     defaultBackend: 'redis' as const,
-    enableFallback: false,
+    enableFallback: config.instanceListing.enableFallbackToLocal, // Use correct property
     redisClient
   };
 
@@ -128,8 +128,8 @@ function initializeJobQueueService(config: Config, redisClient: IRedisClient): R
     1000, // processingIntervalMs
     config.defaults.maxRetryAttempts * 60000, // maxRetryDelay
     {
-      cleanupIntervalMs: 5 * 60 * 1000, // 5 minutes
-      maxJobAge: 24 * 60 * 60 * 1000 // 24 hours
+      cleanupIntervalMs: 5 * 60 * 1000 // 5 minutes
+      // maxJobAge property removed as it doesn't exist in RedisJobQueueOptions
     }
   );
 
@@ -173,7 +173,7 @@ async function validateRedisConnection(redisClient: IRedisClient): Promise<boole
 export async function initializeServices(config: Config): Promise<ServiceInitializationResult> {
   logger.info('Starting service initialization', {
     redisEnabled: !!(config.redis.url && config.redis.token),
-    fallbackEnabled: config.redis.enableFallback
+    fallbackEnabled: config.instanceListing.enableFallbackToLocal // Use correct property
   });
 
   let redisClient: IRedisClient | undefined;

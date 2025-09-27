@@ -2,18 +2,54 @@ import { logger } from '../utils/logger';
 import { novitaApiService } from './novitaApiService';
 import { Template, NovitaApiClientError } from '../types/api';
 import { cacheManager } from './cacheService';
+import { ICacheService } from './redisCacheManager';
 
 export class TemplateService {
-  private readonly templateCache = cacheManager.getCache<Template>('templates', {
-    maxSize: 200,
-    defaultTtl: 10 * 60 * 1000, // 10 minutes (templates change less frequently)
-    cleanupIntervalMs: 2 * 60 * 1000 // Cleanup every 2 minutes
-  });
+  private templateCache: ICacheService<Template> | null = null;
+  private isInitialized = false;
+
+  constructor() {
+    // Initialize asynchronously
+    this.initialize().catch(error => {
+      logger.error('Failed to initialize template cache', { error: error.message });
+    });
+  }
+
+  /**
+   * Async initializer for cache - must be called before using the service
+   */
+  private async initialize(): Promise<void> {
+    if (this.isInitialized) return;
+    
+    this.templateCache = await cacheManager.getCache<Template>('templates', {
+      maxSize: 200,
+      defaultTtl: 10 * 60 * 1000, // 10 minutes (templates change less frequently)
+      cleanupIntervalMs: 2 * 60 * 1000 // Cleanup every 2 minutes
+    });
+    
+    this.isInitialized = true;
+  }
+
+  /**
+   * Ensure the service is initialized before use
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+    
+    if (!this.templateCache) {
+      throw new Error('Template cache failed to initialize');
+    }
+  }
 
   /**
    * Get template configuration by ID with caching support
    */
   async getTemplate(templateId: string | number): Promise<Template> {
+    // Ensure cache is initialized
+    await this.ensureInitialized();
+    
     // Validate input first
     if (templateId === null || templateId === undefined || 
         (typeof templateId === 'string' && templateId.trim() === '') ||
@@ -29,7 +65,7 @@ export class TemplateService {
     const stringTemplateId = typeof templateId === 'number' ? templateId.toString() : templateId.trim();
     
     // Check cache first
-    const cachedTemplate = this.templateCache.get(stringTemplateId);
+    const cachedTemplate = await this.templateCache!.get(stringTemplateId);
     if (cachedTemplate) {
       logger.debug('Returning cached template', { 
         templateId: stringTemplateId 
@@ -46,7 +82,7 @@ export class TemplateService {
       this.validateTemplate(template);
       
       // Cache the results
-      this.templateCache.set(stringTemplateId, template);
+      await this.templateCache!.set(stringTemplateId, template);
 
       logger.info('Template fetched and cached', { 
         templateId: template.id,
@@ -203,16 +239,18 @@ export class TemplateService {
   /**
    * Clear all cached data
    */
-  clearCache(): void {
-    this.templateCache.clear();
+  async clearCache(): Promise<void> {
+    await this.ensureInitialized();
+    await this.templateCache!.clear();
     logger.info('Template cache cleared');
   }
 
   /**
    * Clear expired cache entries
    */
-  clearExpiredCache(): void {
-    const clearedCount = this.templateCache.cleanupExpired();
+  async clearExpiredCache(): Promise<void> {
+    await this.ensureInitialized();
+    const clearedCount = await this.templateCache!.cleanupExpired();
 
     if (clearedCount > 0) {
       logger.debug('Cleared expired template cache entries', { count: clearedCount });
@@ -222,26 +260,28 @@ export class TemplateService {
   /**
    * Get cache statistics for monitoring
    */
-  getCacheStats(): {
+  async getCacheStats(): Promise<{
     size: number;
     hitRatio: number;
     metrics: any;
     cachedTemplateIds: string[];
-  } {
+  }> {
+    await this.ensureInitialized();
     return {
-      size: this.templateCache.size(),
-      hitRatio: this.templateCache.getHitRatio(),
-      metrics: this.templateCache.getMetrics(),
-      cachedTemplateIds: this.templateCache.keys()
+      size: await this.templateCache!.size(),
+      hitRatio: this.templateCache!.getHitRatio(),
+      metrics: this.templateCache!.getMetrics(),
+      cachedTemplateIds: await this.templateCache!.keys()
     };
   }
 
   /**
    * Check if template is cached
    */
-  isCached(templateId: string | number): boolean {
+  async isCached(templateId: string | number): Promise<boolean> {
+    await this.ensureInitialized();
     const stringTemplateId = typeof templateId === 'number' ? templateId.toString() : templateId;
-    return this.templateCache.has(stringTemplateId);
+    return await this.templateCache!.has(stringTemplateId);
   }
 
   /**
@@ -263,9 +303,10 @@ export class TemplateService {
   /**
    * Invalidate specific template from cache
    */
-  invalidateTemplate(templateId: string | number): boolean {
+  async invalidateTemplate(templateId: string | number): Promise<boolean> {
+    await this.ensureInitialized();
     const stringTemplateId = typeof templateId === 'number' ? templateId.toString() : templateId;
-    const deleted = this.templateCache.delete(stringTemplateId);
+    const deleted = await this.templateCache!.delete(stringTemplateId);
     if (deleted) {
       logger.debug('Template invalidated from cache', { templateId: stringTemplateId });
     }
@@ -275,9 +316,10 @@ export class TemplateService {
   /**
    * Set custom TTL for specific template
    */
-  setTemplateTtl(templateId: string | number, ttlMs: number): boolean {
+  async setTemplateTtl(templateId: string | number, ttlMs: number): Promise<boolean> {
+    await this.ensureInitialized();
     const stringTemplateId = typeof templateId === 'number' ? templateId.toString() : templateId;
-    const updated = this.templateCache.setTtl(stringTemplateId, ttlMs);
+    const updated = await this.templateCache!.setTtl(stringTemplateId, ttlMs);
     if (updated) {
       logger.debug('Template TTL updated', { templateId: stringTemplateId, ttlMs });
     }

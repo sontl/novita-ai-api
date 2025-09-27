@@ -30,7 +30,13 @@ export interface CacheMetrics {
  */
 export interface CacheStats {
   metrics: CacheMetrics;
-  entries: { [key: string]: CacheEntry };
+  entries: { [key: string]: {
+    size: number;
+    ttl: number;
+    age: number;
+    accessCount: number;
+    lastAccessed: number;
+  } };
 }
 
 export interface CacheServiceOptions {
