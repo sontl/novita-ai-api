@@ -7,7 +7,7 @@ import { MigrationScheduler } from './migrationScheduler';
 import { FailedMigrationScheduler } from './failedMigrationScheduler';
 import { ICacheService, RedisCacheManager } from './redisCacheManager';
 import { IRedisClient } from '../utils/redisClient';
-import { JobQueueService } from './jobQueueService';
+import { RedisJobQueueService } from './redisJobQueueService';
 import { RedisCacheService } from './redisCacheService';
 import { InstanceResponse } from '../types/api';
 
@@ -16,7 +16,7 @@ interface ServiceRegistry {
   failedMigrationScheduler?: FailedMigrationScheduler;
   cacheManager?: RedisCacheManager;
   redisClient?: IRedisClient;
-  jobQueueService?: JobQueueService;
+  jobQueueService?: RedisJobQueueService;
   instanceCache?: RedisCacheService<InstanceResponse>;
 }
 
@@ -65,11 +65,11 @@ class ServiceRegistryManager {
     return this.services.redisClient;
   }
 
-  public registerJobQueueService(jobQueueService: JobQueueService): void {
+  public registerJobQueueService(jobQueueService: RedisJobQueueService): void {
     this.services.jobQueueService = jobQueueService;
   }
 
-  public getJobQueueService(): JobQueueService | undefined {
+  public getJobQueueService(): RedisJobQueueService | undefined {
     return this.services.jobQueueService;
   }
 

@@ -1,57 +1,49 @@
-import { CacheService, CacheMetrics, CacheStats } from './cacheService';
 import { RedisCacheService, CacheServiceOptions } from './redisCacheService';
-import { FallbackCacheService } from './fallbackCacheService';
 import { IRedisClient, RedisClient } from '../utils/redisClient';
 import { RedisConnectionManager } from '../utils/redisConnectionManager';
 import { RedisSerializer } from '../utils/redisSerializer';
 import { logger } from '../utils/logger';
 import { getConfig } from '../config/config';
 
-export type CacheBackend = 'memory' | 'redis' | 'fallback';
+// Import types from RedisCacheService since CacheService is removed
+export type { CacheMetrics, CacheStats } from './redisCacheService';
 
 export interface CacheManagerOptions extends CacheServiceOptions {
-  backend?: CacheBackend;
-  enableFallback?: boolean;
+  // Redis-only options - no backend selection needed
 }
 
 /**
- * Cache service interface that both CacheService and RedisCacheService implement
+ * Cache service interface for Redis-only implementations
  */
 export interface ICacheService<T = any> {
-  get(key: string): Promise<T | undefined> | T | undefined;
-  set(key: string, value: T, ttl?: number): Promise<void> | void;
-  delete(key: string): Promise<boolean> | boolean;
-  has(key: string): Promise<boolean> | boolean;
-  clear(): Promise<void> | void;
-  getStats(): Promise<CacheStats> | CacheStats;
+  get(key: string): Promise<T | undefined>;
+  set(key: string, value: T, ttl?: number): Promise<void>;
+  delete(key: string): Promise<boolean>;
+  has(key: string): Promise<boolean>;
+  clear(): Promise<void>;
+  getStats(): Promise<CacheStats>;
   getMetrics(): CacheMetrics;
   getHitRatio(): number;
-  cleanupExpired(): Promise<number> | number;
-  keys(): Promise<string[]> | string[];
-  size(): Promise<number> | number;
-  setTtl(key: string, ttl: number): Promise<boolean> | boolean;
-  getTtl(key: string): Promise<number | undefined> | number | undefined;
+  cleanupExpired(): Promise<number>;
+  keys(): Promise<string[]>;
+  size(): Promise<number>;
+  setTtl(key: string, ttl: number): Promise<boolean>;
+  getTtl(key: string): Promise<number | undefined>;
   resetMetrics(): void;
   stopPeriodicCleanup(): void;
-  destroy(): Promise<void> | void;
+  destroy(): Promise<void>;
 }
 
 /**
- * Enhanced cache manager that supports Redis-backed cache instances
+ * Redis-only cache manager that creates Redis-backed cache instances
  */
 export class RedisCacheManager {
   private caches: Map<string, ICacheService> = new Map();
   private redisClient?: IRedisClient | undefined;
-  private defaultBackend: CacheBackend;
-  private enableFallback: boolean;
 
   constructor(options: { 
-    defaultBackend?: CacheBackend; 
-    enableFallback?: boolean;
     redisClient?: IRedisClient;
   } = {}) {
-    this.defaultBackend = options.defaultBackend || 'memory';
-    this.enableFallback = options.enableFallback ?? true;
     this.redisClient = options.redisClient;
   }
 
@@ -88,34 +80,18 @@ export class RedisCacheManager {
   }
 
   /**
-   * Create cache service based on backend type
+   * Create Redis cache service
    */
   private async createCacheService<T>(
     name: string, 
-    backend: CacheBackend, 
     options: CacheServiceOptions
   ): Promise<ICacheService<T>> {
-    switch (backend) {
-      case 'memory':
-        return new CacheService<T>(name, options);
-      
-      case 'redis':
-        const redisClient = await this.initializeRedisClient();
-        return new RedisCacheService<T>(name, redisClient, options);
-      
-      case 'fallback':
-        const redisClientForFallback = await this.initializeRedisClient();
-        const redisService = new RedisCacheService<T>(name, redisClientForFallback, options);
-        const memoryService = new CacheService<T>(name, options);
-        return new FallbackCacheService<T>(redisService, memoryService, name);
-      
-      default:
-        throw new Error(`Unsupported cache backend: ${backend}`);
-    }
+    const redisClient = await this.initializeRedisClient();
+    return new RedisCacheService<T>(name, redisClient, options);
   }
 
   /**
-   * Create or get cache instance with configurable backend
+   * Create or get Redis cache instance
    */
   async getCache<T = any>(
     name: string, 
@@ -124,55 +100,33 @@ export class RedisCacheManager {
     let cache = this.caches.get(name);
     
     if (!cache) {
-      const backend = options.backend || this.defaultBackend;
+      cache = await this.createCacheService<T>(name, options);
+      this.caches.set(name, cache);
       
-      // If Redis backend is requested but fallback is enabled, use fallback
-      const actualBackend = (backend === 'redis' && this.enableFallback) ? 'fallback' : backend;
-      
-      try {
-        cache = await this.createCacheService<T>(name, actualBackend, options);
-        this.caches.set(name, cache);
-        
-        logger.info('Created new cache instance', { 
-          name, 
-          backend: actualBackend, 
-          options: {
-            ...options,
-            backend: actualBackend
-          }
-        });
-      } catch (error) {
-        logger.error('Failed to create cache instance, falling back to memory', {
-          name,
-          requestedBackend: backend,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        
-        // Fallback to memory cache if Redis initialization fails
-        cache = new CacheService<T>(name, options);
-        this.caches.set(name, cache);
-      }
+      logger.info('Created new Redis cache instance', { 
+        name, 
+        options
+      });
     }
     
     return cache as ICacheService<T>;
   }
 
   /**
-   * Create cache with specific backend (synchronous for memory, async for Redis)
+   * Create Redis cache instance
    */
   async createCache<T = any>(
     name: string,
-    backend: CacheBackend,
     options: CacheServiceOptions = {}
   ): Promise<ICacheService<T>> {
     if (this.caches.has(name)) {
       throw new Error(`Cache with name '${name}' already exists`);
     }
 
-    const cache = await this.createCacheService<T>(name, backend, options);
+    const cache = await this.createCacheService<T>(name, options);
     this.caches.set(name, cache);
     
-    logger.info('Created cache instance', { name, backend, options });
+    logger.info('Created Redis cache instance', { name, options });
     return cache;
   }
 
@@ -452,14 +406,10 @@ export class RedisCacheManager {
    * Get cache manager configuration
    */
   getConfiguration(): {
-    defaultBackend: CacheBackend;
-    enableFallback: boolean;
     cacheCount: number;
     redisConnected: boolean;
   } {
     return {
-      defaultBackend: this.defaultBackend,
-      enableFallback: this.enableFallback,
       cacheCount: this.caches.size,
       redisConnected: (this.redisClient as any)?.isHealthy?.() ?? false
     };
@@ -468,9 +418,5 @@ export class RedisCacheManager {
 
 // Create and export singleton Redis cache manager factory
 export function createRedisCacheManager(): RedisCacheManager {
-  const config = getConfig();
-  return new RedisCacheManager({
-    defaultBackend: config.redis.enableFallback ? 'fallback' : 'redis',
-    enableFallback: config.redis.enableFallback
-  });
+  return new RedisCacheManager();
 }

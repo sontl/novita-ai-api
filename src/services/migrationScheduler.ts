@@ -4,7 +4,7 @@
  */
 
 import { logger, createContextLogger, LogContext } from '../utils/logger';
-import { JobQueueService } from './jobQueueService';
+import { RedisJobQueueService } from './redisJobQueueService';
 import { JobType, JobPriority, MigrateSpotInstancesJobPayload } from '../types/job';
 import { Config } from '../config/config';
 
@@ -42,7 +42,7 @@ export class MigrationScheduler {
 
   constructor(
     private readonly config: MigrationSchedulerConfig,
-    private readonly jobQueueService: JobQueueService
+    private readonly jobQueueService: RedisJobQueueService
   ) {
     const logContext: LogContext = {
       service: 'migration-scheduler',
@@ -207,7 +207,7 @@ export class MigrationScheduler {
    */
   private async executeMigrationJob(): Promise<string> {
     // Check for existing migration jobs to prevent overlapping executions
-    const existingJobs = this.jobQueueService.getJobs({
+    const existingJobs = await this.jobQueueService.getJobs({
       type: JobType.MIGRATE_SPOT_INSTANCES,
       limit: 10
     });
@@ -263,8 +263,8 @@ export class MigrationScheduler {
    * Monitor job completion to update internal state
    */
   private monitorJobCompletion(jobId: string): void {
-    const checkInterval = setInterval(() => {
-      const job = this.jobQueueService.getJob(jobId);
+    const checkInterval = setInterval(async () => {
+      const job = await this.jobQueueService.getJob(jobId);
       
       if (!job) {
         // Job not found, clear current job ID
@@ -399,7 +399,7 @@ export class MigrationScheduler {
  */
 export function createMigrationScheduler(
   config: Config,
-  jobQueueService: JobQueueService
+  jobQueueService: RedisJobQueueService
 ): MigrationScheduler {
   return new MigrationScheduler(config.migration, jobQueueService);
 }

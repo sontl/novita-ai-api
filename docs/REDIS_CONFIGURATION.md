@@ -14,22 +14,22 @@ This guide covers how to configure and deploy the Novita GPU Instance API with R
 
 ## Overview
 
-The application supports both in-memory and Redis-backed storage for:
+The application requires Redis for all persistent storage:
 - **Cache Services**: Instance details, product information, and API responses
-- **Job Queue Services**: Background job processing and persistence (coming soon)
+- **Job Queue Services**: Background job processing and persistence
 
-Redis integration provides:
+Redis provides:
 - ✅ Data persistence across application restarts
 - ✅ Distributed deployment support
 - ✅ Improved scalability
-- ✅ Graceful fallback to in-memory storage
+- ✅ Required for application operation (no fallback available)
 
 ## Environment Variables
 
 ### Required Redis Configuration
 
 ```bash
-# Upstash Redis connection (required for Redis mode)
+# Upstash Redis connection (REQUIRED - application will not start without Redis)
 UPSTASH_REDIS_REST_URL=https://your-redis-instance.upstash.io
 UPSTASH_REDIS_REST_TOKEN=your-redis-token
 
@@ -39,7 +39,6 @@ REDIS_COMMAND_TIMEOUT_MS=5000          # Command timeout (default: 5000)
 REDIS_RETRY_ATTEMPTS=3                 # Retry attempts (default: 3)
 REDIS_RETRY_DELAY_MS=1000             # Retry delay (default: 1000)
 REDIS_KEY_PREFIX=novita_api           # Key prefix (default: novita_api)
-REDIS_ENABLE_FALLBACK=true            # Enable fallback (default: true)
 ```
 
 ### Application Configuration

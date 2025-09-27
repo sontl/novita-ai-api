@@ -68,12 +68,13 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Add additional debug information in development
     if (process.env.NODE_ENV === 'development') {
+      const jobQueueService = serviceRegistry.getJobQueueService();
       (healthCheck as any).debug = {
         version: process.env.npm_package_version || '1.0.0',
         nodeVersion: process.version,
         platform: process.platform,
         cacheStats: instanceService.getCacheStats(),
-        jobQueueStats: serviceRegistry.getJobQueueService()?.getStats() || {}
+        jobQueueStats: jobQueueService ? await jobQueueService.getStats() : {}
       };
     }
 
@@ -207,7 +208,7 @@ async function checkJobQueueHealth(): Promise<boolean> {
     if (!jobQueueService) {
       return false;
     }
-    const stats = jobQueueService.getStats();
+    const stats = await jobQueueService.getStats();
     return typeof stats === 'object' && stats !== null;
   } catch (error) {
     logger.debug('Job queue health check failed', {
@@ -293,7 +294,7 @@ async function checkJobQueueHealthDetailed(): Promise<any> {
       };
     }
 
-    const stats = jobQueueService.getStats();
+    const stats = await jobQueueService.getStats();
 
     return {
       status: 'up',

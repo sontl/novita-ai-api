@@ -109,7 +109,6 @@ describe('Service Initializer Integration Tests', () => {
         retryAttempts: 3,
         retryDelayMs: 1000,
         keyPrefix: 'novita_api_test',
-        enableFallback: true,
       },
     };
   });
@@ -150,28 +149,19 @@ describe('Service Initializer Integration Tests', () => {
       expect(result.redisClient).toBeUndefined();
       expect(result.redisHealthy).toBe(false);
 
-      // Verify cache manager is configured for fallback
+      // Verify cache manager is configured
       const cacheManagerConfig = result.cacheManager.getConfiguration();
-      expect(cacheManagerConfig.enableFallback).toBe(true);
+      expect(cacheManagerConfig.cacheCount).toBeGreaterThanOrEqual(0);
     });
 
-    it('should fail initialization when Redis is required but unavailable', async () => {
-      // Disable fallback
-      const configWithoutFallback = {
-        ...testConfig,
-        redis: {
-          ...testConfig.redis,
-          enableFallback: false
-        }
-      };
-
+    it('should fail initialization when Redis is unavailable', async () => {
       // Mock Redis initialization failure
       const mockRedisClient = require('../../utils/redisClient');
       mockRedisClient.RedisClient.mockImplementation(() => {
         throw new Error('Redis connection failed');
       });
 
-      await expect(initializeServices(configWithoutFallback)).rejects.toThrow('Redis initialization failed');
+      await expect(initializeServices(testConfig)).rejects.toThrow('Redis initialization failed');
     });
 
     it('should initialize services without Redis when not configured', async () => {
@@ -313,8 +303,7 @@ describe('Service Initializer Integration Tests', () => {
       const result = await initializeServices(testConfig);
 
       const cacheManagerConfig = result.cacheManager.getConfiguration();
-      expect(cacheManagerConfig.defaultBackend).toBe('fallback');
-      expect(cacheManagerConfig.enableFallback).toBe(true);
+      expect(cacheManagerConfig.cacheCount).toBeGreaterThanOrEqual(0);
     });
 
     it('should configure cache manager with memory backend when Redis unavailable', async () => {
@@ -331,7 +320,7 @@ describe('Service Initializer Integration Tests', () => {
       const result = await initializeServices(configWithoutRedis);
 
       const cacheManagerConfig = result.cacheManager.getConfiguration();
-      expect(cacheManagerConfig.enableFallback).toBe(true);
+      expect(cacheManagerConfig.cacheCount).toBeGreaterThanOrEqual(0);
     });
   });
 
@@ -357,10 +346,9 @@ describe('Service Initializer Integration Tests', () => {
       await initializeServices(testConfig);
 
       expect(loggerSpy).toHaveBeenCalledWith(
-        'Redis initialization failed, fallback enabled',
+        'Redis initialization failed',
         expect.objectContaining({
-          error: 'Redis connection failed',
-          fallbackEnabled: true
+          error: 'Redis connection failed'
         })
       );
     });

@@ -119,7 +119,6 @@ describe('Configuration Management', () => {
       expect(config.redis.retryAttempts).toBe(3);
       expect(config.redis.retryDelayMs).toBe(1000);
       expect(config.redis.keyPrefix).toBe('novita_api');
-      expect(config.redis.enableFallback).toBe(true);
     });
 
     it('should load custom Redis configuration', () => {
@@ -146,7 +145,6 @@ describe('Configuration Management', () => {
       expect(config.redis.retryAttempts).toBe(5);
       expect(config.redis.retryDelayMs).toBe(2000);
       expect(config.redis.keyPrefix).toBe('custom_prefix');
-      expect(config.redis.enableFallback).toBe(false);
     });
 
     it('should throw ConfigValidationError when required NOVITA_API_KEY is missing', () => {

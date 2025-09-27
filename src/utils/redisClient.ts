@@ -444,11 +444,14 @@ export class RedisClient implements IRedisClient {
     try {
       const result = await Promise.race([operation(), timeoutPromise]);
       
-      logger.debug(`Redis ${command} operation completed`, {
-        command,
-        key,
-        success: true
-      });
+      // Only log successful operations for non-polling commands to reduce noise
+      if (!this.isPollingCommand(command)) {
+        logger.debug(`Redis ${command} operation completed`, {
+          command,
+          key,
+          success: true
+        });
+      }
       
       return result;
     } catch (error) {
@@ -471,6 +474,14 @@ export class RedisClient implements IRedisClient {
 
       throw new Error(`Redis ${command} failed: ${errorMessage}`);
     }
+  }
+
+  /**
+   * Check if a command is a polling command that shouldn't be logged at debug level
+   */
+  private isPollingCommand(command: string): boolean {
+    const pollingCommands = ['ZREVRANGE', 'ZRANGEBYSCORE', 'ZRANGE', 'LRANGE', 'RPOP'];
+    return pollingCommands.includes(command.toUpperCase());
   }
 
   /**

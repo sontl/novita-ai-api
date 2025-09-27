@@ -2,7 +2,7 @@
  * Example demonstrating job queue usage
  */
 
-import { JobQueueService } from '../services/jobQueueService';
+import { RedisJobQueueService } from '../services/redisJobQueueService';
 import { JobWorkerService } from '../services/jobWorkerService';
 import { JobType, JobPriority, CreateInstanceJobPayload, SendWebhookJobPayload } from '../types/job';
 import { logger } from '../utils/logger';

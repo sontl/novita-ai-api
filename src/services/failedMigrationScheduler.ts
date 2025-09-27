@@ -4,7 +4,7 @@
  */
 
 import { logger, createContextLogger, LogContext } from '../utils/logger';
-import { JobQueueService } from './jobQueueService';
+import { RedisJobQueueService } from './redisJobQueueService';
 import { JobType, JobPriority, HandleFailedMigrationsJobPayload } from '../types/job';
 import { Config } from '../config/config';
 
@@ -40,7 +40,7 @@ export class FailedMigrationScheduler {
 
   constructor(
     private readonly config: FailedMigrationSchedulerConfig,
-    private readonly jobQueueService: JobQueueService
+    private readonly jobQueueService: RedisJobQueueService
   ) {
     const logContext: LogContext = {
       service: 'failed-migration-scheduler',
@@ -218,7 +218,7 @@ export class FailedMigrationScheduler {
    */
   private async executeFailedMigrationJob(): Promise<string> {
     // Check for existing failed migration jobs to prevent overlapping executions
-    const existingJobs = this.jobQueueService.getJobs({
+    const existingJobs = await this.jobQueueService.getJobs({
       type: JobType.HANDLE_FAILED_MIGRATIONS,
       limit: 10
     });
@@ -273,8 +273,8 @@ export class FailedMigrationScheduler {
    * Monitor job completion to update internal state
    */
   private monitorJobCompletion(jobId: string): void {
-    const checkInterval = setInterval(() => {
-      const job = this.jobQueueService.getJob(jobId);
+    const checkInterval = setInterval(async () => {
+      const job = await this.jobQueueService.getJob(jobId);
       
       if (!job) {
         // Job not found, clear current job ID
@@ -409,7 +409,7 @@ export class FailedMigrationScheduler {
  */
 export function createFailedMigrationScheduler(
   config: Config,
-  jobQueueService: JobQueueService
+  jobQueueService: RedisJobQueueService
 ): FailedMigrationScheduler {
   // Use migration config as base but with different defaults for failed migration checks
   const failedMigrationConfig: FailedMigrationSchedulerConfig = {

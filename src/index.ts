@@ -113,7 +113,7 @@ if (config.nodeEnv !== 'test') {
     .then(async (serviceResult) => {
       logger.info('Services initialized successfully', {
         redisHealthy: serviceResult.redisHealthy,
-        cacheManagerType: serviceResult.cacheManager.getConfiguration().defaultBackend,
+        cacheManagerType: 'redis',
         syncCompleted: !!serviceResult.syncResult,
         syncResult: serviceResult.syncResult
       });
@@ -225,14 +225,8 @@ if (config.nodeEnv !== 'test') {
         error: error instanceof Error ? error.message : String(error)
       });
 
-      if (!config.redis.enableFallback) {
-        logger.error('Redis fallback disabled, exiting');
-        process.exit(1);
-      } else {
-        logger.warn('Continuing with fallback services due to Redis initialization failure');
-        // Continue with basic startup for fallback mode
-        // This would need additional fallback initialization logic
-      }
+      logger.error('Redis is required, exiting');
+      process.exit(1);
     });
 }
 

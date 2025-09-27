@@ -1,7 +1,37 @@
 import { IRedisClient } from '../utils/redisClient';
 import { logger } from '../utils/logger';
 import { cacheMetricsMiddleware } from '../middleware/metricsMiddleware';
-import { CacheEntry, CacheMetrics, CacheStats } from './cacheService';
+
+/**
+ * Cache entry structure
+ */
+export interface CacheEntry<T = any> {
+  data: T;
+  timestamp: number;
+  ttl: number;
+  accessCount: number;
+  lastAccessed: number;
+}
+
+/**
+ * Cache metrics interface
+ */
+export interface CacheMetrics {
+  hits: number;
+  misses: number;
+  sets: number;
+  deletes: number;
+  evictions: number;
+  totalSize: number;
+}
+
+/**
+ * Cache statistics interface
+ */
+export interface CacheStats {
+  metrics: CacheMetrics;
+  entries: { [key: string]: CacheEntry };
+}
 
 export interface CacheServiceOptions {
   maxSize?: number;

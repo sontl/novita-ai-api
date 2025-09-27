@@ -34,12 +34,12 @@
     - Write unit tests for all cache operations with mocked Redis client
     - _Requirements: 4.1, 4.2, 4.3, 1.1, 1.2, 1.3_
 
-  - [x] 3.2 Add cache service fallback mechanism
-    - Create FallbackCacheService that wraps Redis and in-memory services
-    - Implement graceful degradation when Redis is unavailable
-    - Add logging for fallback scenarios and error tracking
-    - Write unit tests for fallback behavior and error scenarios
-    - _Requirements: 6.1, 6.2, 6.4, 5.1, 5.2_
+  - [-] 3.2 Remove fallback cache service and in-memory implementations
+    - Remove FallbackCacheService class completely from codebase
+    - Remove CacheService class (in-memory implementation)
+    - Remove all references to fallback mechanisms in cache manager
+    - Update all cache service imports to use only Redis implementations
+    - _Requirements: 9.1, 9.2, 9.3, 9.4_
 
   - [x] 3.3 Integrate Redis cache service into cache manager
     - Update CacheManager to support Redis-backed cache instances
@@ -47,6 +47,13 @@
     - Implement cache service factory pattern for different backends
     - Write integration tests for cache manager with Redis backend
     - _Requirements: 4.1, 4.2, 8.1, 8.3_
+
+  - [ ] 3.4 Convert cache manager to Redis-only implementation
+    - Replace RedisCacheManager with Redis-only cache manager
+    - Remove all backend selection logic (memory, fallback options)
+    - Update cache manager to only create Redis-backed cache instances
+    - Remove enableFallback configuration options
+    - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.6_
 
 - [-] 4. Implement Redis-backed job queue service
   - [x] 4.1 Create Redis job queue data structures
@@ -56,7 +63,7 @@
     - Write unit tests for job data persistence and retrieval
     - _Requirements: 2.1, 2.2, 2.3, 7.1, 7.2, 7.3_
 
-  - [ ] 4.2 Implement Redis job queue service
+  - [x] 4.2 Implement Redis job queue service
     - Create RedisJobQueueService class maintaining existing JobQueueService API
     - Implement job persistence, status tracking, and recovery mechanisms
     - Add job processing state management with Redis transactions
@@ -114,3 +121,32 @@
     - Update API documentation to reflect Redis persistence capabilities
     - Create troubleshooting guide for Redis connection issues
     - _Requirements: 1.1, 1.2, 3.1, 3.2, 5.1, 5.2, 5.3_
+
+- [x] 8. Remove all in-memory storage implementations
+  - [x] 8.1 Remove in-memory job queue service
+    - Delete JobQueueService class that uses Map-based storage
+    - Remove all in-memory job storage from instanceService and other services
+    - Update all job queue references to use only Redis-backed implementations
+    - Remove job-related Map and Set data structures from service classes
+    - _Requirements: 9.1, 9.2, 9.5, 9.6_
+
+  - [x] 8.2 Remove in-memory cache implementations from services
+    - Remove Map-based caching from MetricsService (requestMetrics, jobMetrics)
+    - Remove in-memory instance state storage from InstanceService
+    - Remove activeStartupOperations Map from InstanceService
+    - Update all services to use Redis-backed caching exclusively
+    - _Requirements: 9.1, 9.2, 9.6_
+
+  - [x] 8.3 Update service constructors and dependencies
+    - Remove CacheService dependencies from all service constructors
+    - Update service constructors to only accept Redis-backed cache services
+    - Remove fallback service parameters from service initialization
+    - Add Redis client validation in service constructors
+    - _Requirements: 9.2, 9.3, 9.4, 6.4_
+
+  - [x] 8.4 Update configuration to require Redis
+    - Remove fallback configuration options from config schema
+    - Make Redis configuration mandatory (no optional Redis settings)
+    - Add startup validation that fails if Redis is not available
+    - Update environment variable documentation to reflect Redis requirement
+    - _Requirements: 6.4, 8.1, 8.2, 9.6_

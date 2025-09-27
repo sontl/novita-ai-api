@@ -10,7 +10,7 @@ import { RedisCacheManager, createRedisCacheManager } from './redisCacheManager'
 import { RedisClient, IRedisClient } from '../utils/redisClient';
 import { RedisConnectionManager } from '../utils/redisConnectionManager';
 import { RedisSerializer } from '../utils/redisSerializer';
-import { JobQueueService } from './jobQueueService';
+import { RedisJobQueueService } from './redisJobQueueService';
 import { StartupSyncService } from './startupSyncService';
 import { NovitaApiService } from './novitaApiService';
 import { RedisCacheService } from './redisCacheService';
@@ -19,7 +19,7 @@ import { InstanceResponse } from '../types/api';
 export interface ServiceInitializationResult {
   redisClient: IRedisClient | undefined;
   cacheManager: RedisCacheManager;
-  jobQueueService: JobQueueService;
+  jobQueueService: RedisJobQueueService;
   redisHealthy: boolean;
   syncResult?: {
     novitaInstances: number;
@@ -82,38 +82,30 @@ async function initializeRedisClient(config: Config): Promise<IRedisClient | und
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     
-    if (config.redis.enableFallback) {
-      logger.warn('Redis initialization failed, fallback enabled', {
-        error: errorMessage,
-        fallbackEnabled: config.redis.enableFallback
-      });
-      return undefined;
-    } else {
-      logger.error('Redis initialization failed, no fallback configured', {
-        error: errorMessage
-      });
-      throw new Error(`Redis initialization failed: ${errorMessage}`);
-    }
+    logger.error('Redis initialization failed, no fallback configured', {
+      error: errorMessage
+    });
+    throw new Error(`Redis initialization failed: ${errorMessage}`);
   }
 }
 
 /**
- * Initialize cache manager with Redis or fallback configuration
+ * Initialize Redis-only cache manager
  */
-function initializeCacheManager(config: Config, redisClient?: IRedisClient): RedisCacheManager {
-  const cacheManagerOptions: {
-    defaultBackend: 'fallback' | 'redis';
-    enableFallback: boolean;
-    redisClient?: IRedisClient;
-  } = {
-    defaultBackend: config.redis.enableFallback ? 'fallback' : 'redis',
-    enableFallback: config.redis.enableFallback,
-    ...(redisClient && { redisClient })
+function initializeCacheManager(config: Config, redisClient: IRedisClient): RedisCacheManager {
+  if (!redisClient) {
+    throw new Error('Redis client is required for cache manager');
+  }
+
+  const cacheManagerOptions = {
+    defaultBackend: 'redis' as const,
+    enableFallback: false,
+    redisClient
   };
 
   const cacheManager = new RedisCacheManager(cacheManagerOptions);
 
-  logger.info('Cache manager initialized', {
+  logger.info('Redis-only cache manager initialized', {
     defaultBackend: cacheManagerOptions.defaultBackend,
     enableFallback: cacheManagerOptions.enableFallback,
     redisAvailable: !!redisClient
@@ -123,18 +115,26 @@ function initializeCacheManager(config: Config, redisClient?: IRedisClient): Red
 }
 
 /**
- * Initialize job queue service (currently in-memory, Redis implementation pending)
+ * Initialize Redis-backed job queue service
  */
-function initializeJobQueueService(config: Config, redisClient?: IRedisClient): JobQueueService {
-  // For now, use the existing in-memory job queue service
-  // TODO: Implement Redis-backed job queue service in task 4.2
-  const jobQueueService = new JobQueueService(
+function initializeJobQueueService(config: Config, redisClient: IRedisClient): RedisJobQueueService {
+  if (!redisClient) {
+    throw new Error('Redis client is required for job queue service');
+  }
+
+  // Create Redis job queue service
+  const jobQueueService = new RedisJobQueueService(
+    redisClient,
     1000, // processingIntervalMs
-    config.defaults.maxRetryAttempts * 60000 // maxRetryDelay
+    config.defaults.maxRetryAttempts * 60000, // maxRetryDelay
+    {
+      cleanupIntervalMs: 5 * 60 * 1000, // 5 minutes
+      maxJobAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
   );
 
-  logger.info('Job queue service initialized', {
-    type: 'in-memory', // Will be 'redis' when task 4.2 is implemented
+  logger.info('Redis job queue service initialized', {
+    type: 'redis',
     redisAvailable: !!redisClient,
     processingIntervalMs: 1000,
     maxRetryDelayMs: config.defaults.maxRetryAttempts * 60000
@@ -191,20 +191,23 @@ export async function initializeServices(config: Config): Promise<ServiceInitial
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('Failed to initialize Redis client', { error: errorMessage });
-      
-      if (!config.redis.enableFallback) {
-        throw error;
-      }
+      throw error;
     }
   } else {
     logger.info('Redis not configured, using in-memory services only');
   }
 
-  // Initialize cache manager
+  // Initialize cache manager (requires Redis)
+  if (!redisClient || !redisHealthy) {
+    throw new Error('Redis client is required and must be healthy for cache manager');
+  }
   const cacheManager = initializeCacheManager(config, redisClient);
   serviceRegistry.registerCacheManager(cacheManager);
 
-  // Initialize job queue service
+  // Initialize job queue service (requires Redis)
+  if (!redisClient || !redisHealthy) {
+    throw new Error('Redis client is required and must be healthy for job queue service');
+  }
   const jobQueueService = initializeJobQueueService(config, redisClient);
   serviceRegistry.registerJobQueueService(jobQueueService);
 
@@ -276,8 +279,8 @@ export async function initializeServices(config: Config): Promise<ServiceInitial
   logger.info('Service initialization completed', {
     redisAvailable: !!redisClient,
     redisHealthy,
-    cacheManagerType: cacheManager.getConfiguration().defaultBackend,
-    jobQueueType: 'in-memory', // Will be dynamic when Redis job queue is implemented
+    cacheManagerType: 'redis',
+    jobQueueType: 'redis',
     syncCompleted: !!syncResult
   });
 

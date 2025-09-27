@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This feature involves migrating the current in-memory storage system for cache and job queue data to a Redis-based solution using Upstash. The migration will improve data persistence, scalability, and enable distributed deployments while maintaining all existing functionality and performance characteristics.
+This feature involves completely removing all in-memory storage systems (cache and job queue data) and replacing them with Redis-only solutions using Upstash. This will eliminate dual-mode operation, remove fallback mechanisms, and ensure all data persistence, caching, and job processing relies exclusively on Redis for improved consistency, scalability, and distributed deployment capabilities.
 
 ## Requirements
 
@@ -46,7 +46,7 @@ This feature involves migrating the current in-memory storage system for cache a
 
 1. WHEN migrating to Redis THEN all existing CacheService methods SHALL maintain the same signatures
 2. WHEN migrating to Redis THEN all existing JobQueueService methods SHALL maintain the same signatures
-3. WHEN using Redis-backed services THEN the behavior SHALL be identical to in-memory versions
+3. WHEN using Redis-only services THEN the behavior SHALL be identical to previous in-memory versions
 4. WHEN cache or job operations are performed THEN the response times SHALL remain within acceptable limits
 
 ### Requirement 5
@@ -69,7 +69,7 @@ This feature involves migrating the current in-memory storage system for cache a
 1. WHEN Redis operations fail THEN appropriate errors SHALL be thrown with descriptive messages
 2. WHEN Redis is temporarily unavailable THEN operations SHALL retry with exponential backoff
 3. WHEN Redis operations timeout THEN the application SHALL handle it gracefully
-4. IF Redis becomes permanently unavailable THEN the application SHALL continue to function with degraded capabilities
+4. IF Redis becomes permanently unavailable THEN the application SHALL fail fast with clear error messages indicating Redis dependency
 
 ### Requirement 7
 
@@ -92,3 +92,16 @@ This feature involves migrating the current in-memory storage system for cache a
 2. WHEN Redis configuration is invalid THEN clear validation errors SHALL be provided
 3. WHEN different environments are used THEN Redis configuration SHALL be easily switchable
 4. WHEN Redis configuration changes THEN the application SHALL validate the new settings
+
+### Requirement 9
+
+**User Story:** As a system architect, I want all in-memory storage completely removed from the application, so that Redis is the single source of truth for all cached data and job queues.
+
+#### Acceptance Criteria
+
+1. WHEN the application starts THEN no in-memory Map or Set data structures SHALL be used for caching or job storage
+2. WHEN services are initialized THEN they SHALL only use Redis-backed implementations
+3. WHEN fallback cache services exist THEN they SHALL be completely removed from the codebase
+4. WHEN cache managers are used THEN they SHALL only create Redis-backed cache instances
+5. WHEN job queues are accessed THEN they SHALL only use Redis-backed job queue services
+6. WHEN the application runs THEN all persistent data SHALL be stored exclusively in Redis

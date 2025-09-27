@@ -89,7 +89,6 @@ export interface Config {
     readonly retryAttempts: number;
     readonly retryDelayMs: number;
     readonly keyPrefix: string;
-    readonly enableFallback: boolean;
   };
 }
 
@@ -246,7 +245,6 @@ class ConfigLoader {
         retryAttempts: envVars.REDIS_RETRY_ATTEMPTS,
         retryDelayMs: envVars.REDIS_RETRY_DELAY_MS,
         keyPrefix: envVars.REDIS_KEY_PREFIX,
-        enableFallback: envVars.REDIS_ENABLE_FALLBACK,
       },
     };
   }
@@ -579,9 +577,7 @@ class ConfigLoader {
         .default('novita_api')
         .description('Prefix for Redis keys (1-50 characters, alphanumeric, underscore, and dash allowed)'),
       
-      REDIS_ENABLE_FALLBACK: Joi.boolean()
-        .default(true)
-        .description('Enable fallback to in-memory storage when Redis is unavailable'),
+      // Redis is now required - no fallback option
     }).unknown(true); // Allow unknown environment variables
   }
 
@@ -631,7 +627,6 @@ class ConfigLoader {
         retryAttempts: config.redis.retryAttempts,
         retryDelayMs: config.redis.retryDelayMs,
         keyPrefix: config.redis.keyPrefix,
-        enableFallback: config.redis.enableFallback,
       },
     };
   }
@@ -770,7 +765,6 @@ function createTestConfig(): Config {
       retryAttempts: 3,
       retryDelayMs: 1000,
       keyPrefix: 'novita_api',
-      enableFallback: true,
     },
   };
 }

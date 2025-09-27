@@ -41,33 +41,58 @@ export class InstanceService {
   // Track active startup operations to prevent duplicates
   private activeStartupOperations: Map<string, StartupOperation> = new Map();
 
-  private readonly instanceCache = cacheManager.getCache<InstanceDetails>('instance-details', {
-    maxSize: 500,
-    defaultTtl: 30 * 1000, // 30 seconds for instance status
-    cleanupIntervalMs: 60 * 1000 // Cleanup every minute
-  });
-
-  private readonly instanceStateCache = cacheManager.getCache<InstanceState>('instance-states', {
-    maxSize: 1000,
-    defaultTtl: 60 * 1000, // 1 minute for instance states
-    cleanupIntervalMs: 2 * 60 * 1000 // Cleanup every 2 minutes
-  });
-
-  // Merged results cache for comprehensive listings
-  private readonly mergedInstancesCache = cacheManager.getCache<EnhancedInstanceDetails[]>('merged-instances', {
-    maxSize: 100,
-    defaultTtl: config.instanceListing.comprehensiveCacheTtl * 1000, // Convert seconds to milliseconds
-    cleanupIntervalMs: 60 * 1000 // Cleanup every minute
-  });
-
-  // Novita API response cache
-  private readonly novitaApiCache = cacheManager.getCache<InstanceResponse[]>('novita-api-instances', {
-    maxSize: 100,
-    defaultTtl: config.instanceListing.novitaApiCacheTtl * 1000, // Convert seconds to milliseconds
-    cleanupIntervalMs: 2 * 60 * 1000 // Cleanup every 2 minutes
-  });
+  // Cache instances - initialized lazily
+  private _instanceCache?: Promise<ICacheService<InstanceDetails>>;
+  private _instanceStateCache?: Promise<ICacheService<InstanceState>>;
+  private _mergedInstancesCache?: Promise<ICacheService<EnhancedInstanceDetails[]>>;
+  private _novitaApiCache?: Promise<ICacheService<InstanceResponse[]>>;
 
   private readonly defaultRegion = 'CN-HK-01';
+
+  // Lazy initialization methods
+  private get instanceCache(): Promise<ICacheService<InstanceDetails>> {
+    if (!this._instanceCache) {
+      this._instanceCache = cacheManager.getCache<InstanceDetails>('instance-details', {
+        maxSize: 500,
+        defaultTtl: 30 * 1000, // 30 seconds for instance status
+        cleanupIntervalMs: 60 * 1000 // Cleanup every minute
+      });
+    }
+    return this._instanceCache;
+  }
+
+  private get instanceStateCache(): Promise<ICacheService<InstanceState>> {
+    if (!this._instanceStateCache) {
+      this._instanceStateCache = cacheManager.getCache<InstanceState>('instance-states', {
+        maxSize: 1000,
+        defaultTtl: 60 * 1000, // 1 minute for instance states
+        cleanupIntervalMs: 2 * 60 * 1000 // Cleanup every 2 minutes
+      });
+    }
+    return this._instanceStateCache;
+  }
+
+  private get mergedInstancesCache(): Promise<ICacheService<EnhancedInstanceDetails[]>> {
+    if (!this._mergedInstancesCache) {
+      this._mergedInstancesCache = cacheManager.getCache<EnhancedInstanceDetails[]>('merged-instances', {
+        maxSize: 100,
+        defaultTtl: config.instanceListing.comprehensiveCacheTtl * 1000, // Convert seconds to milliseconds
+        cleanupIntervalMs: 60 * 1000 // Cleanup every minute
+      });
+    }
+    return this._mergedInstancesCache;
+  }
+
+  private get novitaApiCache(): Promise<ICacheService<InstanceResponse[]>> {
+    if (!this._novitaApiCache) {
+      this._novitaApiCache = cacheManager.getCache<InstanceResponse[]>('novita-api-instances', {
+        maxSize: 100,
+        defaultTtl: config.instanceListing.novitaApiCacheTtl * 1000, // Convert seconds to milliseconds
+        cleanupIntervalMs: 2 * 60 * 1000 // Cleanup every 2 minutes
+      });
+    }
+    return this._novitaApiCache;
+  }
 
   /**
    * Create a new GPU instance with automated lifecycle management
@@ -180,7 +205,8 @@ export class InstanceService {
   async getInstanceStatus(instanceId: string): Promise<InstanceDetails> {
     try {
       // Check cache first
-      const cachedDetails = this.instanceCache.get(instanceId);
+      const cache = await this.instanceCache;
+      const cachedDetails = await cache.get(instanceId);
       if (cachedDetails) {
         logger.debug('Returning cached instance status', { instanceId });
         return cachedDetails;
@@ -211,7 +237,8 @@ export class InstanceService {
           }
 
           // Update state cache
-          this.instanceStateCache.set(instanceId, instanceState);
+          const stateCache = await this.instanceStateCache;
+          await stateCache.set(instanceId, instanceState);
         } catch (error) {
           // If API is unavailable, return cached state
           logger.warn('Failed to fetch instance from Novita API, using cached state', {
@@ -227,7 +254,7 @@ export class InstanceService {
       }
 
       // Cache the result
-      this.instanceCache.set(instanceId, instanceDetails);
+      await cache.set(instanceId, instanceDetails);
 
       return instanceDetails;
 
@@ -294,7 +321,8 @@ export class InstanceService {
 
       // Check cache first
       const cacheKey = `comprehensive_${JSON.stringify(options || {})}`;
-      const cachedResult = this.mergedInstancesCache.get(cacheKey);
+      const mergedCache = await this.mergedInstancesCache;
+      const cachedResult = await mergedCache.get(cacheKey);
       if (cachedResult) {
         logger.debug('Returning cached comprehensive instance list', { count: cachedResult.length });
         return {
@@ -306,7 +334,7 @@ export class InstanceService {
             novitaApiTime: 0,
             localDataTime: 0,
             mergeProcessingTime: 0,
-            cacheHitRatio: this.mergedInstancesCache.getHitRatio()
+            cacheHitRatio: await mergedCache.getHitRatio()
           }
         };
       }
@@ -340,7 +368,7 @@ export class InstanceService {
       }
 
       // Cache the result
-      this.mergedInstancesCache.set(cacheKey, mergedInstances);
+      await mergedCache.set(cacheKey, mergedInstances);
 
       const totalRequestTime = Date.now() - startTime;
 
@@ -360,7 +388,7 @@ export class InstanceService {
           novitaApiTime,
           localDataTime,
           mergeProcessingTime,
-          cacheHitRatio: this.mergedInstancesCache.getHitRatio()
+          cacheHitRatio: await mergedCache.getHitRatio()
         }
       };
     } catch (error) {
@@ -372,7 +400,7 @@ export class InstanceService {
   /**
    * Update instance state (used by job workers)
    */
-  updateInstanceState(instanceId: string, updates: Partial<InstanceState>): void {
+  async updateInstanceState(instanceId: string, updates: Partial<InstanceState>): Promise<void> {
     const instanceState = this.instanceStates.get(instanceId);
     if (!instanceState) {
       throw new Error(`Instance state not found: ${instanceId}`);
@@ -387,10 +415,12 @@ export class InstanceService {
     Object.assign(instanceState, updates);
 
     // Update state cache
-    this.instanceStateCache.set(instanceId, instanceState);
+    const stateCache = await this.instanceStateCache;
+    await stateCache.set(instanceId, instanceState);
 
     // Clear instance details cache for this instance to force refresh
-    this.instanceCache.delete(instanceId);
+    const cache = await this.instanceCache;
+    await cache.delete(instanceId);
 
     // Persist to Redis asynchronously (don't block the operation)
     this.persistInstanceStateToRedis(instanceState).catch(error => {
@@ -587,7 +617,7 @@ export class InstanceService {
         .find(state => state.novitaInstanceId === novitaInstance.id);
 
       if (localState && localState.status !== novitaInstance.status) {
-        this.updateInstanceState(localState.id, {
+        await this.updateInstanceState(localState.id, {
           status: novitaInstance.status,
           timestamps: {
             ...localState.timestamps
@@ -633,7 +663,8 @@ export class InstanceService {
   private async getNovitaInstances(): Promise<InstanceResponse[]> {
     try {
       // Check cache first
-      const cachedInstances = this.novitaApiCache.get('all');
+      const cache = await this.novitaApiCache;
+      const cachedInstances = await cache.get('all');
       if (cachedInstances) {
         logger.debug('Using cached Novita instances', { count: cachedInstances.length });
         return cachedInstances;
@@ -643,7 +674,7 @@ export class InstanceService {
       const instances = response.instances;
 
       // Cache the result
-      this.novitaApiCache.set('all', instances);
+      await cache.set('all', instances);
 
       logger.info('Fetched instances from Novita.ai', { count: instances.length });
       return instances;
@@ -833,18 +864,22 @@ export class InstanceService {
   /**
    * Clear all cached data
    */
-  clearCache(): void {
-    this.instanceCache.clear();
-    this.instanceStateCache.clear();
+  async clearCache(): Promise<void> {
+    const cache = await this.instanceCache;
+    const stateCache = await this.instanceStateCache;
+    await cache.clear();
+    await stateCache.clear();
     logger.info('Instance cache cleared');
   }
 
   /**
    * Clear expired cache entries
    */
-  clearExpiredCache(): void {
-    const detailsCleaned = this.instanceCache.cleanupExpired();
-    const statesCleaned = this.instanceStateCache.cleanupExpired();
+  async clearExpiredCache(): Promise<void> {
+    const cache = await this.instanceCache;
+    const stateCache = await this.instanceStateCache;
+    const detailsCleaned = await cache.cleanupExpired();
+    const statesCleaned = await stateCache.cleanupExpired();
     const totalCleaned = detailsCleaned + statesCleaned;
 
     if (totalCleaned > 0) {
@@ -859,7 +894,7 @@ export class InstanceService {
   /**
    * Get cache statistics for monitoring
    */
-  getCacheStats(): {
+  async getCacheStats(): Promise<{
     instanceDetailsCache: {
       size: number;
       hitRatio: number;
@@ -872,29 +907,34 @@ export class InstanceService {
     };
     instanceStatesSize: number;
     cachedInstanceIds: string[];
-  } {
+  }> {
+    const cache = await this.instanceCache;
+    const stateCache = await this.instanceStateCache;
+    
     return {
       instanceDetailsCache: {
-        size: this.instanceCache.size(),
-        hitRatio: this.instanceCache.getHitRatio(),
-        metrics: this.instanceCache.getMetrics()
+        size: await cache.size(),
+        hitRatio: await cache.getHitRatio(),
+        metrics: await cache.getMetrics()
       },
       instanceStatesCache: {
-        size: this.instanceStateCache.size(),
-        hitRatio: this.instanceStateCache.getHitRatio(),
-        metrics: this.instanceStateCache.getMetrics()
+        size: await stateCache.size(),
+        hitRatio: await stateCache.getHitRatio(),
+        metrics: await stateCache.getMetrics()
       },
       instanceStatesSize: this.instanceStates.size,
-      cachedInstanceIds: this.instanceCache.keys()
+      cachedInstanceIds: await cache.keys()
     };
   }
 
   /**
    * Invalidate cache for specific instance
    */
-  invalidateInstanceCache(instanceId: string): void {
-    this.instanceCache.delete(instanceId);
-    this.instanceStateCache.delete(instanceId);
+  async invalidateInstanceCache(instanceId: string): Promise<void> {
+    const cache = await this.instanceCache;
+    const stateCache = await this.instanceStateCache;
+    await cache.delete(instanceId);
+    await stateCache.delete(instanceId);
     logger.debug('Instance cache invalidated', { instanceId });
   }
 
@@ -924,10 +964,12 @@ export class InstanceService {
   /**
    * Remove instance state (cleanup)
    */
-  removeInstanceState(instanceId: string): boolean {
+  async removeInstanceState(instanceId: string): Promise<boolean> {
     const removed = this.instanceStates.delete(instanceId);
-    this.instanceCache.delete(instanceId);
-    this.instanceStateCache.delete(instanceId);
+    const cache = await this.instanceCache;
+    const stateCache = await this.instanceStateCache;
+    await cache.delete(instanceId);
+    await stateCache.delete(instanceId);
 
     if (removed) {
       logger.info('Instance state removed', { instanceId });
@@ -954,7 +996,7 @@ export class InstanceService {
       const timestamp = lastUsedAt || new Date();
 
       // Update instance state with last used time
-      instanceService.updateInstanceState(instanceId, {
+      await this.updateInstanceState(instanceId, {
         timestamps: {
           ...instanceState.timestamps,
           lastUsed: timestamp
@@ -1004,60 +1046,103 @@ export class InstanceService {
 
       // Step 2: Evaluate each instance for auto-stop eligibility
       for (const instanceState of allInstanceStates) {
-        logger.debug( 
-          'Evaluating instance for auto-stop eligibility',
-          {
-            instanceId: instanceState.id,
-            name: instanceState.name,
-            novitaInstanceId: instanceState.novitaInstanceId,
-            status: instanceState.status,
-            lastUsedTime: instanceState.timestamps.lastUsed?.toISOString(),
-            timestamps: instanceState.timestamps
+        try {
+          logger.debug( 
+            'Evaluating instance for auto-stop eligibility',
+            {
+              instanceId: instanceState.id,
+              name: instanceState.name,
+              novitaInstanceId: instanceState.novitaInstanceId,
+              status: instanceState.status,
+              lastUsedTime: instanceState.timestamps.lastUsed?.toISOString(),
+              timestamps: instanceState.timestamps
+            }
+          )
+          
+          // Only consider running instances
+          if (instanceState.status !== InstanceStatus.RUNNING) {
+            continue;
           }
-        )
-        // Only consider running instances
-        if (instanceState.status !== InstanceStatus.RUNNING) {
-          continue;
-        }
 
-        // Check if instance has a last used time
-        const lastUsedTime = instanceState.timestamps.lastUsed || 
+          // Validate and fix timestamps before processing
+          this.validateAndFixTimestamps(instanceState);
+
+          // Check if instance has a last used time, with fallback handling for invalid dates
+          let lastUsedTime = instanceState.timestamps.lastUsed || 
                             instanceState.timestamps.started || 
                             instanceState.timestamps.created;
-        
-        if (!lastUsedTime) {
-          // If no lastUsedTime, always consider it eligible for auto-stop
-          // This ensures instances without usage tracking are included
-          eligibleInstances.push(instanceState);
+          
+          // Handle invalid dates by setting lastUsed to now and updating the state
+          if (!lastUsedTime || isNaN(lastUsedTime.getTime())) {
+            const currentTime = new Date();
+            
+            logger.warn('Instance has invalid timestamp, setting lastUsed to current time', {
+              instanceId: instanceState.id,
+              name: instanceState.name,
+              novitaInstanceId: instanceState.novitaInstanceId,
+              invalidTimestamp: lastUsedTime,
+              settingToCurrentTime: currentTime.toISOString()
+            });
 
-          logger.debug('Instance eligible for auto-stop (no lastUsedTime)', {
-            instanceId: instanceState.id,
-            name: instanceState.name,
-            novitaInstanceId: instanceState.novitaInstanceId
-          });
-        } else {
-          // Check if last used time exceeds threshold
-          if (now - lastUsedTime.getTime() > thresholdMs) {
+            // Update the instance state with current time as lastUsed
+            this.updateInstanceState(instanceState.id, {
+              timestamps: {
+                ...instanceState.timestamps,
+                lastUsed: currentTime,
+                // Ensure created timestamp is valid
+                created: instanceState.timestamps.created && !isNaN(instanceState.timestamps.created.getTime()) 
+                  ? instanceState.timestamps.created 
+                  : currentTime
+              }
+            });
+
+            // Set lastUsedTime to current time so it won't be eligible for auto-stop this round
+            lastUsedTime = currentTime;
+          }
+          
+          if (!lastUsedTime) {
+            // If still no lastUsedTime after fallback, always consider it eligible for auto-stop
+            // This ensures instances without usage tracking are included
             eligibleInstances.push(instanceState);
 
-            logger.debug('Instance eligible for auto-stop (exceeded threshold)', {
+            logger.debug('Instance eligible for auto-stop (no lastUsedTime after fallback)', {
               instanceId: instanceState.id,
               name: instanceState.name,
-              novitaInstanceId: instanceState.novitaInstanceId,
-              lastUsedTime: lastUsedTime.toISOString(),
-              timeSinceLastUse: now - lastUsedTime.getTime(),
-              thresholdMs
+              novitaInstanceId: instanceState.novitaInstanceId
             });
           } else {
-            logger.info('Instance not eligible for auto-stop (within threshold)', {
-              instanceId: instanceState.id,
-              name: instanceState.name,
-              novitaInstanceId: instanceState.novitaInstanceId,
-              lastUsedTime: lastUsedTime.toISOString(),
-              timeSinceLastUse: now - lastUsedTime.getTime(),
-              thresholdMs
-            });
+            // Check if last used time exceeds threshold
+            const timeSinceLastUse = now - lastUsedTime.getTime();
+            
+            if (timeSinceLastUse > thresholdMs) {
+              eligibleInstances.push(instanceState);
+
+              logger.debug('Instance eligible for auto-stop (exceeded threshold)', {
+                instanceId: instanceState.id,
+                name: instanceState.name,
+                novitaInstanceId: instanceState.novitaInstanceId,
+                lastUsedTime: lastUsedTime.toISOString(),
+                timeSinceLastUse,
+                thresholdMs
+              });
+            } else {
+              logger.info('Instance not eligible for auto-stop (within threshold)', {
+                instanceId: instanceState.id,
+                name: instanceState.name,
+                novitaInstanceId: instanceState.novitaInstanceId,
+                lastUsedTime: lastUsedTime.toISOString(),
+                timeSinceLastUse,
+                thresholdMs
+              });
+            }
           }
+        } catch (instanceError) {
+          logger.error('Failed to evaluate instance for auto-stop eligibility', {
+            instanceId: instanceState.id,
+            name: instanceState.name,
+            error: (instanceError as Error).message
+          });
+          // Continue with next instance instead of failing the entire operation
         }
       }
 
@@ -1120,6 +1205,9 @@ export class InstanceService {
             .find(state => state.novitaInstanceId === novitaInstance.id);
 
           if (matchingState) {
+            // Validate and fix timestamps before processing
+            this.validateAndFixTimestamps(matchingState);
+
             // Update status from Novita API (authoritative source)
             if (matchingState.status !== novitaInstance.status) {
               logger.debug('Updating instance status from Novita API', {
@@ -1162,6 +1250,8 @@ export class InstanceService {
 
       // Step 5: Update in-memory states with synced data
       for (const state of statesToPersist) {
+        // Validate and fix timestamps before storing in memory
+        this.validateAndFixTimestamps(state);
         this.instanceStates.set(state.id, state);
       }
 
@@ -1200,14 +1290,26 @@ export class InstanceService {
       for (const key of keys) {
         const state = await instanceStatesCache.get(key);
         if (state) {
-          // Convert timestamp strings back to Date objects
-          state.timestamps.created = new Date(state.timestamps.created);
-          if (state.timestamps.started) state.timestamps.started = new Date(state.timestamps.started);
-          if (state.timestamps.ready) state.timestamps.ready = new Date(state.timestamps.ready);
-          if (state.timestamps.failed) state.timestamps.failed = new Date(state.timestamps.failed);
-          if (state.timestamps.stopping) state.timestamps.stopping = new Date(state.timestamps.stopping);
-          if (state.timestamps.stopped) state.timestamps.stopped = new Date(state.timestamps.stopped);
-          if (state.timestamps.lastUsed) state.timestamps.lastUsed = new Date(state.timestamps.lastUsed);
+          // Convert timestamp strings back to Date objects, handling null/undefined values
+          state.timestamps.created = state.timestamps.created ? new Date(state.timestamps.created) : new Date();
+          if (state.timestamps.started) {
+            state.timestamps.started = new Date(state.timestamps.started);
+          }
+          if (state.timestamps.ready) {
+            state.timestamps.ready = new Date(state.timestamps.ready);
+          }
+          if (state.timestamps.failed) {
+            state.timestamps.failed = new Date(state.timestamps.failed);
+          }
+          if (state.timestamps.stopping) {
+            state.timestamps.stopping = new Date(state.timestamps.stopping);
+          }
+          if (state.timestamps.stopped) {
+            state.timestamps.stopped = new Date(state.timestamps.stopped);
+          }
+          if (state.timestamps.lastUsed) {
+            state.timestamps.lastUsed = new Date(state.timestamps.lastUsed);
+          }
 
           states.push(state);
         }
@@ -1332,6 +1434,9 @@ export class InstanceService {
       // Generate a local instance ID for the orphaned instance
       const localInstanceId = `orphaned_${novitaInstance.id}_${Date.now()}`;
 
+      const now = new Date();
+      const createdAt = novitaInstance.createdAt ? new Date(novitaInstance.createdAt) : now;
+
       const state: InstanceState = {
         id: localInstanceId,
         name: novitaInstance.name,
@@ -1348,10 +1453,10 @@ export class InstanceService {
           envs: []
         },
         timestamps: {
-          created: new Date(novitaInstance.createdAt),
+          created: createdAt,
           // Add started time if instance is running
           ...(novitaInstance.status === InstanceStatus.RUNNING && {
-            started: new Date(novitaInstance.startedAt || novitaInstance.createdAt)
+            started: novitaInstance.startedAt ? new Date(novitaInstance.startedAt) : createdAt
           })
         }
       };
@@ -1367,6 +1472,105 @@ export class InstanceService {
   }
 
   /**
+   * Validate and fix invalid timestamps in instance state
+   */
+  private validateAndFixTimestamps(instanceState: InstanceState): void {
+    const now = new Date();
+    let hasInvalidTimestamp = false;
+
+    // Helper function to safely convert to Date
+    const safeToDate = (value: any): Date | null => {
+      if (!value) return null;
+      if (value instanceof Date) {
+        return isNaN(value.getTime()) ? null : value;
+      }
+      if (typeof value === 'string' || typeof value === 'number') {
+        const date = new Date(value);
+        return isNaN(date.getTime()) ? null : date;
+      }
+      return null;
+    };
+
+    // Check and fix created timestamp
+    const validCreated = safeToDate(instanceState.timestamps.created);
+    if (!validCreated) {
+      instanceState.timestamps.created = now;
+      hasInvalidTimestamp = true;
+    } else {
+      instanceState.timestamps.created = validCreated;
+    }
+
+    // Check and fix other timestamps
+    if (instanceState.timestamps.started) {
+      const validStarted = safeToDate(instanceState.timestamps.started);
+      if (!validStarted) {
+        instanceState.timestamps.started = instanceState.timestamps.created;
+        hasInvalidTimestamp = true;
+      } else {
+        instanceState.timestamps.started = validStarted;
+      }
+    }
+
+    if (instanceState.timestamps.ready) {
+      const validReady = safeToDate(instanceState.timestamps.ready);
+      if (!validReady) {
+        instanceState.timestamps.ready = instanceState.timestamps.started || instanceState.timestamps.created;
+        hasInvalidTimestamp = true;
+      } else {
+        instanceState.timestamps.ready = validReady;
+      }
+    }
+
+    if (instanceState.timestamps.failed) {
+      const validFailed = safeToDate(instanceState.timestamps.failed);
+      if (!validFailed) {
+        instanceState.timestamps.failed = now;
+        hasInvalidTimestamp = true;
+      } else {
+        instanceState.timestamps.failed = validFailed;
+      }
+    }
+
+    if (instanceState.timestamps.stopping) {
+      const validStopping = safeToDate(instanceState.timestamps.stopping);
+      if (!validStopping) {
+        instanceState.timestamps.stopping = now;
+        hasInvalidTimestamp = true;
+      } else {
+        instanceState.timestamps.stopping = validStopping;
+      }
+    }
+
+    if (instanceState.timestamps.stopped) {
+      const validStopped = safeToDate(instanceState.timestamps.stopped);
+      if (!validStopped) {
+        instanceState.timestamps.stopped = now;
+        hasInvalidTimestamp = true;
+      } else {
+        instanceState.timestamps.stopped = validStopped;
+      }
+    }
+
+    if (instanceState.timestamps.lastUsed) {
+      const validLastUsed = safeToDate(instanceState.timestamps.lastUsed);
+      if (!validLastUsed) {
+        instanceState.timestamps.lastUsed = instanceState.timestamps.started || instanceState.timestamps.created;
+        hasInvalidTimestamp = true;
+      } else {
+        instanceState.timestamps.lastUsed = validLastUsed;
+      }
+    }
+
+    if (hasInvalidTimestamp) {
+      logger.warn('Fixed invalid timestamps in instance state', {
+        instanceId: instanceState.id,
+        name: instanceState.name,
+        novitaInstanceId: instanceState.novitaInstanceId
+      });
+    }
+  }
+
+  /**
    * Fallback method using only in-memory instance states
    */
   private getInstancesEligibleForAutoStopFallback(inactivityThresholdMinutes: number): InstanceState[] {
@@ -1378,6 +1582,9 @@ export class InstanceService {
       if (instanceState.status !== InstanceStatus.RUNNING) {
         continue;
       }
+
+      // Validate and fix timestamps before processing
+      this.validateAndFixTimestamps(instanceState);
 
       const lastUsedTime = instanceState.timestamps.lastUsed || 
                           instanceState.timestamps.started || 
@@ -1633,7 +1840,7 @@ export class InstanceService {
   /**
    * Initialize health check for an instance
    */
-  initializeHealthCheck(instanceId: string, config: HealthCheckConfig): void {
+  async initializeHealthCheck(instanceId: string, config: HealthCheckConfig): Promise<void> {
     const instanceState = this.instanceStates.get(instanceId);
     if (!instanceState) {
       throw new Error(`Instance state not found: ${instanceId}`);
@@ -1646,7 +1853,8 @@ export class InstanceService {
     };
 
     // Update state cache
-    this.instanceStateCache.set(instanceId, instanceState);
+    const stateCache = await this.instanceStateCache;
+    await stateCache.set(instanceId, instanceState);
 
     logger.debug('Health check initialized', {
       instanceId,
@@ -1662,7 +1870,7 @@ export class InstanceService {
   /**
    * Update health check progress and results
    */
-  updateHealthCheckProgress(instanceId: string, result: HealthCheckResult): void {
+  async updateHealthCheckProgress(instanceId: string, result: HealthCheckResult): Promise<void> {
     const instanceState = this.instanceStates.get(instanceId);
     if (!instanceState || !instanceState.healthCheck) {
       throw new Error(`Instance state or health check not found: ${instanceId}`);
@@ -1677,7 +1885,8 @@ export class InstanceService {
     }
 
     // Update state cache
-    this.instanceStateCache.set(instanceId, instanceState);
+    const stateCache = await this.instanceStateCache;
+    await stateCache.set(instanceId, instanceState);
 
     logger.debug('Health check progress updated', {
       instanceId,
@@ -1919,7 +2128,7 @@ export class InstanceService {
         this.updateStartupOperation(instanceDetails.id, 'monitoring', 'instanceStarting');
 
         // Update instance status to starting
-        this.updateInstanceState(instanceDetails.id, {
+        await this.updateInstanceState(instanceDetails.id, {
           status: InstanceStatus.STARTING
         });
 
@@ -2139,7 +2348,7 @@ export class InstanceService {
       const operationId = this.generateOperationId();
 
       // Update instance status to stopping
-      this.updateInstanceState(instanceDetails.id, {
+      await this.updateInstanceState(instanceDetails.id, {
         status: InstanceStatus.STOPPING,
         timestamps: {
           ...instanceState.timestamps,
@@ -2157,7 +2366,7 @@ export class InstanceService {
       const novitaResponse = await novitaApiService.stopInstance(instanceState.novitaInstanceId);
 
       // Update instance state with stopped status
-      this.updateInstanceState(instanceDetails.id, {
+      await this.updateInstanceState(instanceDetails.id, {
         status: InstanceStatus.STOPPED,
         timestamps: {
           ...instanceState.timestamps,
@@ -2258,7 +2467,7 @@ export class InstanceService {
       await novitaApiService.deleteInstance(instanceState.novitaInstanceId);
 
       // Remove instance from our local state
-      this.removeInstanceState(instanceDetails.id);
+      await this.removeInstanceState(instanceDetails.id);
 
       logger.info('Instance deleted successfully', {
         instanceId: instanceDetails.id,

@@ -18,8 +18,7 @@ jest.mock('../../config/config', () => ({
       connectionTimeoutMs: 5000,
       commandTimeoutMs: 2000,
       retryAttempts: 3,
-      retryDelayMs: 1000,
-      enableFallback: true
+      retryDelayMs: 1000
     }
   })
 }));
@@ -58,8 +57,6 @@ describe('RedisCacheManager Integration Tests', () => {
 
     // Create cache manager with mock Redis client
     cacheManager = new RedisCacheManager({
-      defaultBackend: 'fallback',
-      enableFallback: true,
       redisClient: mockRedisClient
     });
   });
@@ -339,12 +336,9 @@ describe('RedisCacheManager Integration Tests', () => {
 
     it('should return cache manager configuration', () => {
       const config = cacheManager.getConfiguration();
-      expect(config).toHaveProperty('defaultBackend');
-      expect(config).toHaveProperty('enableFallback');
       expect(config).toHaveProperty('cacheCount');
       expect(config).toHaveProperty('redisConnected');
-      expect(config.defaultBackend).toBe('fallback');
-      expect(config.enableFallback).toBe(true);
+      expect(config.cacheCount).toBeGreaterThanOrEqual(0);
     });
   });
 

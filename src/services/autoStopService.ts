@@ -11,7 +11,7 @@ import { InstanceStatus, InstanceState } from '../types/api';
 
 export class AutoStopService {
   private readonly defaultInactivityThresholdMinutes = 2;
-  private readonly checkIntervalMs = 2 * 60 * 1000; // Check every 5 minutes
+  private readonly checkIntervalMs = 2 * 60 * 1000; // Check every 2 minutes
   private isSchedulerRunning = false;
 
   /**

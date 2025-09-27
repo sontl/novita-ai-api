@@ -2,7 +2,7 @@
 
 ## Overview
 
-This design outlines the migration from in-memory storage to Redis-based persistence using Upstash for both cache and job queue services. The migration will maintain API compatibility while adding persistence, scalability, and distributed deployment capabilities.
+This design outlines the complete replacement of all in-memory storage with Redis-only solutions using Upstash for both cache and job queue services. This Redis-only architecture eliminates fallback mechanisms and dual-mode operations, ensuring all data persistence relies exclusively on Redis while maintaining API compatibility.
 
 ## Architecture
 
@@ -37,10 +37,11 @@ graph TB
 
 ### Migration Strategy
 
-1. **Dual-Mode Operation**: Implement Redis-backed services alongside existing in-memory services
-2. **Gradual Migration**: Services can be migrated independently
-3. **Fallback Mechanism**: Graceful degradation when Redis is unavailable
+1. **Redis-Only Operation**: Replace all in-memory services with Redis-backed implementations
+2. **Complete Replacement**: Remove all in-memory cache and job queue implementations
+3. **No Fallback Mechanism**: Redis becomes a hard dependency for the application
 4. **API Compatibility**: Maintain existing method signatures and behavior
+5. **Fail-Fast Approach**: Application fails to start if Redis is unavailable
 
 ## Components and Interfaces
 
@@ -244,22 +245,23 @@ interface RedisJobData {
 3. **Command Timeout**: Retry with circuit breaker pattern
 4. **Authentication Errors**: Fail fast with configuration guidance
 
-### Graceful Degradation
+### Redis-Only Architecture
 
 ```typescript
-class FallbackCacheService<T> implements ICacheService<T> {
-  constructor(
-    private primaryService: RedisCacheService<T>,
-    private fallbackService: CacheService<T>
-  ) {}
+class RedisOnlyCacheManager {
+  private redisClient: IRedisClient;
+  private caches: Map<string, RedisCacheService> = new Map();
   
-  async get(key: string): Promise<T | undefined> {
-    try {
-      return await this.primaryService.get(key);
-    } catch (error) {
-      logger.warn('Redis cache failed, using in-memory fallback', { error });
-      return this.fallbackService.get(key);
+  constructor(redisClient: IRedisClient) {
+    this.redisClient = redisClient;
+  }
+  
+  getCache<T>(name: string, options?: CacheServiceOptions): RedisCacheService<T> {
+    if (!this.caches.has(name)) {
+      const cache = new RedisCacheService<T>(name, this.redisClient, options);
+      this.caches.set(name, cache);
     }
+    return this.caches.get(name) as RedisCacheService<T>;
   }
 }
 ```
@@ -267,9 +269,10 @@ class FallbackCacheService<T> implements ICacheService<T> {
 ### Error Recovery Strategies
 
 1. **Retry Logic**: Exponential backoff for transient failures
-2. **Circuit Breaker**: Prevent cascade failures
-3. **Health Checks**: Periodic connection validation
+2. **Circuit Breaker**: Prevent cascade failures during Redis outages
+3. **Health Checks**: Periodic connection validation with fail-fast on startup
 4. **Metrics**: Track error rates and recovery times
+5. **Fail-Fast**: Application terminates if Redis becomes permanently unavailable
 
 ## Testing Strategy
 
@@ -379,7 +382,8 @@ interface RedisMetrics {
 - Migrate job processing
 - Add job persistence and recovery
 
-### Phase 4: Optimization and Monitoring
-- Add performance monitoring
-- Optimize Redis operations
-- Complete in-memory service removal
+### Phase 4: Complete In-Memory Removal and Optimization
+- Remove all in-memory cache and job queue implementations
+- Remove fallback mechanisms and dual-mode operation
+- Add performance monitoring for Redis-only operations
+- Optimize Redis operations and connection management

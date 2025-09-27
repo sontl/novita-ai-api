@@ -24,7 +24,6 @@ export class MigrationTrackingService {
     this.migrationCache = await cacheManager.getCache<string>(this.cacheName, {
       maxSize: 10000,
       defaultTtl: 7 * 24 * 60 * 60 * 1000, // 7 days
-      backend: 'fallback' // Use fallback to ensure it works even if Redis is down
     });
 
     return this.migrationCache;

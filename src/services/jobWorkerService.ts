@@ -3,7 +3,7 @@
  */
 
 import { logger } from '../utils/logger';
-import { JobQueueService } from './jobQueueService';
+import { RedisJobQueueService } from './redisJobQueueService';
 import { productService } from './productService';
 import { templateService } from './templateService';
 import { novitaApiService } from './novitaApiService';
@@ -38,7 +38,7 @@ export class JobWorkerService {
   private readonly maxWaitTimeMs: number;
   private readonly maxRetryAttempts: number;
 
-  constructor(private jobQueue: JobQueueService) {
+  constructor(private jobQueue: RedisJobQueueService) {
     // Use configurable polling interval and timeout settings
     this.pollIntervalMs = config.defaults.pollInterval * 1000; // Convert seconds to milliseconds
     this.maxWaitTimeMs = 20 * 60 * 1000; // 20 minutes timeout
@@ -2091,5 +2091,5 @@ export class JobWorkerService {
   }
 }
 
-// Note: JobWorkerService should be instantiated with the proper JobQueueService instance
+// Note: JobWorkerService should be instantiated with the proper RedisJobQueueService instance
 // rather than using a singleton to avoid circular dependency issues
