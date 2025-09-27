@@ -610,9 +610,20 @@ export class InstanceService {
 
   /**
    * Sync local state with Novita instance data
+   * Handles both updating existing instances and removing obsolete ones
    */
   private async syncLocalStateWithNovita(novitaInstances: InstanceResponse[]): Promise<void> {
-    const syncPromises = novitaInstances.map(async (novitaInstance) => {
+    const novitaInstanceMap = new Map(
+      novitaInstances.map(instance => [instance.id, instance])
+    );
+
+    // Track sync statistics
+    let updatedCount = 0;
+    let removedCount = 0;
+    let markedObsoleteCount = 0;
+
+    // Update existing instances with current Novita data
+    const updatePromises = novitaInstances.map(async (novitaInstance) => {
       const localState = Array.from(this.instanceStates.values())
         .find(state => state.novitaInstanceId === novitaInstance.id);
 
@@ -624,6 +635,7 @@ export class InstanceService {
           }
         });
 
+        updatedCount++;
         logger.debug('Synced local state with Novita', {
           instanceId: localState.id,
           novitaInstanceId: novitaInstance.id,
@@ -633,7 +645,97 @@ export class InstanceService {
       }
     });
 
-    await Promise.allSettled(syncPromises);
+    // Handle obsolete instances (exist in Redis but not in Novita)
+    const obsoletePromises = Array.from(this.instanceStates.values())
+      .filter(localState => 
+        localState.novitaInstanceId && 
+        !novitaInstanceMap.has(localState.novitaInstanceId)
+      )
+      .map(async (obsoleteState) => {
+        try {
+          // Option 1: Remove from Redis completely
+          if (this.shouldRemoveObsoleteInstance(obsoleteState)) {
+            await this.removeInstanceState(obsoleteState.id);
+            removedCount++;
+            
+            logger.info('Removed obsolete instance from Redis', {
+              instanceId: obsoleteState.id,
+              novitaInstanceId: obsoleteState.novitaInstanceId,
+              lastStatus: obsoleteState.status,
+              reason: 'Instance no longer exists in Novita'
+            });
+          } 
+          // Option 2: Mark as obsolete/terminated in Redis
+          else {
+            await this.updateInstanceState(obsoleteState.id, {
+              status: InstanceStatus.TERMINATED,
+              timestamps: {
+                ...obsoleteState.timestamps,
+                terminated: new Date()
+              }
+            });
+            markedObsoleteCount++;
+
+            logger.info('Marked obsolete instance as terminated', {
+              instanceId: obsoleteState.id,
+              novitaInstanceId: obsoleteState.novitaInstanceId,
+              previousStatus: obsoleteState.status,
+              reason: 'Instance no longer exists in Novita'
+            });
+          }
+        } catch (error) {
+          logger.error('Failed to handle obsolete instance', {
+            instanceId: obsoleteState.id,
+            novitaInstanceId: obsoleteState.novitaInstanceId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      });
+
+    // Execute all sync operations
+    await Promise.allSettled([...updatePromises, ...obsoletePromises]);
+
+    // Log sync summary
+    if (updatedCount > 0 || removedCount > 0 || markedObsoleteCount > 0) {
+      logger.info('Instance sync completed', {
+        updated: updatedCount,
+        removed: removedCount,
+        markedObsolete: markedObsoleteCount,
+        totalNovitaInstances: novitaInstances.length,
+        totalLocalInstances: this.instanceStates.size
+      });
+    }
+  }
+
+  /**
+   * Determine whether an obsolete instance should be removed or marked as terminated
+   * Based on instance age, status, and configuration
+   */
+  private shouldRemoveObsoleteInstance(instanceState: InstanceState): boolean {
+    const configData = config;
+    
+    // Always remove if configured to do so
+    if (configData.sync?.removeObsoleteInstances === true) {
+      return true;
+    }
+
+    // Remove instances that were never successfully started
+    if (instanceState.status === InstanceStatus.CREATING || 
+        instanceState.status === InstanceStatus.CREATED ||
+        instanceState.status === InstanceStatus.STARTING) {
+      return true;
+    }
+
+    // Remove very old terminated instances based on retention policy
+    if (instanceState.status === InstanceStatus.TERMINATED) {
+      const retentionDays = configData.sync?.obsoleteInstanceRetentionDays || 7;
+      const retentionThreshold = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+      return instanceState.timestamps.created < retentionThreshold;
+    }
+
+    // For running/stopped instances, mark as terminated instead of removing
+    // to preserve historical data and allow for potential recovery
+    return false;
   }
 
   /**

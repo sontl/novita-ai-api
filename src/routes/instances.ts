@@ -865,6 +865,7 @@ router.post('/delete', asyncHandler(async (req: Request, res: Response): Promise
 /**
  * POST /api/instances/sync
  * Synchronize local instance state with Novita.ai
+ * Enhanced to handle obsolete instances (remove or mark as terminated)
  */
 router.post('/sync', asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const requestId = req.headers['x-request-id'] as string;
@@ -878,32 +879,63 @@ router.post('/sync', asyncHandler(async (req: Request, res: Response): Promise<v
 
   const contextLogger = createContextLogger(context);
 
-  contextLogger.info('Instance sync request received');
+  // Parse request options
+  const { 
+    forceSync = false, 
+    handleObsoleteInstances = true,
+    dryRun = false 
+  } = req.body;
+
+  contextLogger.info('Instance sync request received', {
+    forceSync,
+    handleObsoleteInstances,
+    dryRun
+  });
 
   const startTime = Date.now();
   try {
+    // Get current state before sync
+    const preSync = await instanceService.listInstances();
+    const preSyncCount = preSync.instances.length;
+
     // Use comprehensive listing to sync with Novita.ai
     const result = await instanceService.listInstancesComprehensive({
       includeNovitaOnly: true,
-      syncLocalState: true
+      syncLocalState: handleObsoleteInstances
     });
+
+    // Get state after sync to calculate changes
+    const postSync = await instanceService.listInstances();
+    const postSyncCount = postSync.instances.length;
 
     const duration = Date.now() - startTime;
 
-    contextLogger.info('Instance sync completed successfully', {
+    // Calculate sync statistics
+    const syncStats = {
+      beforeSync: preSyncCount,
+      afterSync: postSyncCount,
+      novitaInstances: result.sources?.novita || 0,
+      localInstances: result.sources?.local || 0,
+      mergedInstances: result.sources?.merged || 0,
       totalInstances: result.total,
-      synchronized: result.sources?.novita || 0,
-      merged: result.sources?.merged || 0,
+      instancesRemoved: Math.max(0, preSyncCount - postSyncCount),
       duration
-    });
+    };
+
+    contextLogger.info('Instance sync completed successfully', syncStats);
 
     res.json({
       success: true,
       message: 'Instances synchronized successfully',
-      synchronized: result.sources?.novita || 0,
-      deleted: 0, // This would need to be tracked separately if needed
-      total: result.total,
-      timestamp: new Date().toISOString()
+      data: {
+        ...syncStats,
+        timestamp: new Date().toISOString(),
+        options: {
+          forceSync,
+          handleObsoleteInstances,
+          dryRun
+        }
+      }
     });
   } catch (error) {
     const duration = Date.now() - startTime;

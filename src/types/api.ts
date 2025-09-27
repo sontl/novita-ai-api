@@ -486,6 +486,7 @@ export interface InstanceState {
     failed?: Date;
     stopping?: Date;
     stopped?: Date;
+    terminated?: Date;
     lastUsed?: Date;
   };
   webhookUrl?: string;

@@ -90,6 +90,12 @@ export interface Config {
     readonly retryDelayMs: number;
     readonly keyPrefix: string;
   };
+  readonly sync: {
+    readonly removeObsoleteInstances: boolean;
+    readonly obsoleteInstanceRetentionDays: number;
+    readonly enableAutomaticSync: boolean;
+    readonly syncIntervalMinutes: number;
+  };
 }
 
 /**
@@ -245,6 +251,12 @@ class ConfigLoader {
         retryAttempts: envVars.REDIS_RETRY_ATTEMPTS,
         retryDelayMs: envVars.REDIS_RETRY_DELAY_MS,
         keyPrefix: envVars.REDIS_KEY_PREFIX,
+      },
+      sync: {
+        removeObsoleteInstances: envVars.SYNC_REMOVE_OBSOLETE_INSTANCES,
+        obsoleteInstanceRetentionDays: envVars.SYNC_OBSOLETE_INSTANCE_RETENTION_DAYS,
+        enableAutomaticSync: envVars.SYNC_ENABLE_AUTOMATIC_SYNC,
+        syncIntervalMinutes: envVars.SYNC_INTERVAL_MINUTES,
       },
     };
   }
@@ -577,6 +589,29 @@ class ConfigLoader {
         .default('novita_api')
         .description('Prefix for Redis keys (1-50 characters, alphanumeric, underscore, and dash allowed)'),
       
+      // Sync Configuration
+      SYNC_REMOVE_OBSOLETE_INSTANCES: Joi.boolean()
+        .default(false)
+        .description('Whether to remove obsolete instances from Redis (true) or mark as terminated (false)'),
+      
+      SYNC_OBSOLETE_INSTANCE_RETENTION_DAYS: Joi.number()
+        .integer()
+        .min(1)
+        .max(365)
+        .default(7)
+        .description('Number of days to retain obsolete instances before removal (1-365)'),
+      
+      SYNC_ENABLE_AUTOMATIC_SYNC: Joi.boolean()
+        .default(true)
+        .description('Whether to enable automatic periodic synchronization with Novita.ai'),
+      
+      SYNC_INTERVAL_MINUTES: Joi.number()
+        .integer()
+        .min(5)
+        .max(1440)
+        .default(30)
+        .description('Interval in minutes for automatic synchronization (5-1440)'),
+      
       // Redis is now required - no fallback option
     }).unknown(true); // Allow unknown environment variables
   }
@@ -765,6 +800,12 @@ function createTestConfig(): Config {
       retryAttempts: 3,
       retryDelayMs: 1000,
       keyPrefix: 'novita_api',
+    },
+    sync: {
+      removeObsoleteInstances: false,
+      obsoleteInstanceRetentionDays: 7,
+      enableAutomaticSync: true,
+      syncIntervalMinutes: 30,
     },
   };
 }

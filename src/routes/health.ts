@@ -224,7 +224,7 @@ async function checkJobQueueHealth(): Promise<boolean> {
 async function checkCacheHealth(): Promise<boolean> {
   try {
     // Check if instance service cache is accessible
-    const stats = instanceService.getCacheStats();
+    const stats = await instanceService.getCacheStats();
     return typeof stats === 'object' && stats !== null;
   } catch (error) {
     logger.debug('Cache health check failed', {
@@ -318,7 +318,7 @@ async function checkJobQueueHealthDetailed(): Promise<any> {
  */
 async function checkCacheHealthDetailed(): Promise<any> {
   try {
-    const instanceStats = instanceService.getCacheStats();
+    const instanceStats = await instanceService.getCacheStats();
 
     return {
       status: 'up',
