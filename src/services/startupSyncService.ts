@@ -152,7 +152,26 @@ export class StartupSyncService {
     cacheSize: number;
   }> {
     try {
-      const lastSync = await this.redisClient.get<string>('sync:startup:last');
+      let lastSync: string | null = null;
+      try {
+        const syncData = await this.redisClient.get<{ timestamp: string } | string>('sync:startup:last');
+        if (syncData) {
+          // Handle both old string format and new object format
+          if (typeof syncData === 'string') {
+            lastSync = syncData;
+          } else if (syncData && typeof syncData === 'object' && 'timestamp' in syncData) {
+            lastSync = syncData.timestamp;
+          }
+        }
+      } catch (parseError) {
+        // Handle corrupted sync timestamp data by clearing it
+        logger.warn('Corrupted sync timestamp detected, clearing key', { 
+          error: parseError instanceof Error ? parseError.message : String(parseError) 
+        });
+        await this.redisClient.del('sync:startup:last');
+        lastSync = null;
+      }
+      
       const isLocked = await this.redisClient.exists(this.syncLockKey);
       const cacheSize = await this.instanceCache.size();
 
@@ -280,8 +299,8 @@ export class StartupSyncService {
     try {
       await this.redisClient.del(this.syncLockKey);
       
-      // Record last sync time
-      await this.redisClient.set('sync:startup:last', new Date().toISOString(), 24 * 60 * 60 * 1000); // 24 hours TTL
+      // Record last sync time as an object to avoid serialization issues
+      await this.redisClient.set('sync:startup:last', { timestamp: new Date().toISOString() }, 24 * 60 * 60 * 1000); // 24 hours TTL
       
       logger.debug('Released synchronization lock');
     } catch (error) {
