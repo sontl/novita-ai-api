@@ -1,4 +1,4 @@
-import { Redis } from '@upstash/redis';
+import Redis from 'ioredis';
 import { RedisConnectionManager, RedisConnectionConfig } from './redisConnectionManager';
 import { RedisSerializer, ISerializer } from './redisSerializer';
 import { logger } from './logger';
@@ -83,12 +83,8 @@ export class RedisClient implements IRedisClient {
         return null;
       }
       
-      if (typeof result === 'string') {
-        return this.serializer.deserialize<T>(result);
-      }
-      
-      // Handle case where Upstash returns already parsed JSON
-      return result as T;
+      // ioredis returns strings, so we need to deserialize
+      return this.serializer.deserialize<T>(result);
     }, 'GET', key);
   }
 
@@ -101,7 +97,7 @@ export class RedisClient implements IRedisClient {
       const serializedValue = this.serializer.serialize(value);
       
       if (ttlMs && ttlMs > 0) {
-        await client.set(key, serializedValue, { px: ttlMs });
+        await client.set(key, serializedValue, 'PX', ttlMs);
       } else {
         await client.set(key, serializedValue);
       }
@@ -142,11 +138,8 @@ export class RedisClient implements IRedisClient {
         return null;
       }
       
-      if (typeof result === 'string') {
-        return this.serializer.deserialize<T>(result);
-      }
-      
-      return result as T;
+      // ioredis returns strings, so we need to deserialize
+      return this.serializer.deserialize<T>(result);
     }, 'HGET', `${key}:${field}`);
   }
 
@@ -157,7 +150,7 @@ export class RedisClient implements IRedisClient {
     return this.executeWithTimeout(async () => {
       const client = this.connectionManager.getClient();
       const serializedValue = this.serializer.serialize(value);
-      await client.hset(key, { [field]: serializedValue });
+      await client.hset(key, field, serializedValue);
     }, 'HSET', `${key}:${field}`);
   }
 
@@ -186,11 +179,8 @@ export class RedisClient implements IRedisClient {
       
       const deserializedResult: Record<string, T> = {};
       for (const [field, value] of Object.entries(result)) {
-        if (typeof value === 'string') {
-          deserializedResult[field] = this.serializer.deserialize<T>(value);
-        } else {
-          deserializedResult[field] = value as T;
-        }
+        // ioredis returns strings, so we need to deserialize
+        deserializedResult[field] = this.serializer.deserialize<T>(value);
       }
       
       return deserializedResult;
@@ -220,11 +210,8 @@ export class RedisClient implements IRedisClient {
         return null;
       }
       
-      if (typeof result === 'string') {
-        return this.serializer.deserialize<T>(result);
-      }
-      
-      return result as T;
+      // ioredis returns strings, so we need to deserialize
+      return this.serializer.deserialize<T>(result);
     }, 'RPOP', key);
   }
 
@@ -240,12 +227,8 @@ export class RedisClient implements IRedisClient {
         return [];
       }
       
-      return result.map(item => {
-        if (typeof item === 'string') {
-          return this.serializer.deserialize<T>(item);
-        }
-        return item as T;
-      });
+      // ioredis returns strings, so we need to deserialize
+      return result.map(item => this.serializer.deserialize<T>(item));
     }, 'LRANGE', key);
   }
 
@@ -265,7 +248,7 @@ export class RedisClient implements IRedisClient {
   async zadd(key: string, score: number, member: string): Promise<number> {
     return this.executeWithTimeout<number>(async () => {
       const client = this.connectionManager.getClient();
-      const result = await client.zadd(key, { score, member });
+      const result = await client.zadd(key, score, member);
       return Number(result) || 0;
     }, 'ZADD', key);
   }
@@ -297,8 +280,7 @@ export class RedisClient implements IRedisClient {
   async zrevrange(key: string, start: number, stop: number): Promise<string[]> {
     return this.executeWithTimeout(async () => {
       const client = this.connectionManager.getClient();
-      // Use zrange with REV option for Upstash compatibility
-      const result = await (client as any).zrange(key, start, stop, { rev: true });
+      const result = await client.zrevrange(key, start, stop);
       return Array.isArray(result) ? result.map(String) : [];
     }, 'ZREVRANGE', key);
   }
@@ -309,8 +291,7 @@ export class RedisClient implements IRedisClient {
   async zrangebyscore(key: string, min: number, max: number): Promise<string[]> {
     return this.executeWithTimeout(async () => {
       const client = this.connectionManager.getClient();
-      // Use zrange with BYSCORE option for Upstash compatibility
-      const result = await (client as any).zrange(key, min, max, { byScore: true });
+      const result = await client.zrangebyscore(key, min, max);
       return Array.isArray(result) ? result.map(String) : [];
     }, 'ZRANGEBYSCORE', key);
   }
@@ -363,24 +344,22 @@ export class RedisClient implements IRedisClient {
   async scan(cursor: string, options?: { match?: string; count?: number }): Promise<[string, string[]]> {
     return this.executeWithTimeout(async () => {
       const client = this.connectionManager.getClient();
-      const scanOptions: any = {};
-      if (options?.match) {
-        scanOptions.MATCH = options.match;
-      }
-      if (options?.count) {
-        scanOptions.COUNT = options.count;
+      
+      let result: [string, string[]];
+      if (options?.match && options?.count) {
+        result = await client.scan(cursor, 'MATCH', options.match, 'COUNT', options.count);
+      } else if (options?.match) {
+        result = await client.scan(cursor, 'MATCH', options.match);
+      } else if (options?.count) {
+        result = await client.scan(cursor, 'COUNT', options.count);
+      } else {
+        result = await client.scan(cursor);
       }
       
-      const result = await client.scan(cursor, scanOptions);
-      
-      // Ensure we return the expected format [cursor, keys]
+      // ioredis returns [cursor, keys] format
       if (Array.isArray(result) && result.length === 2) {
         const [newCursor, keys] = result;
-        // Handle both string[] and object[] formats
-        if (Array.isArray(keys)) {
-          const stringKeys = keys.map(key => typeof key === 'string' ? key : (key as any).key || String(key));
-          return [newCursor, stringKeys];
-        }
+        return [String(newCursor), Array.isArray(keys) ? keys.map(String) : []];
       }
       return ['0', []];
     }, 'SCAN', cursor);
@@ -415,12 +394,13 @@ export class RedisClient implements IRedisClient {
       const client = this.connectionManager.getClient();
       const serializedValue = this.serializer.serialize(value);
       
-      const options: any = { nx: true };
+      let result: string | null;
       if (ttlMs && ttlMs > 0) {
-        options.px = ttlMs;
+        result = await client.set(key, serializedValue, 'PX', ttlMs, 'NX');
+      } else {
+        result = await client.set(key, serializedValue, 'NX');
       }
       
-      const result = await client.set(key, serializedValue, options);
       return result === 'OK';
     }, 'SETNX', key);
   }

@@ -167,12 +167,17 @@ export class OptimizedRedisCacheService<T = any> {
       
       if (keys.length === 0) return 0;
 
+      // Filter keys to ensure they match our cache prefix (defense against SCAN bugs)
+      const validKeys = keys.filter(key => key.startsWith(this.keyPrefix + ':'));
+      
+      if (validKeys.length === 0) return 0;
+
       // Process in batches to avoid overwhelming Redis
       const batchSize = 50;
       let cleanedCount = 0;
       
-      for (let i = 0; i < keys.length; i += batchSize) {
-        const batch = keys.slice(i, i + batchSize);
+      for (let i = 0; i < validKeys.length; i += batchSize) {
+        const batch = validKeys.slice(i, i + batchSize);
         const expiredKeys: string[] = [];
 
         // Use pipeline wrapper to check multiple entries at once
@@ -186,6 +191,14 @@ export class OptimizedRedisCacheService<T = any> {
             if (key !== undefined) {
               expiredKeys.push(key);
             }
+          } else if (!result.success && result.error?.includes('WRONGTYPE')) {
+            // Log WRONGTYPE errors but don't fail the cleanup
+            const key = batch[index];
+            logger.warn('Skipping key with wrong type during cleanup', {
+              cache: this.name,
+              key,
+              error: result.error
+            });
           }
         });
 
@@ -229,7 +242,9 @@ export class OptimizedRedisCacheService<T = any> {
     try {
       const pattern = `${this.keyPrefix}:*`;
       const keys = await this.scanKeys(pattern);
-      const size = keys.length;
+      // Filter keys to ensure they match our cache prefix (defense against SCAN bugs)
+      const validKeys = keys.filter(key => key.startsWith(this.keyPrefix + ':'));
+      const size = validKeys.length;
       
       // Cache the size
       this.sizeCache = { value: size, timestamp: now };
@@ -364,7 +379,9 @@ export class OptimizedRedisCacheService<T = any> {
     try {
       const pattern = `${this.keyPrefix}:*`;
       const redisKeys = await this.scanKeys(pattern);
-      return redisKeys.map(key => key.replace(`${this.keyPrefix}:`, ''));
+      // Filter keys to ensure they match our cache prefix (defense against SCAN bugs)
+      const validKeys = redisKeys.filter(key => key.startsWith(this.keyPrefix + ':'));
+      return validKeys.map(key => key.replace(`${this.keyPrefix}:`, ''));
     } catch (error) {
       logger.error('Failed to get keys', { cache: this.name, error: error instanceof Error ? error.message : String(error) });
       return [];

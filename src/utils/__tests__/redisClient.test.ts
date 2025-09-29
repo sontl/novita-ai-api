@@ -72,7 +72,10 @@ describe('RedisClient', () => {
 
     const config = {
       url: 'redis://localhost:6379',
-      token: 'test-token',
+      host: 'localhost',
+      port: 6379,
+      username: 'default',
+      password: 'test-password',
       commandTimeoutMs: 1000
     };
 
@@ -83,7 +86,10 @@ describe('RedisClient', () => {
     it('should initialize with connection manager and serializer', () => {
       expect(MockedRedisConnectionManager).toHaveBeenCalledWith({
         url: 'redis://localhost:6379',
-        token: 'test-token',
+        host: 'localhost',
+        port: 6379,
+        username: 'default',
+        password: 'test-password',
         commandTimeoutMs: 1000
       });
       expect(MockedRedisSerializer).toHaveBeenCalled();
@@ -437,7 +443,11 @@ describe('RedisClient', () => {
     it('should handle operation timeout', async () => {
       const shortTimeoutClient = new RedisClient({
         url: 'redis://localhost:6379',
-        token: 'test-token',
+        host: 'localhost',
+        port: 6379,
+        username: 'default',
+        password: 'test-password',
+
         commandTimeoutMs: 50
       });
 

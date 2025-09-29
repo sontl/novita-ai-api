@@ -1,4 +1,4 @@
-import { Redis } from '@upstash/redis';
+import Redis from 'ioredis';
 import { logger } from './logger';
 
 /**
@@ -6,7 +6,10 @@ import { logger } from './logger';
  */
 export interface RedisConnectionConfig {
   url: string;
-  token: string;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
   retryAttempts?: number;
   retryDelayMs?: number;
   connectionTimeoutMs?: number;
@@ -45,20 +48,61 @@ export class RedisConnectionManager {
 
     try {
       logger.info('Attempting to connect to Redis', {
-        url: this.config.url,
+        host: this.config.host,
+        port: this.config.port,
         attempt: this.reconnectAttempts + 1,
         maxAttempts: this.maxRetryAttempts
       });
 
-      // Create Redis client with timeout configuration
-      this.client = new Redis({
-        url: this.config.url,
-        token: this.config.token,
-        retry: {
-          retries: this.maxRetryAttempts,
-          backoff: (retryCount: number) => Math.min(1000 * Math.pow(2, retryCount), 30000)
-        }
+      // Create Redis client with ioredis configuration
+      const redisOptions: any = {
+        host: this.config.host,
+        port: this.config.port,
+        username: this.config.username,
+        password: this.config.password,
+        connectTimeout: this.connectionTimeoutMs,
+        commandTimeout: this.commandTimeoutMs,
+        maxRetriesPerRequest: this.maxRetryAttempts,
+        lazyConnect: true,
+        keepAlive: 30000,
+        family: 4, // Use IPv4
+      };
+
+      // Add TLS configuration if using rediss://
+      if (this.config.url.startsWith('rediss://')) {
+        redisOptions.tls = {};
+      }
+
+      this.client = new Redis(redisOptions);
+
+      // Set up event handlers
+      this.client.on('connect', () => {
+        logger.info('Redis client connected');
       });
+
+      this.client.on('ready', () => {
+        logger.info('Redis client ready');
+        this.isConnected = true;
+      });
+
+      this.client.on('error', (error) => {
+        logger.error('Redis client error', {
+          error: error.message
+        });
+        this.isConnected = false;
+      });
+
+      this.client.on('close', () => {
+        logger.warn('Redis connection closed');
+        this.isConnected = false;
+      });
+
+      this.client.on('reconnecting', () => {
+        logger.info('Redis client reconnecting');
+      });
+
+      // Connect to Redis
+      await this.client.connect();
 
       // Test the connection with a ping
       await this.pingWithTimeout();
@@ -67,19 +111,24 @@ export class RedisConnectionManager {
       this.reconnectAttempts = 0;
       
       logger.info('Successfully connected to Redis', {
-        url: this.config.url
+        host: this.config.host,
+        port: this.config.port
       });
 
     } catch (error) {
       this.isConnected = false;
-      this.client = null;
+      if (this.client) {
+        this.client.disconnect();
+        this.client = null;
+      }
       this.reconnectAttempts++;
 
       logger.error('Failed to connect to Redis', {
         error: error instanceof Error ? error.message : String(error),
         attempt: this.reconnectAttempts,
         maxAttempts: this.maxRetryAttempts,
-        url: this.config.url
+        host: this.config.host,
+        port: this.config.port
       });
 
       if (this.reconnectAttempts < this.maxRetryAttempts) {
@@ -108,8 +157,7 @@ export class RedisConnectionManager {
 
     if (this.client) {
       try {
-        // Upstash Redis client doesn't have an explicit disconnect method
-        // The connection is managed automatically
+        await this.client.disconnect();
         this.client = null;
         this.isConnected = false;
         
@@ -168,13 +216,15 @@ export class RedisConnectionManager {
     isConnected: boolean;
     reconnectAttempts: number;
     maxRetryAttempts: number;
-    url: string;
+    host: string;
+    port: number;
   } {
     return {
       isConnected: this.isConnected,
       reconnectAttempts: this.reconnectAttempts,
       maxRetryAttempts: this.maxRetryAttempts,
-      url: this.config.url
+      host: this.config.host,
+      port: this.config.port
     };
   }
 

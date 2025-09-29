@@ -55,7 +55,10 @@ export class RedisCacheManager {
       const config = getConfig();
       const connectionManager = new RedisConnectionManager({
         url: config.redis.url,
-        token: config.redis.token,
+        host: config.redis.host,
+        port: config.redis.port,
+        username: config.redis.username,
+        password: config.redis.password,
         connectionTimeoutMs: config.redis.connectionTimeoutMs,
         commandTimeoutMs: config.redis.commandTimeoutMs,
         retryAttempts: config.redis.retryAttempts,
@@ -64,7 +67,10 @@ export class RedisCacheManager {
 
       this.redisClient = new RedisClient({
         url: config.redis.url,
-        token: config.redis.token,
+        host: config.redis.host,
+        port: config.redis.port,
+        username: config.redis.username,
+        password: config.redis.password,
         connectionTimeoutMs: config.redis.connectionTimeoutMs,
         commandTimeoutMs: config.redis.commandTimeoutMs,
         retryAttempts: config.redis.retryAttempts,

@@ -334,12 +334,28 @@ export class RedisCacheService<T = any> {
       const pattern = `${this.keyPrefix}:*`;
       const keys = await this.scanKeys(pattern);
 
-      for (const redisKey of keys) {
-        const entry = await this.redisClient.get<RedisCacheEntry<T>>(redisKey);
-        if (entry && this.isExpired(entry)) {
-          await this.redisClient.del(redisKey);
-          this.metrics.evictions++;
-          cleanedCount++;
+      // Filter keys to ensure they match our cache prefix (defense against SCAN bugs)
+      const validKeys = keys.filter(key => key.startsWith(this.keyPrefix + ':'));
+
+      for (const redisKey of validKeys) {
+        try {
+          const entry = await this.redisClient.get<RedisCacheEntry<T>>(redisKey);
+          if (entry && this.isExpired(entry)) {
+            await this.redisClient.del(redisKey);
+            this.metrics.evictions++;
+            cleanedCount++;
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('WRONGTYPE')) {
+            // Skip keys with wrong type (they don't belong to this cache)
+            logger.warn('Skipping key with wrong type during cleanup', {
+              cache: this.name,
+              key: redisKey,
+              error: error.message
+            });
+            continue;
+          }
+          throw error; // Re-throw other errors
         }
       }
 
@@ -368,7 +384,9 @@ export class RedisCacheService<T = any> {
     try {
       const pattern = `${this.keyPrefix}:*`;
       const redisKeys = await this.scanKeys(pattern);
-      return redisKeys.map(key => this.extractOriginalKey(key));
+      // Filter keys to ensure they match our cache prefix (defense against SCAN bugs)
+      const validKeys = redisKeys.filter(key => key.startsWith(this.keyPrefix + ':'));
+      return validKeys.map(key => this.extractOriginalKey(key));
     } catch (error) {
       logger.error('Redis cache keys operation failed', {
         cache: this.name,
@@ -523,7 +541,9 @@ export class RedisCacheService<T = any> {
     try {
       const pattern = `${this.keyPrefix}:*`;
       const keys = await this.scanKeys(pattern);
-      return keys.length;
+      // Filter keys to ensure they match our cache prefix (defense against SCAN bugs)
+      const validKeys = keys.filter(key => key.startsWith(this.keyPrefix + ':'));
+      return validKeys.length;
     } catch (error) {
       logger.error('Failed to get current cache size', {
         cache: this.name,
@@ -552,14 +572,34 @@ export class RedisCacheService<T = any> {
         return;
       }
 
+      // Filter keys to ensure they match our cache prefix (defense against SCAN bugs)
+      const validKeys = keys.filter(key => key.startsWith(this.keyPrefix + ':'));
+      
+      if (validKeys.length === 0) {
+        return;
+      }
+
       let lruKey: string | undefined;
       let lruTime = Infinity;
 
-      for (const redisKey of keys) {
-        const entry = await this.redisClient.get<RedisCacheEntry<T>>(redisKey);
-        if (entry && entry.lastAccessed < lruTime) {
-          lruTime = entry.lastAccessed;
-          lruKey = redisKey;
+      for (const redisKey of validKeys) {
+        try {
+          const entry = await this.redisClient.get<RedisCacheEntry<T>>(redisKey);
+          if (entry && entry.lastAccessed < lruTime) {
+            lruTime = entry.lastAccessed;
+            lruKey = redisKey;
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('WRONGTYPE')) {
+            // Skip keys with wrong type (they don't belong to this cache)
+            logger.warn('Skipping key with wrong type during LRU eviction', {
+              cache: this.name,
+              key: redisKey,
+              error: error.message
+            });
+            continue;
+          }
+          throw error; // Re-throw other errors
         }
       }
 

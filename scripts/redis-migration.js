@@ -374,7 +374,10 @@ class RedisMigrationUtility {
       
       this.redisClient = new RedisClient({
         url: CONFIG.redis.url,
-        token: CONFIG.redis.token
+        host: CONFIG.redis.host,
+        port: CONFIG.redis.port,
+        username: CONFIG.redis.username,
+        password: CONFIG.redis.password
       });
 
       // Test connection

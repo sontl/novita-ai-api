@@ -180,7 +180,7 @@ router.post('/hard-reset', async (req: Request, res: Response) => {
     
     logger.warn('Hard reset executed - ALL Redis data deleted');
     
-    res.json({
+    return res.json({
       message: 'Hard reset completed successfully. All Redis data has been deleted.',
       timestamp: new Date().toISOString()
     });
@@ -188,7 +188,7 @@ router.post('/hard-reset', async (req: Request, res: Response) => {
     logger.error('Hard reset failed', {
       error: (error as Error).message
     });
-    res.status(500).json({
+    return res.status(500).json({
       error: {
         code: 'HARD_RESET_ERROR',
         message: 'Failed to execute hard reset',

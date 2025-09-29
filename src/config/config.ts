@@ -83,7 +83,10 @@ export interface Config {
   };
   readonly redis: {
     readonly url: string;
-    readonly token: string;
+    readonly host: string;
+    readonly port: number;
+    readonly username: string;
+    readonly password: string;
     readonly connectionTimeoutMs: number;
     readonly commandTimeoutMs: number;
     readonly retryAttempts: number;
@@ -244,8 +247,11 @@ class ConfigLoader {
         operationTimeoutMs: envVars.INSTANCE_STARTUP_OPERATION_TIMEOUT_MS,
       },
       redis: {
-        url: envVars.UPSTASH_REDIS_REST_URL,
-        token: envVars.UPSTASH_REDIS_REST_TOKEN,
+        url: envVars.REDIS_URL,
+        host: envVars.REDIS_HOST,
+        port: envVars.REDIS_PORT,
+        username: envVars.REDIS_USERNAME,
+        password: envVars.REDIS_PASSWORD,
         connectionTimeoutMs: envVars.REDIS_CONNECTION_TIMEOUT_MS,
         commandTimeoutMs: envVars.REDIS_COMMAND_TIMEOUT_MS,
         retryAttempts: envVars.REDIS_RETRY_ATTEMPTS,
@@ -544,15 +550,27 @@ class ConfigLoader {
         .description('Timeout for startup operations in milliseconds (60000-3600000)'),
       
       // Redis Configuration
-      UPSTASH_REDIS_REST_URL: Joi.string()
-        .uri({ scheme: ['http', 'https'] })
+      REDIS_URL: Joi.string()
+        .uri({ scheme: ['redis', 'rediss'] })
         .required()
-        .description('Upstash Redis REST URL (required)'),
+        .description('Redis connection URL (required)'),
       
-      UPSTASH_REDIS_REST_TOKEN: Joi.string()
+      REDIS_HOST: Joi.string()
         .required()
-        .min(10)
-        .description('Upstash Redis REST token (required)'),
+        .description('Redis host (required)'),
+      
+      REDIS_PORT: Joi.number()
+        .port()
+        .required()
+        .description('Redis port (required)'),
+      
+      REDIS_USERNAME: Joi.string()
+        .required()
+        .description('Redis username (required)'),
+      
+      REDIS_PASSWORD: Joi.string()
+        .required()
+        .description('Redis password (required)'),
       
       REDIS_CONNECTION_TIMEOUT_MS: Joi.number()
         .integer()
@@ -656,7 +674,10 @@ class ConfigLoader {
       instanceStartup: config.instanceStartup,
       redis: {
         hasUrl: !!config.redis.url,
-        hasToken: !!config.redis.token,
+        host: config.redis.host,
+        port: config.redis.port,
+        hasUsername: !!config.redis.username,
+        hasPassword: !!config.redis.password,
         connectionTimeoutMs: config.redis.connectionTimeoutMs,
         commandTimeoutMs: config.redis.commandTimeoutMs,
         retryAttempts: config.redis.retryAttempts,
@@ -793,8 +814,11 @@ function createTestConfig(): Config {
       operationTimeoutMs: 900000, // 15 minutes
     },
     redis: {
-      url: 'https://test-redis.upstash.io',
-      token: 'test-redis-token',
+      url: 'redis://localhost:6379',
+      host: 'localhost',
+      port: 6379,
+      username: 'default',
+      password: 'test-password',
       connectionTimeoutMs: 10000,
       commandTimeoutMs: 5000,
       retryAttempts: 3,

@@ -36,8 +36,10 @@ export interface ServiceInitializationResult {
 async function initializeRedisClient(config: Config): Promise<IRedisClient | undefined> {
   try {
     logger.info('Initializing Redis client', {
-      url: config.redis.url ? 'configured' : 'not configured',
-      token: config.redis.token ? 'configured' : 'not configured',
+      host: config.redis.host,
+      port: config.redis.port,
+      username: config.redis.username ? 'configured' : 'not configured',
+      password: config.redis.password ? 'configured' : 'not configured',
       connectionTimeoutMs: config.redis.connectionTimeoutMs,
       commandTimeoutMs: config.redis.commandTimeoutMs,
       retryAttempts: config.redis.retryAttempts,
@@ -45,14 +47,17 @@ async function initializeRedisClient(config: Config): Promise<IRedisClient | und
     });
 
     // Validate Redis configuration
-    if (!config.redis.url || !config.redis.token) {
-      throw new Error('Redis URL and token are required');
+    if (!config.redis.url || !config.redis.host || !config.redis.password) {
+      throw new Error('Redis URL, host, and password are required');
     }
 
     // Create Redis connection manager
     const connectionManager = new RedisConnectionManager({
       url: config.redis.url,
-      token: config.redis.token,
+      host: config.redis.host,
+      port: config.redis.port,
+      username: config.redis.username,
+      password: config.redis.password,
       connectionTimeoutMs: config.redis.connectionTimeoutMs,
       commandTimeoutMs: config.redis.commandTimeoutMs,
       retryAttempts: config.redis.retryAttempts,
@@ -62,7 +67,10 @@ async function initializeRedisClient(config: Config): Promise<IRedisClient | und
     // Create Redis client with serializer
     const redisClient = new RedisClient({
       url: config.redis.url,
-      token: config.redis.token,
+      host: config.redis.host,
+      port: config.redis.port,
+      username: config.redis.username,
+      password: config.redis.password,
       connectionTimeoutMs: config.redis.connectionTimeoutMs,
       commandTimeoutMs: config.redis.commandTimeoutMs,
       retryAttempts: config.redis.retryAttempts,
@@ -72,7 +80,7 @@ async function initializeRedisClient(config: Config): Promise<IRedisClient | und
     // Test Redis connection
     await redisClient.connect();
     const pingResult = await redisClient.ping();
-    
+
     logger.info('Redis client initialized successfully', {
       pingResult,
       keyPrefix: config.redis.keyPrefix
@@ -81,7 +89,7 @@ async function initializeRedisClient(config: Config): Promise<IRedisClient | und
     return redisClient;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    
+
     logger.error('Redis initialization failed, no fallback configured', {
       error: errorMessage
     });
@@ -150,7 +158,7 @@ async function validateRedisConnection(redisClient: IRedisClient): Promise<boole
   try {
     const pingResult = await redisClient.ping();
     const isHealthy = (redisClient as any).isHealthy?.() ?? true;
-    
+
     logger.info('Redis connection validation completed', {
       pingResult,
       isHealthy,
@@ -172,7 +180,7 @@ async function validateRedisConnection(redisClient: IRedisClient): Promise<boole
  */
 export async function initializeServices(config: Config): Promise<ServiceInitializationResult> {
   logger.info('Starting service initialization', {
-    redisEnabled: !!(config.redis.url && config.redis.token),
+    redisEnabled: !!(config.redis.url && config.redis.host && config.redis.password),
     fallbackEnabled: config.instanceListing.enableFallbackToLocal // Use correct property
   });
 
@@ -180,10 +188,10 @@ export async function initializeServices(config: Config): Promise<ServiceInitial
   let redisHealthy = false;
 
   // Initialize Redis client if configured
-  if (config.redis.url && config.redis.token) {
+  if (config.redis.url && config.redis.host && config.redis.password) {
     try {
       redisClient = await initializeRedisClient(config);
-      
+
       if (redisClient) {
         redisHealthy = await validateRedisConnection(redisClient);
         serviceRegistry.registerRedisClient(redisClient);
@@ -216,7 +224,7 @@ export async function initializeServices(config: Config): Promise<ServiceInitial
   if (redisClient && redisHealthy) {
     try {
       logger.info('Starting instance synchronization with Novita.ai');
-      
+
       // Create instance cache service
       const instanceCache = new RedisCacheService<InstanceResponse>(
         'instances',
