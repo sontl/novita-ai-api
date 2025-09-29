@@ -163,7 +163,7 @@ export class OptimizedRedisCacheService<T = any> {
   async cleanupExpired(): Promise<number> {
     try {
       const pattern = `${this.keyPrefix}:*`;
-      const keys = await this.redisClient.keys(pattern);
+      const keys = await this.scanKeys(pattern);
       
       if (keys.length === 0) return 0;
 
@@ -228,7 +228,7 @@ export class OptimizedRedisCacheService<T = any> {
 
     try {
       const pattern = `${this.keyPrefix}:*`;
-      const keys = await this.redisClient.keys(pattern);
+      const keys = await this.scanKeys(pattern);
       const size = keys.length;
       
       // Cache the size
@@ -363,7 +363,7 @@ export class OptimizedRedisCacheService<T = any> {
   async keys(): Promise<string[]> {
     try {
       const pattern = `${this.keyPrefix}:*`;
-      const redisKeys = await this.redisClient.keys(pattern);
+      const redisKeys = await this.scanKeys(pattern);
       return redisKeys.map(key => key.replace(`${this.keyPrefix}:`, ''));
     } catch (error) {
       logger.error('Failed to get keys', { cache: this.name, error: error instanceof Error ? error.message : String(error) });
@@ -382,6 +382,33 @@ export class OptimizedRedisCacheService<T = any> {
       logger.error('Failed to clear cache', { cache: this.name, error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
+  }
+
+  /**
+   * Scan for keys matching a pattern using SCAN instead of KEYS for better performance
+   */
+  private async scanKeys(pattern: string): Promise<string[]> {
+    const keys: string[] = [];
+    let cursor = '0';
+    
+    do {
+      try {
+        const result = await this.redisClient.scan(cursor, { match: pattern, count: 100 });
+        cursor = result[0];
+        keys.push(...result[1]);
+      } catch (error) {
+        logger.error('Redis SCAN operation failed', {
+          cache: this.name,
+          command: 'SCAN',
+          pattern,
+          cursor,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        break;
+      }
+    } while (cursor !== '0');
+    
+    return keys;
   }
 
   getMetrics() {

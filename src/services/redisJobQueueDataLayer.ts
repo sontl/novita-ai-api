@@ -539,11 +539,28 @@ export class RedisJobQueueDataLayer {
   }
 
   /**
-   * Get all job IDs matching a pattern
+   * Get all job IDs matching a pattern using SCAN instead of KEYS for better performance
    */
   async getAllJobIds(): Promise<string[]> {
     const pattern = this.keys.getJobDataPattern();
-    const keys = await this.redisClient.keys(pattern);
+    const keys: string[] = [];
+    let cursor = '0';
+    
+    do {
+      try {
+        const result = await this.redisClient.scan(cursor, { match: pattern, count: 100 });
+        cursor = result[0];
+        keys.push(...result[1]);
+      } catch (error) {
+        logger.error('Redis SCAN operation failed', {
+          command: 'SCAN',
+          pattern,
+          cursor,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        break;
+      }
+    } while (cursor !== '0');
     
     // Extract job IDs from keys
     const jobIds = keys

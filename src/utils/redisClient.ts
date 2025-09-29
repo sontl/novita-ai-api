@@ -37,6 +37,7 @@ export interface IRedisClient {
   
   // Utility operations
   keys(pattern: string): Promise<string[]>;
+  scan(cursor: string, options?: { match?: string; count?: number }): Promise<[string, string[]]>;
   ttl(key: string): Promise<number>;
   expire(key: string, ttlMs: number): Promise<boolean>;
   setNX<T>(key: string, value: T, ttlMs?: number): Promise<boolean>;
@@ -354,6 +355,35 @@ export class RedisClient implements IRedisClient {
       const result = await client.keys(pattern);
       return Array.isArray(result) ? result : [];
     }, 'KEYS', pattern);
+  }
+
+  /**
+   * Scan for keys matching a pattern (non-blocking alternative to KEYS)
+   */
+  async scan(cursor: string, options?: { match?: string; count?: number }): Promise<[string, string[]]> {
+    return this.executeWithTimeout(async () => {
+      const client = this.connectionManager.getClient();
+      const scanOptions: any = {};
+      if (options?.match) {
+        scanOptions.MATCH = options.match;
+      }
+      if (options?.count) {
+        scanOptions.COUNT = options.count;
+      }
+      
+      const result = await client.scan(cursor, scanOptions);
+      
+      // Ensure we return the expected format [cursor, keys]
+      if (Array.isArray(result) && result.length === 2) {
+        const [newCursor, keys] = result;
+        // Handle both string[] and object[] formats
+        if (Array.isArray(keys)) {
+          const stringKeys = keys.map(key => typeof key === 'string' ? key : (key as any).key || String(key));
+          return [newCursor, stringKeys];
+        }
+      }
+      return ['0', []];
+    }, 'SCAN', cursor);
   }
 
   /**
