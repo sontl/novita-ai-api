@@ -180,22 +180,10 @@ export const errorHandler = (
   const logLevel = statusCode >= 500 ? 'error' : statusCode >= 400 ? 'warn' : 'info';
   
   contextLogger[logLevel]('Request error occurred', {
-    errorName: error.name,
-    errorMessage: error.message,
-    errorCode,
-    statusCode,
-    category,
-    isRetryable,
-    stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
-    request: {
-      method: req.method,
-      url: req.url,
-      path: req.path,
-      body: sanitizedBody,
-      query: sanitizedQuery,
-      params: sanitizedParams,
-      headers: sanitizeLogData(req.headers)
-    }
+    errorType: error.name,
+    httpMethod: req.method,
+    httpUrl: req.url,
+    httpStatusCode: statusCode
   });
 
   // Handle special error types

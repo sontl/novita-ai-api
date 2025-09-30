@@ -143,11 +143,7 @@ export class HealthCheckerService {
     const sessionId = `hc-session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     logger.info('Starting health check session', {
-      sessionId,
-      endpointCount: portMappings.length,
-      config: mergedConfig,
-      targetPort: mergedConfig.targetPort,
-      portMappings: portMappings.map(pm => ({ port: pm.port, type: pm.type , endpoint: pm.endpoint}))
+      sessionId
     });
 
     // Validate input parameters
@@ -164,7 +160,7 @@ export class HealthCheckerService {
 
       logger.error('Health check session failed - invalid input', {
         sessionId,
-        error: error.toLogObject()
+        errorType: error.name || 'ValidationError'
       });
 
       throw error;
@@ -177,10 +173,7 @@ export class HealthCheckerService {
 
     if (endpointsToCheck.length === 0) {
       logger.warn('No endpoints to check after filtering', {
-        sessionId,
-        originalPortMappings: portMappings.length,
-        targetPort: mergedConfig.targetPort,
-        filteredEndpoints: endpointsToCheck.length
+        sessionId
       });
 
       return {
@@ -200,11 +193,7 @@ export class HealthCheckerService {
     // Perform health checks in parallel using Promise.allSettled
     const healthCheckPromises = endpointsToCheck.map((endpoint, index) => {
       logger.debug('Queuing health check', {
-        sessionId,
-        endpointIndex: index,
-        port: endpoint.port,
-        endpoint: endpoint.endpoint,
-        type: endpoint.type
+        sessionId
       });
 
       return this.checkEndpoint(endpoint, mergedConfig);
@@ -314,22 +303,7 @@ export class HealthCheckerService {
     };
 
     logger.info('Health check session completed', {
-      sessionId,
-      overallStatus,
-      healthyEndpoints: healthyCount,
-      unhealthyEndpoints: unhealthyCount,
-      totalEndpoints: totalCount,
-      fulfilledPromises: fulfilledCount,
-      rejectedPromises: rejectedCount,
-      totalResponseTime,
-      averageResponseTime: healthyCount > 0 ? Math.round(totalResponseTime / healthyCount) : 0,
-      sessionDuration: duration,
-      endpointSummary: endpoints.map(e => ({
-        port: e.port,
-        status: e.status,
-        responseTime: e.responseTime,
-        hasError: !!e.error
-      }))
+      sessionId
     });
 
     return result;
@@ -364,11 +338,7 @@ export class HealthCheckerService {
 
       try {
         logger.debug('Health check attempt starting', {
-          port,
-          endpoint,
-          attempt,
-          maxAttempts: config.retryAttempts + 1,
-          timeoutMs: config.timeoutMs
+          endpoint
         });
 
         const response = await this.makeHealthCheckRequest(endpoint, config);
@@ -376,18 +346,9 @@ export class HealthCheckerService {
         const totalTime = Date.now() - checkStartTime;
 
         logger.info('Health check successful', {
-          port,
           endpoint,
-          statusCode: response.status,
-          statusText: response.statusText,
-          responseTime,
-          totalTime,
-          attempt,
-          headers: {
-            contentType: response.headers['content-type'],
-            contentLength: response.headers['content-length'],
-            server: response.headers['server']
-          }
+          httpStatusCode: response.status,
+          responseTime
         });
 
         return {
@@ -404,13 +365,8 @@ export class HealthCheckerService {
         lastError = this.categorizeError(error, endpoint, attemptStartTime);
 
         logger.warn('Health check attempt failed', {
-          port,
           endpoint,
-          attempt,
-          maxAttempts: config.retryAttempts + 1,
-          attemptTime,
-          error: lastError.toLogObject(),
-          willRetry: attempt <= config.retryAttempts && lastError.isRetryable
+          errorType: lastError.name || 'HealthCheckError'
         });
 
         // Check if we should retry based on error type and configuration
@@ -418,13 +374,7 @@ export class HealthCheckerService {
           const delay = this.calculateRetryDelay(attempt, config.retryDelayMs);
 
           logger.debug('Scheduling retry for health check', {
-            port,
-            endpoint,
-            attempt,
-            nextAttempt: attempt + 1,
-            delayMs: delay,
-            errorType: lastError.type,
-            errorSeverity: lastError.severity
+            endpoint
           });
 
           await this.sleep(delay);
@@ -519,10 +469,7 @@ export class HealthCheckerService {
 
     logger.debug('Making health check HTTP request', {
       requestId,
-      endpoint,
-      method: requestConfig.method,
-      timeout: requestConfig.timeout,
-      headers: requestConfig.headers
+      endpoint
     });
 
     try {
@@ -541,9 +488,7 @@ export class HealthCheckerService {
 
           logger.warn('Bad Gateway detected in response body despite successful status', {
             requestId,
-            endpoint,
-            status: response.status,
-            responsePreview: response.data.substring(0, 200)
+            endpoint
           });
 
           const syntheticError = new Error('Bad Gateway detected in response body');
@@ -567,9 +512,7 @@ export class HealthCheckerService {
 
           logger.warn('Service Unavailable detected in response body despite successful status', {
             requestId,
-            endpoint,
-            status: response.status,
-            responsePreview: response.data.substring(0, 200)
+            endpoint
           });
 
           const syntheticError = new Error('Service Unavailable detected in response body');
@@ -593,9 +536,7 @@ export class HealthCheckerService {
 
           logger.warn('Internal Server Error detected in response body despite successful status', {
             requestId,
-            endpoint,
-            status: response.status,
-            responsePreview: response.data.substring(0, 200)
+            endpoint
           });
 
           const syntheticError = new Error('Internal Server Error detected in response body');
@@ -615,11 +556,7 @@ export class HealthCheckerService {
       logger.debug('Health check HTTP request completed successfully', {
         requestId,
         endpoint,
-        status: response.status,
-        statusText: response.statusText,
-        contentType: response.headers['content-type'],
-        contentLength: response.headers['content-length'],
-        responseSize: response.data?.length || 0
+        httpStatusCode: response.status
       });
 
       return response;
@@ -638,11 +575,7 @@ export class HealthCheckerService {
       logger.debug('Health check HTTP request failed', {
         requestId,
         endpoint,
-        error: {
-          message: error instanceof Error ? error.message : String(error),
-          code: (error as any).code,
-          status: axios.isAxiosError(error) ? error.response?.status : undefined
-        }
+        errorType: error instanceof Error ? error.constructor.name : 'UnknownError'
       });
 
       throw error;

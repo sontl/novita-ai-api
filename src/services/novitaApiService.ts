@@ -416,6 +416,23 @@ export class NovitaApiService {
   }
 
   /**
+   * Check if an instance exists in Novita.ai
+   * Returns true if exists, false if 404, throws for other errors
+   */
+  async instanceExists(instanceId: string): Promise<boolean> {
+    try {
+      await this.getInstance(instanceId);
+      return true;
+    } catch (error) {
+      if (error instanceof NovitaApiClientError && error.statusCode === 404) {
+        return false;
+      }
+      // Re-throw other errors (network issues, auth problems, etc.)
+      throw error;
+    }
+  }
+
+  /**
    * List all instances with pagination using the correct Novita.ai API endpoint
    */
   async listInstances(options?: {
@@ -990,6 +1007,40 @@ export class NovitaApiService {
         // Check if error is retryable
         const isRetryable = this.isRetryableError(error as Error);
 
+        // Special handling for "invalid state change" errors
+        if (error instanceof NovitaApiClientError && 
+            error.statusCode === 400 && 
+            error.message && 
+            error.message.toLowerCase().includes('invalid state change')) {
+          
+          logger.debug('Checking if instance actually started despite error', {
+            instanceId,
+            attempt
+          });
+
+          // Wait a moment for the state to potentially update
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          try {
+            // Check if the instance is now in starting/running state
+            const currentInstance = await this.getInstance(instanceId);
+            if (currentInstance.status === InstanceStatus.STARTING || 
+                currentInstance.status === InstanceStatus.RUNNING) {
+              logger.info('Instance started successfully despite API error', {
+                instanceId,
+                currentStatus: currentInstance.status,
+                attempt
+              });
+              return currentInstance;
+            }
+          } catch (checkError) {
+            logger.debug('Failed to verify instance status after error', {
+              instanceId,
+              checkError: (checkError as Error).message
+            });
+          }
+        }
+
         logger.warn('Instance start attempt failed', {
           instanceId,
           attempt,
@@ -1039,6 +1090,19 @@ export class NovitaApiService {
     if (error instanceof NovitaApiClientError) {
       // Retry on server errors but not client errors
       if (error.statusCode) {
+        // Special case: "invalid state change" errors are often transient
+        // and the operation might still succeed despite the error response
+        if (error.statusCode === 400 && 
+            error.message && 
+            error.message.toLowerCase().includes('invalid state change')) {
+          logger.debug('Treating "invalid state change" error as retryable', {
+            statusCode: error.statusCode,
+            message: error.message,
+            code: error.code
+          });
+          return true;
+        }
+        
         return error.statusCode >= 500 || error.statusCode === 429;
       }
 

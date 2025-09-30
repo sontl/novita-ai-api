@@ -215,12 +215,35 @@ export class InstanceService {
 
       // Get instance state
       const instanceState = this.instanceStates.get(instanceId);
+
+      // If no local state, try to fetch directly from Novita API (for Novita-only instances)
       if (!instanceState) {
-        throw new NovitaApiClientError(
-          `Instance not found: ${instanceId}`,
-          404,
-          'INSTANCE_NOT_FOUND'
-        );
+        try {
+          logger.debug('No local state found, trying to fetch from Novita API', { instanceId });
+          const novitaInstance = await novitaApiService.getInstance(instanceId);
+          const instanceDetails = this.transformNovitaInstanceToDetails(novitaInstance);
+
+          // Cache the result
+          await cache.set(instanceId, instanceDetails);
+
+          logger.debug('Retrieved Novita-only instance details', {
+            instanceId,
+            status: instanceDetails.status
+          });
+
+          return instanceDetails;
+        } catch (novitaError) {
+          logger.debug('Instance not found in Novita API either', {
+            instanceId,
+            error: (novitaError as Error).message
+          });
+
+          throw new NovitaApiClientError(
+            `Instance not found: ${instanceId}`,
+            404,
+            'INSTANCE_NOT_FOUND'
+          );
+        }
       }
 
       let instanceDetails: InstanceDetails;
@@ -241,7 +264,26 @@ export class InstanceService {
           const stateCache = await this.instanceStateCache;
           await stateCache.set(instanceId, instanceState);
         } catch (error) {
-          // If API is unavailable, return cached state
+          // Check if it's a 404 error - instance no longer exists in Novita
+          if (error instanceof NovitaApiClientError && error.statusCode === 404) {
+            logger.warn('Instance not found in Novita API, removing from cache', {
+              instanceId,
+              novitaInstanceId: instanceState.novitaInstanceId,
+              error: (error as Error).message
+            });
+
+            // Remove from all caches and local state
+            await this.removeInstanceState(instanceId);
+
+            // Throw the original 404 error to maintain API consistency
+            throw new NovitaApiClientError(
+              `Instance not found: ${instanceId}`,
+              404,
+              'INSTANCE_NOT_FOUND'
+            );
+          }
+
+          // If API is unavailable for other reasons, return cached state
           logger.warn('Failed to fetch instance from Novita API, using cached state', {
             instanceId,
             novitaInstanceId: instanceState.novitaInstanceId,
@@ -646,7 +688,7 @@ export class InstanceService {
       }
     });
 
-    // Handle obsolete instances (exist in Redis but not in Novita)
+    // Handle obsolete instances (exist locally but not in Novita)
     const obsoletePromises = Array.from(this.instanceStates.values())
       .filter(localState =>
         localState.novitaInstanceId &&
@@ -654,19 +696,47 @@ export class InstanceService {
       )
       .map(async (obsoleteState) => {
         try {
-          // Option 1: Remove from Redis completely
+          // Double-check by trying to fetch the instance directly from Novita API
+          // This handles cases where the list might be incomplete
+          try {
+            await novitaApiService.getInstance(obsoleteState.novitaInstanceId!);
+            // If we get here, the instance still exists but wasn't in the list
+            logger.debug('Instance exists in Novita but not in list, keeping local state', {
+              instanceId: obsoleteState.id,
+              novitaInstanceId: obsoleteState.novitaInstanceId
+            });
+            return;
+          } catch (fetchError) {
+            // If it's a 404, the instance is truly gone
+            if (fetchError instanceof NovitaApiClientError && fetchError.statusCode === 404) {
+              logger.info('Confirmed instance no longer exists in Novita', {
+                instanceId: obsoleteState.id,
+                novitaInstanceId: obsoleteState.novitaInstanceId
+              });
+            } else {
+              // For other errors, we can't be sure, so keep the instance
+              logger.warn('Could not verify instance existence in Novita, keeping local state', {
+                instanceId: obsoleteState.id,
+                novitaInstanceId: obsoleteState.novitaInstanceId,
+                error: fetchError instanceof Error ? fetchError.message : String(fetchError)
+              });
+              return;
+            }
+          }
+
+          // Option 1: Remove from cache completely
           if (this.shouldRemoveObsoleteInstance(obsoleteState)) {
             await this.removeInstanceState(obsoleteState.id);
             removedCount++;
 
-            logger.info('Removed obsolete instance from Redis', {
+            logger.info('Removed obsolete instance from cache', {
               instanceId: obsoleteState.id,
               novitaInstanceId: obsoleteState.novitaInstanceId,
               lastStatus: obsoleteState.status,
               reason: 'Instance no longer exists in Novita'
             });
           }
-          // Option 2: Mark as obsolete/terminated in Redis
+          // Option 2: Mark as obsolete/terminated in cache
           else {
             await this.updateInstanceState(obsoleteState.id, {
               status: InstanceStatus.TERMINATED,
@@ -1036,6 +1106,37 @@ export class InstanceService {
   }
 
   /**
+   * Handle 404 errors from Novita API by removing instance from cache
+   * This ensures we don't keep stale data for instances that no longer exist
+   */
+  async handleInstanceNotFound(instanceId: string, novitaInstanceId?: string): Promise<void> {
+    logger.info('Handling instance not found, removing from cache', {
+      instanceId,
+      novitaInstanceId
+    });
+
+    try {
+      // Remove from all caches and local state
+      await this.removeInstanceState(instanceId);
+
+      // Also clear any merged instances cache that might contain this instance
+      const mergedCache = await this.mergedInstancesCache;
+      await mergedCache.clear(); // Clear all merged cache since we can't selectively remove
+
+      logger.info('Successfully removed instance from cache after 404', {
+        instanceId,
+        novitaInstanceId
+      });
+    } catch (error) {
+      logger.error('Failed to remove instance from cache after 404', {
+        instanceId,
+        novitaInstanceId,
+        error: (error as Error).message
+      });
+    }
+  }
+
+  /**
    * Preload instance into cache
    */
   async preloadInstance(instanceId: string): Promise<void> {
@@ -1173,15 +1274,11 @@ export class InstanceService {
             const lastUsedTime20MinutesFromNow = new Date(currentTime.getTime() + 20 * 60 * 1000);
 
             logger.warn('Instance has invalid timestamp, setting lastUsed to current time plus 20 minutes', {
-              instanceId: instanceState.id,
-              name: instanceState.name,
-              novitaInstanceId: instanceState.novitaInstanceId,
-              invalidTimestamp: lastUsedTime,
-              settingToTime: lastUsedTime20MinutesFromNow.toISOString()
+              instanceId: instanceState.id
             });
 
             // Update the instance state with current time plus 20 minutes as lastUsed
-            this.updateInstanceState(instanceState.id, {
+            await this.updateInstanceState(instanceState.id, {
               timestamps: {
                 ...instanceState.timestamps,
                 lastUsed: lastUsedTime20MinutesFromNow,
@@ -1202,9 +1299,7 @@ export class InstanceService {
             eligibleInstances.push(instanceState);
 
             logger.debug('Instance eligible for auto-stop (no lastUsedTime after fallback)', {
-              instanceId: instanceState.id,
-              name: instanceState.name,
-              novitaInstanceId: instanceState.novitaInstanceId
+              instanceId: instanceState.id
             });
           } else {
             // Check if last used time exceeds threshold
@@ -1214,21 +1309,11 @@ export class InstanceService {
               eligibleInstances.push(instanceState);
 
               logger.debug('Instance eligible for auto-stop (exceeded threshold)', {
-                instanceId: instanceState.id,
-                name: instanceState.name,
-                novitaInstanceId: instanceState.novitaInstanceId,
-                lastUsedTime: lastUsedTime.toISOString(),
-                timeSinceLastUse,
-                thresholdMs
+                instanceId: instanceState.id
               });
             } else {
               logger.info('Instance not eligible for auto-stop (within threshold)', {
-                instanceId: instanceState.id,
-                name: instanceState.name,
-                novitaInstanceId: instanceState.novitaInstanceId,
-                lastUsedTime: lastUsedTime.toISOString(),
-                timeSinceLastUse,
-                thresholdMs
+                instanceId: instanceState.id
               });
             }
           }
@@ -1654,9 +1739,7 @@ export class InstanceService {
 
     if (hasInvalidTimestamp) {
       logger.warn('Fixed invalid timestamps in instance state', {
-        instanceId: instanceState.id,
-        name: instanceState.name,
-        novitaInstanceId: instanceState.novitaInstanceId
+        instanceId: instanceState.id
       });
     }
   }
@@ -2104,8 +2187,15 @@ export class InstanceService {
    * Requirements: 2.1, 2.2, 2.3, 2.4
    */
   private isInstanceStatusStartable(status: string): boolean {
-    // Only instances in 'exited' status can be started
-    return status === InstanceStatus.EXITED;
+    // Instances can be started if they are in stopped, exited, or failed states
+    // Based on Novita API behavior, 'stopped' is the primary startable state
+    const startableStates = [
+      InstanceStatus.STOPPED,
+      InstanceStatus.EXITED,
+      InstanceStatus.FAILED  // Allow restarting failed instances
+    ];
+
+    return startableStates.includes(status as InstanceStatus);
   }
 
   /**
@@ -2124,10 +2214,10 @@ export class InstanceService {
         return 'instance is already ready and running';
       case InstanceStatus.STOPPING:
         return 'instance is currently stopping';
-      case InstanceStatus.FAILED:
-        return 'instance is in failed state and cannot be started';
       case InstanceStatus.TERMINATED:
         return 'instance has been permanently terminated';
+      case InstanceStatus.MIGRATING:
+        return 'instance is currently migrating';
       default:
         return `instance status '${status}' does not allow starting`;
     }
@@ -2192,39 +2282,55 @@ export class InstanceService {
       await this.validateInstanceStartable(instanceDetails);
 
       // Get the instance state to access novitaInstanceId
-      const instanceState = this.instanceStates.get(instanceDetails.id);
-      if (!instanceState || !instanceState.novitaInstanceId) {
+      let instanceState = this.instanceStates.get(instanceDetails.id);
+      let novitaInstanceId: string;
+
+      if (!instanceState) {
+        // Handle Novita-only instances (not managed locally)
+        // For these instances, the instanceDetails.id is already the Novita instance ID
+        novitaInstanceId = instanceDetails.id;
+
+        logger.info('Starting Novita-only instance (not locally managed)', {
+          instanceId: instanceDetails.id,
+          novitaInstanceId,
+          source: (instanceDetails as any).source || 'unknown'
+        });
+      } else if (!instanceState.novitaInstanceId) {
         throw new InstanceNotFoundError(identifier, searchBy);
+      } else {
+        novitaInstanceId = instanceState.novitaInstanceId;
       }
 
       // Create startup operation for tracking
-      const operation = this.createStartupOperation(instanceDetails.id, instanceState.novitaInstanceId);
+      const operation = this.createStartupOperation(instanceDetails.id, novitaInstanceId);
 
       try {
         // Call Novita.ai API to start the instance
         logger.debug('Calling Novita.ai API to start instance', {
           instanceId: instanceDetails.id,
-          novitaInstanceId: instanceState.novitaInstanceId
+          novitaInstanceId
         });
 
         // Use enhanced start instance method with retry logic
         await novitaApiService.startInstanceWithRetry(
-          instanceState.novitaInstanceId,
+          novitaInstanceId,
           config.defaults.maxRetryAttempts
         );
 
         // Update startup operation phase
         this.updateStartupOperation(instanceDetails.id, 'monitoring', 'instanceStarting');
 
-        // Update instance status to starting
-        await this.updateInstanceState(instanceDetails.id, {
-          status: InstanceStatus.STARTING
-        });
+        // Update instance status to starting (only for locally managed instances)
+        if (instanceState) {
+          await this.updateInstanceState(instanceDetails.id, {
+            status: InstanceStatus.STARTING
+          });
+        }
 
         // Create monitoring job for startup process
         const jobPayload: StartInstanceJobPayload = {
           instanceId: instanceDetails.id,
-          novitaInstanceId: instanceState.novitaInstanceId,
+          novitaInstanceId,
           healthCheckConfig: startConfig.healthCheckConfig || {
             timeoutMs: 10000,
             retryAttempts: 3,
@@ -2236,7 +2342,7 @@ export class InstanceService {
         };
 
         // Add optional properties only if they exist
-        const webhookUrl = startConfig.webhookUrl || instanceState.webhookUrl;
+        const webhookUrl = startConfig.webhookUrl || (instanceState?.webhookUrl);
         if (webhookUrl) {
           jobPayload.webhookUrl = webhookUrl;
         }
@@ -2262,7 +2368,7 @@ export class InstanceService {
               webhookUrl,
               instanceDetails.id,
               {
-                novitaInstanceId: instanceState.novitaInstanceId,
+                novitaInstanceId,
                 operationId: operation.operationId,
                 startedAt: operation.startedAt,
                 estimatedReadyTime: this.calculateEstimatedStartupTime()
@@ -2281,12 +2387,12 @@ export class InstanceService {
         logger.info('Instance startup initiated successfully', {
           instanceId: instanceDetails.id,
           operationId: operation.operationId,
-          novitaInstanceId: instanceState.novitaInstanceId
+          novitaInstanceId
         });
 
         return {
           instanceId: instanceDetails.id,
-          novitaInstanceId: instanceState.novitaInstanceId,
+          novitaInstanceId,
           status: InstanceStatus.STARTING,
           message: 'Instance startup initiated successfully',
           operationId: operation.operationId,
@@ -2300,7 +2406,7 @@ export class InstanceService {
         // Enhanced error logging with context
         logger.error('Failed to start instance via Novita.ai API', {
           instanceId: instanceDetails.id,
-          novitaInstanceId: instanceState.novitaInstanceId,
+          novitaInstanceId,
           error: errorMessage,
           errorType: errorName,
           operationId: operation.operationId,
