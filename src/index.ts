@@ -4,12 +4,15 @@ import helmet from 'helmet';
 import path from 'path';
 import { config, getConfigSummary } from './config/config';
 import { logger, createContextLogger } from './utils/logger';
+import { axiomLogger } from './utils/axiomLogger';
+import { getAxiomStatus } from './config/axiomConfig';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import {
   requestLoggerMiddleware,
   correlationIdMiddleware,
   performanceMiddleware
 } from './middleware/requestLogger';
+import { axiomLoggingMiddleware, axiomErrorMiddleware } from './middleware/axiomLoggingMiddleware';
 import { metricsMiddleware } from './middleware/metricsMiddleware';
 import { healthRouter } from './routes/health';
 import { instancesRouter } from './routes/instances';
@@ -27,7 +30,24 @@ const app = express();
 
 // Log configuration summary on startup
 try {
-  logger.info('Configuration loaded successfully', getConfigSummary());
+  const configSummary = getConfigSummary();
+  const axiomStatus = getAxiomStatus();
+  
+  logger.info('Configuration loaded successfully', {
+    ...configSummary,
+    axiom: axiomStatus
+  });
+
+  // Log Axiom integration status
+  if (axiomStatus.enabled) {
+    axiomLogger.info('Axiom logging integration enabled', {
+      component: 'startup',
+      feature: 'logging',
+      tags: ['axiom', 'integration', 'enabled']
+    });
+  } else {
+    logger.info('Axiom logging not configured - using console logging only');
+  }
 } catch (error) {
   // In test environment, configuration might not be fully loaded
   if (config.nodeEnv !== 'test') {
@@ -70,6 +90,9 @@ app.use(correlationIdMiddleware);
 app.use(performanceMiddleware);
 app.use(metricsMiddleware);
 
+// Axiom logging middleware (after correlation ID but before request logging)
+app.use(axiomLoggingMiddleware);
+
 // Body parsing middleware with size limits
 app.use(express.json({
   limit: '10mb',
@@ -100,6 +123,9 @@ app.use('/', uiRouter);
 
 // 404 handler for unmatched routes
 app.use(notFoundHandler);
+
+// Axiom error handler (before global error handler)
+app.use(axiomErrorMiddleware);
 
 // Global error handler (must be last)
 app.use(errorHandler);

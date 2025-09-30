@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../utils/logger';
+import { getAxiomStatus } from '../config/axiomConfig';
 import { novitaApiService } from '../services/novitaApiService';
 import { serviceRegistry } from '../services/serviceRegistry';
 import { instanceService } from '../services/instanceService';
@@ -33,8 +34,9 @@ router.get('/', async (req: Request, res: Response) => {
       healthMetrics.memoryUsageMB < 1024 && // Less than 1GB memory usage
       (process.env.NODE_ENV === 'test' || healthMetrics.cpuUsagePercent < 90); // Skip CPU check in test
 
-    // Get sync status
+    // Get sync status and Axiom status
     const syncStatus = await getSyncStatus();
+    const axiomStatus = getAxiomStatus();
 
     const healthCheck: EnhancedHealthCheckResponse = {
       status: isHealthy ? 'healthy' : 'unhealthy',
@@ -63,7 +65,10 @@ router.get('/', async (req: Request, res: Response) => {
       migrationService: migrationServiceDetails,
       failedMigrationService: failedMigrationServiceDetails,
       redis: redisServiceDetails,
-      sync: syncStatus
+      sync: syncStatus,
+      logging: {
+        axiom: axiomStatus
+      }
     };
 
     // Add additional debug information in development

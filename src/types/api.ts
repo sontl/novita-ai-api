@@ -229,6 +229,13 @@ export interface EnhancedHealthCheckResponse extends HealthCheckResponse {
     cacheSize: number;
     error?: string;
   };
+  logging?: {
+    axiom: {
+      enabled: boolean;
+      configured: boolean;
+      error?: string;
+    };
+  };
 }
 
 export interface NovitaApiResponse<T = any> {

@@ -142,10 +142,13 @@ export class JobSerializer {
    * Convert a Job object to RedisJobData for storage
    */
   static toRedisJobData(job: Job): RedisJobData {
+    // Import the RedisSerializer for proper Date handling
+    const { defaultSerializer } = require('../utils/redisSerializer');
+    
     const redisData: RedisJobData = {
       id: job.id,
       type: job.type,
-      payload: JSON.stringify(job.payload),
+      payload: defaultSerializer.serialize(job.payload),
       status: job.status,
       priority: job.priority,
       attempts: job.attempts,
@@ -173,10 +176,13 @@ export class JobSerializer {
    * Convert RedisJobData back to Job object
    */
   static fromRedisJobData(redisData: RedisJobData): Job {
+    // Import the RedisSerializer for proper Date handling
+    const { defaultSerializer } = require('../utils/redisSerializer');
+    
     const job: Job = {
       id: redisData.id,
       type: redisData.type,
-      payload: JSON.parse(redisData.payload),
+      payload: defaultSerializer.deserialize(redisData.payload),
       status: redisData.status,
       priority: redisData.priority,
       attempts: redisData.attempts,

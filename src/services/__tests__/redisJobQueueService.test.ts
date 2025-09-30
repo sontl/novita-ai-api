@@ -72,6 +72,7 @@ describe('RedisJobQueueService', () => {
       expire: jest.fn(),
       setNX: jest.fn(),
       ping: jest.fn(),
+      scan: jest.fn(),
       disconnect: jest.fn()
     };
 

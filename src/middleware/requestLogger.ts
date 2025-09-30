@@ -38,20 +38,56 @@ export const requestLoggerMiddleware = (
 
   const contextLogger = createContextLogger(context);
 
-  // Log incoming request
-  contextLogger.info('Incoming request', {
+  // Log incoming request with minimal fields to avoid Axiom column limit
+  const logData: any = {
     method: req.method,
     url: req.url,
     path: req.path,
-    userAgent: req.get('User-Agent'),
-    contentType: req.get('Content-Type'),
-    contentLength: req.get('Content-Length'),
-    ip: req.ip || req.connection.remoteAddress,
-    query: sanitizeLogData(req.query),
-    params: sanitizeLogData(req.params),
-    headers: sanitizeLogData(req.headers),
-    body: shouldLogBody(req) ? sanitizeLogData(req.body) : '[BODY_NOT_LOGGED]'
-  });
+    ip: req.ip || req.socket?.remoteAddress
+  };
+
+  // Add optional fields only if they exist and are reasonable size
+  const userAgent = req.get('User-Agent');
+  if (userAgent) {
+    logData.userAgent = userAgent.substring(0, 100); // Limit length
+  }
+
+  const contentType = req.get('Content-Type');
+  if (contentType) {
+    logData.contentType = contentType;
+  }
+
+  const contentLength = req.get('Content-Length');
+  if (contentLength) {
+    logData.contentLength = parseInt(contentLength, 10);
+  }
+
+  // Convert complex objects to strings to avoid field explosion
+  if (Object.keys(req.query).length > 0) {
+    logData.queryString = JSON.stringify(sanitizeLogData(req.query));
+  }
+
+  if (Object.keys(req.params).length > 0) {
+    logData.paramsString = JSON.stringify(sanitizeLogData(req.params));
+  }
+
+  // Only log essential headers as a string
+  const essentialHeaders = {
+    'content-type': req.get('Content-Type'),
+    'accept': req.get('Accept'),
+    'authorization': req.get('Authorization') ? '[REDACTED]' : undefined
+  };
+  logData.headersString = JSON.stringify(essentialHeaders);
+
+  // Log body as string if needed
+  if (shouldLogBody(req)) {
+    const bodyStr = JSON.stringify(sanitizeLogData(req.body));
+    logData.bodyString = bodyStr.length > 500 ? bodyStr.substring(0, 500) + '...' : bodyStr;
+  } else {
+    logData.bodyString = '[BODY_NOT_LOGGED]';
+  }
+
+  contextLogger.info('Incoming request', logData);
 
   // Capture original res.json and res.send methods
   const originalJson = res.json;
@@ -94,14 +130,41 @@ const logResponse = (
                    statusCode >= 400 ? 'warn' : 
                    statusCode >= 300 ? 'info' : 'info';
 
-  contextLogger[logLevel]('Outgoing response', {
+  // Optimize response logging to avoid field explosion
+  const responseData: any = {
     statusCode,
-    duration,
-    contentType: res.get('Content-Type'),
-    contentLength: res.get('Content-Length'),
-    responseBody: shouldLogResponseBody(req, res, statusCode) ? sanitizeLogData(body) : '[BODY_NOT_LOGGED]',
-    headers: sanitizeLogData(res.getHeaders())
+    duration
+  };
+
+  const contentType = res.get('Content-Type');
+  if (contentType) {
+    responseData.contentType = contentType;
+  }
+
+  const contentLength = res.get('Content-Length');
+  if (contentLength) {
+    responseData.contentLength = parseInt(contentLength, 10);
+  }
+
+  // Log response body as string if needed
+  if (shouldLogResponseBody(req, res, statusCode)) {
+    const bodyStr = JSON.stringify(sanitizeLogData(body));
+    responseData.responseBodyString = bodyStr.length > 1000 ? bodyStr.substring(0, 1000) + '...' : bodyStr;
+  } else {
+    responseData.responseBodyString = '[BODY_NOT_LOGGED]';
+  }
+
+  // Log essential response headers as string
+  const responseHeaders = res.getHeaders();
+  const essentialResponseHeaders: any = {};
+  ['content-type', 'content-length', 'x-request-id', 'x-correlation-id'].forEach(header => {
+    if (responseHeaders[header]) {
+      essentialResponseHeaders[header] = responseHeaders[header];
+    }
   });
+  responseData.headersString = JSON.stringify(essentialResponseHeaders);
+
+  contextLogger[logLevel]('Outgoing response', responseData);
 
   // Log HTTP request summary
   logHttpRequest(

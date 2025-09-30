@@ -1178,20 +1178,21 @@ export class InstanceService {
           // Handle invalid dates by setting lastUsed to now and updating the state
           if (!lastUsedTime || isNaN(lastUsedTime.getTime())) {
             const currentTime = new Date();
+            const lastUsedTime20MinutesFromNow = new Date(currentTime.getTime() + 20 * 60 * 1000);
 
-            logger.warn('Instance has invalid timestamp, setting lastUsed to current time', {
+            logger.warn('Instance has invalid timestamp, setting lastUsed to current time plus 20 minutes', {
               instanceId: instanceState.id,
               name: instanceState.name,
               novitaInstanceId: instanceState.novitaInstanceId,
               invalidTimestamp: lastUsedTime,
-              settingToCurrentTime: currentTime.toISOString()
+              settingToTime: lastUsedTime20MinutesFromNow.toISOString()
             });
 
-            // Update the instance state with current time as lastUsed
+            // Update the instance state with current time plus 20 minutes as lastUsed
             this.updateInstanceState(instanceState.id, {
               timestamps: {
                 ...instanceState.timestamps,
-                lastUsed: currentTime,
+                lastUsed: lastUsedTime20MinutesFromNow,
                 // Ensure created timestamp is valid
                 created: instanceState.timestamps.created && !isNaN(instanceState.timestamps.created.getTime())
                   ? instanceState.timestamps.created
@@ -1199,8 +1200,8 @@ export class InstanceService {
               }
             });
 
-            // Set lastUsedTime to current time so it won't be eligible for auto-stop this round
-            lastUsedTime = currentTime;
+            // Set lastUsedTime to current time plus 20 minutes so it won't be eligible for auto-stop this round
+            lastUsedTime = lastUsedTime20MinutesFromNow;
           }
 
           if (!lastUsedTime) {
