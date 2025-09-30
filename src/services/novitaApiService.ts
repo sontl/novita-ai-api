@@ -284,16 +284,20 @@ export class NovitaApiService {
    * Start an existing instance
    */
   async startInstance(instanceId: string): Promise<InstanceResponse> {
+    console.log('🔧 DEBUG: startInstance called with instanceId:', instanceId);
     try {
       const response = await novitaClient.post<any>(
         '/v1/gpu/instance/start',
         { instanceId }
       );
 
-      // The API returns the instance data directly, not wrapped in a success/data structure
-      const instanceData = response.data;
+      console.log('🔧 DEBUG: Start API response:', response.data);
 
-      if (!instanceData || !instanceData.id) {
+      // The start API returns a minimal response: { instanceId, state }
+      const startResponse = response.data;
+
+      if (!startResponse || !startResponse.instanceId) {
+        console.log('🔧 DEBUG: Response validation failed, startResponse:', startResponse);
         throw new NovitaApiClientError(
           'Invalid response: missing instance data',
           500,
@@ -301,50 +305,19 @@ export class NovitaApiService {
         );
       }
 
-      // Transform the raw API response to match our InstanceResponse interface
-      const transformedInstance: InstanceResponse = {
-        id: instanceData.id,
-        name: instanceData.name,
-        status: instanceData.status as InstanceStatus,
-        productId: instanceData.productId,
-        region: instanceData.clusterName || instanceData.clusterId || 'Unknown',
-        gpuNum: parseInt(instanceData.gpuNum) || 1,
-        rootfsSize: instanceData.rootfsSize || 0,
-        billingMode: instanceData.billingMode || 'spot',
-        createdAt: this.convertUnixTimestampToISO(instanceData.createdAt) || new Date().toISOString(),
-        portMappings: instanceData.portMappings?.map((port: any) => ({
-          port: port.port,
-          endpoint: port.endpoint || '',
-          type: port.type
-        })) || []
-      };
-
-      // Add optional timestamp fields
-      if (instanceData.lastStartedAt) {
-        const lastStartedAt = this.convertUnixTimestampToISO(instanceData.lastStartedAt);
-        if (lastStartedAt) transformedInstance.lastStartedAt = lastStartedAt;
-      }
-      if (instanceData.lastStoppedAt) {
-        const lastStoppedAt = this.convertUnixTimestampToISO(instanceData.lastStoppedAt);
-        if (lastStoppedAt) transformedInstance.lastStoppedAt = lastStoppedAt;
-      }
-      if (instanceData.startedAt) {
-        const startedAt = this.convertUnixTimestampToISO(instanceData.startedAt);
-        if (startedAt) transformedInstance.startedAt = startedAt;
-      }
-      if (instanceData.stoppedAt) {
-        const stoppedAt = this.convertUnixTimestampToISO(instanceData.stoppedAt);
-        if (stoppedAt) transformedInstance.stoppedAt = stoppedAt;
-      }
-
-      logger.info('Instance start initiated', {
-        instanceId: transformedInstance.id,
-        status: transformedInstance.status
+      logger.info('Instance start initiated successfully', {
+        instanceId: startResponse.instanceId,
+        state: startResponse.state
       });
 
-      return transformedInstance;
+      console.log('🔧 DEBUG: About to call getInstance with:', startResponse.instanceId);
+      // After starting, fetch the full instance details to return complete data
+      const fullInstanceData = await this.getInstance(startResponse.instanceId);
+
+      console.log('🔧 DEBUG: getInstance returned:', fullInstanceData.id, fullInstanceData.status);
+      return fullInstanceData;
     } catch (error) {
-      throw this.handleApiError(error, 'Failed to start instance', true);
+      throw this.handleApiError(error, 'Failed to start instance');
     }
   }
 
@@ -699,11 +672,11 @@ export class NovitaApiService {
    */
   private convertUnixTimestampToISO(timestamp: string | number | undefined): string | undefined {
     if (!timestamp) return undefined;
-    
+
     try {
       const timestampNum = typeof timestamp === 'string' ? parseInt(timestamp) : timestamp;
       if (isNaN(timestampNum) || timestampNum <= 0) return undefined;
-      
+
       return new Date(timestampNum * 1000).toISOString();
     } catch (error) {
       logger.warn('Failed to convert timestamp', { timestamp, error: (error as Error).message });
@@ -752,7 +725,7 @@ export class NovitaApiService {
       if (novitaInstance.endTime) optionalFields.endTime = novitaInstance.endTime;
       if (novitaInstance.spotStatus) optionalFields.spotStatus = novitaInstance.spotStatus;
       if (novitaInstance.spotReclaimTime) optionalFields.spotReclaimTime = novitaInstance.spotReclaimTime;
-      
+
       // Handle additional timestamp fields with proper conversion
       if (novitaInstance.startedAt) {
         const startedAt = this.convertUnixTimestampToISO(novitaInstance.startedAt);
@@ -770,7 +743,7 @@ export class NovitaApiService {
         const lastStoppedAt = this.convertUnixTimestampToISO(novitaInstance.lastStoppedAt);
         if (lastStoppedAt) optionalFields.lastStoppedAt = lastStoppedAt;
       }
-      
+
       // Handle other additional fields
       if (novitaInstance.gpuIds) optionalFields.gpuIds = novitaInstance.gpuIds;
       if (novitaInstance.templateId !== undefined) optionalFields.templateId = novitaInstance.templateId;
@@ -1008,11 +981,11 @@ export class NovitaApiService {
         const isRetryable = this.isRetryableError(error as Error);
 
         // Special handling for "invalid state change" errors
-        if (error instanceof NovitaApiClientError && 
-            error.statusCode === 400 && 
-            error.message && 
-            error.message.toLowerCase().includes('invalid state change')) {
-          
+        if (error instanceof NovitaApiClientError &&
+          error.statusCode === 400 &&
+          error.message &&
+          error.message.toLowerCase().includes('invalid state change')) {
+
           logger.debug('Checking if instance actually started despite error', {
             instanceId,
             attempt
@@ -1024,8 +997,8 @@ export class NovitaApiService {
           try {
             // Check if the instance is now in starting/running state
             const currentInstance = await this.getInstance(instanceId);
-            if (currentInstance.status === InstanceStatus.STARTING || 
-                currentInstance.status === InstanceStatus.RUNNING) {
+            if (currentInstance.status === InstanceStatus.STARTING ||
+              currentInstance.status === InstanceStatus.RUNNING) {
               logger.info('Instance started successfully despite API error', {
                 instanceId,
                 currentStatus: currentInstance.status,
@@ -1092,9 +1065,9 @@ export class NovitaApiService {
       if (error.statusCode) {
         // Special case: "invalid state change" errors are often transient
         // and the operation might still succeed despite the error response
-        if (error.statusCode === 400 && 
-            error.message && 
-            error.message.toLowerCase().includes('invalid state change')) {
+        if (error.statusCode === 400 &&
+          error.message &&
+          error.message.toLowerCase().includes('invalid state change')) {
           logger.debug('Treating "invalid state change" error as retryable', {
             statusCode: error.statusCode,
             message: error.message,
@@ -1102,7 +1075,7 @@ export class NovitaApiService {
           });
           return true;
         }
-        
+
         return error.statusCode >= 500 || error.statusCode === 429;
       }
 

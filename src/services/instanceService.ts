@@ -214,7 +214,28 @@ export class InstanceService {
       }
 
       // Get instance state
-      const instanceState = this.instanceStates.get(instanceId);
+      let instanceState = this.instanceStates.get(instanceId);
+
+      // If no local state and in-memory map is empty, try to restore from Redis
+      if (!instanceState && this.instanceStates.size === 0) {
+        logger.debug('In-memory instance states empty, attempting to restore from Redis');
+        try {
+          const redisStates = await this.loadInstanceStatesFromRedis();
+          logger.info('Restored instance states from Redis', { count: redisStates.length });
+          
+          // Populate in-memory map
+          redisStates.forEach(state => {
+            this.instanceStates.set(state.id, state);
+          });
+          
+          // Try to get the state again
+          instanceState = this.instanceStates.get(instanceId);
+        } catch (redisError) {
+          logger.warn('Failed to restore instance states from Redis', { 
+            error: (redisError as Error).message 
+          });
+        }
+      }
 
       // If no local state, try to fetch directly from Novita API (for Novita-only instances)
       if (!instanceState) {
