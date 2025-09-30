@@ -406,9 +406,7 @@ export class NovitaApiService {
 
       logger.info('Instance fetched successfully', {
         instanceId: transformedInstance.id,
-        name: transformedInstance.name,
-        status: transformedInstance.status,
-        region: transformedInstance.region
+        status: transformedInstance.status
       });
 
       return transformedInstance;
@@ -576,9 +574,7 @@ export class NovitaApiService {
       const requestPayload = { instanceId };
 
       logger.debug('Migration API request details', {
-        instanceId,
-        payload: requestPayload,
-        endpoint: '/v1/gpu/instance/migrate'
+        instanceId
       });
 
       const response = await novitaClient.post<any>(

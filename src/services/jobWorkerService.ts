@@ -168,9 +168,7 @@ export class JobWorkerService {
 
       // log createRequest details
       logger.debug('Novita.ai instance creation request', {
-        jobId: job.id,
-        instanceId: payload.instanceId,
-        createRequest
+        instanceId: payload.instanceId
       });
 
       // Step 4: Create instance via Novita.ai API

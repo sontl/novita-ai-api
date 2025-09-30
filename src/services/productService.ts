@@ -393,7 +393,7 @@ export class ProductService {
       }
     }
 
-    logger.debug('Invalidated product cache', { productName, region: targetRegion });
+    logger.debug('Invalidated product cache');
   }
 
   /**

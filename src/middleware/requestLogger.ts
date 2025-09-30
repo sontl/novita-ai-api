@@ -87,7 +87,10 @@ export const requestLoggerMiddleware = (
     logData.bodyString = '[BODY_NOT_LOGGED]';
   }
 
-  contextLogger.info('Incoming request', logData);
+  contextLogger.info('Incoming request', {
+    httpMethod: logData.method,
+    httpUrl: logData.url
+  });
 
   // Capture original res.json and res.send methods
   const originalJson = res.json;
@@ -164,7 +167,10 @@ const logResponse = (
   });
   responseData.headersString = JSON.stringify(essentialResponseHeaders);
 
-  contextLogger[logLevel]('Outgoing response', responseData);
+  contextLogger[logLevel]('Outgoing response', {
+    httpStatusCode: responseData.statusCode,
+    responseTime: responseData.duration
+  });
 
   // Log HTTP request summary
   logHttpRequest(

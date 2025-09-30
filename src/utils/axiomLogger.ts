@@ -208,33 +208,49 @@ export class AxiomLogger {
 
   /**
    * Enrich context with base context and additional metadata
-   * Optimized to reduce field count for Axiom
+   * Heavily optimized to prevent Axiom column limit errors
    */
   private enrichContext(context: AxiomLogContext): AxiomLogContext {
+    // Start with minimal base context
     const enriched: AxiomLogContext = {
-      ...this.baseContext,
-      ...context,
+      service: this.baseContext.service,
+      version: this.baseContext.version,
+      environment: this.baseContext.environment,
       timestamp: new Date().toISOString()
     };
 
-    // Add memory usage only if not already provided
-    if (!enriched.memoryUsage) {
+    // Add only essential fields from base context
+    if (this.baseContext.component) enriched.component = this.baseContext.component;
+    if (this.baseContext.requestId) enriched.requestId = this.baseContext.requestId;
+    if (this.baseContext.correlationId) enriched.correlationId = this.baseContext.correlationId;
+
+    // Add only essential fields from context
+    const essentialFields = [
+      'component', 'action', 'operation', 'requestId', 'correlationId',
+      'httpMethod', 'httpUrl', 'httpStatusCode', 'responseTime', 'duration',
+      'instanceId', 'errorType', 'tags'
+    ];
+
+    essentialFields.forEach(field => {
+      if (context[field] !== undefined) {
+        enriched[field] = context[field];
+      }
+    });
+
+    // Add memory usage only if not already provided and not in context
+    if (!enriched.memoryUsage && !context.memoryUsage) {
       enriched.memoryUsage = this.getMemoryUsage();
     }
 
-    // Ensure tags is always an array, but convert to string for Axiom
+    // Ensure tags is always an array
     if (context.tags && Array.isArray(context.tags)) {
       enriched.tags = context.tags;
-    } else {
+    } else if (!enriched.tags) {
       enriched.tags = [];
     }
 
-    // Remove undefined values to reduce field count
-    Object.keys(enriched).forEach(key => {
-      if (enriched[key] === undefined) {
-        delete enriched[key];
-      }
-    });
+    // DO NOT add metadata to prevent Axiom column limit errors
+    // All additional context is available in console logs
 
     return enriched;
   }

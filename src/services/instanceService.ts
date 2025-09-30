@@ -767,12 +767,6 @@ export class InstanceService {
     try {
       // Check cache first
       const cache = await this.novitaApiCache;
-      const cachedInstances = await cache.get('all');
-      if (cachedInstances) {
-        logger.debug('Using cached Novita instances', { count: cachedInstances.length });
-        return cachedInstances;
-      }
-
       const response = await novitaApiService.listInstances();
       const instances = response.instances;
 
@@ -1171,9 +1165,7 @@ export class InstanceService {
           this.validateAndFixTimestamps(instanceState);
 
           // Check if instance has a last used time, with fallback handling for invalid dates
-          let lastUsedTime = instanceState.timestamps.lastUsed ||
-            instanceState.timestamps.started ||
-            instanceState.timestamps.created;
+          let lastUsedTime = instanceState.timestamps.lastUsed;
 
           // Handle invalid dates by setting lastUsed to now and updating the state
           if (!lastUsedTime || isNaN(lastUsedTime.getTime())) {
@@ -1608,7 +1600,6 @@ export class InstanceService {
     if (instanceState.timestamps.started) {
       const validStarted = safeToDate(instanceState.timestamps.started);
       if (!validStarted) {
-        instanceState.timestamps.started = instanceState.timestamps.created;
         hasInvalidTimestamp = true;
       } else {
         instanceState.timestamps.started = validStarted;
@@ -1618,7 +1609,6 @@ export class InstanceService {
     if (instanceState.timestamps.ready) {
       const validReady = safeToDate(instanceState.timestamps.ready);
       if (!validReady) {
-        instanceState.timestamps.ready = instanceState.timestamps.started || instanceState.timestamps.created;
         hasInvalidTimestamp = true;
       } else {
         instanceState.timestamps.ready = validReady;
@@ -1628,7 +1618,6 @@ export class InstanceService {
     if (instanceState.timestamps.failed) {
       const validFailed = safeToDate(instanceState.timestamps.failed);
       if (!validFailed) {
-        instanceState.timestamps.failed = now;
         hasInvalidTimestamp = true;
       } else {
         instanceState.timestamps.failed = validFailed;
@@ -1638,7 +1627,6 @@ export class InstanceService {
     if (instanceState.timestamps.stopping) {
       const validStopping = safeToDate(instanceState.timestamps.stopping);
       if (!validStopping) {
-        instanceState.timestamps.stopping = now;
         hasInvalidTimestamp = true;
       } else {
         instanceState.timestamps.stopping = validStopping;
@@ -1658,7 +1646,6 @@ export class InstanceService {
     if (instanceState.timestamps.lastUsed) {
       const validLastUsed = safeToDate(instanceState.timestamps.lastUsed);
       if (!validLastUsed) {
-        instanceState.timestamps.lastUsed = instanceState.timestamps.started || instanceState.timestamps.created;
         hasInvalidTimestamp = true;
       } else {
         instanceState.timestamps.lastUsed = validLastUsed;
@@ -1690,9 +1677,7 @@ export class InstanceService {
       // Validate and fix timestamps before processing
       this.validateAndFixTimestamps(instanceState);
 
-      const lastUsedTime = instanceState.timestamps.lastUsed ||
-        instanceState.timestamps.started ||
-        instanceState.timestamps.created;
+      const lastUsedTime = instanceState.timestamps.lastUsed;
 
       if (!lastUsedTime || (now - lastUsedTime.getTime() > thresholdMs)) {
         eligibleInstances.push(instanceState);

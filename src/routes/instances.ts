@@ -24,16 +24,12 @@ router.post('/', asyncHandler(async (req: Request, res: Response): Promise<void>
 
   const contextLogger = createContextLogger(context);
 
-  contextLogger.info('Instance creation request received', {
-    requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
-  });
+  contextLogger.info('Instance creation request received');
 
   // Validate request body
   const validation = validateCreateInstance(req.body);
   if (validation.error) {
-    contextLogger.warn('Instance creation validation failed', {
-      validationErrors: validation.error.details
-    });
+    contextLogger.warn('Instance creation validation failed');
 
     // Validation errors are handled by the global error handler
     const { ValidationError } = await import('../utils/errorHandler');
@@ -252,8 +248,7 @@ router.post('/:instanceId/start', asyncHandler(async (req: Request, res: Respons
   const contextLogger = createContextLogger(context);
 
   contextLogger.info('Instance start request received (by ID)', {
-    instanceId,
-    requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+    instanceId
   });
 
   // Validate instance ID
@@ -329,9 +324,7 @@ router.post('/start', asyncHandler(async (req: Request, res: Response): Promise<
 
   const contextLogger = createContextLogger(context);
 
-  contextLogger.info('Instance start request received (by name)', {
-    requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
-  });
+  contextLogger.info('Instance start request received (by name)');
 
   // Validate request body
   const bodyValidation = validateStartInstance(req.body);
@@ -417,8 +410,7 @@ router.post('/:instanceId/stop', asyncHandler(async (req: Request, res: Response
   const contextLogger = createContextLogger(context);
 
   contextLogger.info('Instance stop request received (by ID)', {
-    instanceId,
-    requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+    instanceId
   });
 
   // Validate instance ID
@@ -494,9 +486,7 @@ router.post('/stop', asyncHandler(async (req: Request, res: Response): Promise<v
 
   const contextLogger = createContextLogger(context);
 
-  contextLogger.info('Instance stop request received (by name)', {
-    requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
-  });
+  contextLogger.info('Instance stop request received (by name)');
 
   // Validate request body
   const bodyValidation = validateStopInstance(req.body);
@@ -582,8 +572,7 @@ router.put('/:instanceId/last-used', asyncHandler(async (req: Request, res: Resp
   const contextLogger = createContextLogger(context);
 
   contextLogger.info('Update last used time request received', {
-    instanceId,
-    requestBody: req.body
+    instanceId
   });
 
   // Validate instance ID
@@ -716,8 +705,7 @@ router.delete('/:instanceId', asyncHandler(async (req: Request, res: Response): 
   const contextLogger = createContextLogger(context);
 
   contextLogger.info('Instance delete request received (by ID)', {
-    instanceId,
-    requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
+    instanceId
   });
 
   // Validate instance ID
@@ -793,9 +781,7 @@ router.post('/delete', asyncHandler(async (req: Request, res: Response): Promise
 
   const contextLogger = createContextLogger(context);
 
-  contextLogger.info('Instance delete request received (by name)', {
-    requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
-  });
+  contextLogger.info('Instance delete request received (by name)');
 
   // Validate request body
   const bodyValidation = validateDeleteInstance(req.body);
@@ -880,10 +866,10 @@ router.post('/sync', asyncHandler(async (req: Request, res: Response): Promise<v
   const contextLogger = createContextLogger(context);
 
   // Parse request options
-  const { 
-    forceSync = false, 
+  const {
+    forceSync = false,
     handleObsoleteInstances = true,
-    dryRun = false 
+    dryRun = false
   } = req.body;
 
   contextLogger.info('Instance sync request received', {

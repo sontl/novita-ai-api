@@ -49,74 +49,38 @@ const transports: winston.transport[] = [
   })
 ];
 
-// Axiom-optimized format that limits fields and flattens objects
+// Axiom-optimized format with ultra-strict field limiting to prevent column limit errors
 const axiomFormat = winston.format.combine(
   winston.format.timestamp(),
   winston.format.errors({ stack: true }),
   winston.format.printf((info) => {
-    // Extract core fields for Axiom
+    // Ultra-minimal set of fields to prevent column limit errors
     const axiomEntry: any = {
       timestamp: info.timestamp,
       level: info.level.toUpperCase(),
       message: info.message,
       service: info.service || 'novita-gpu-instance-api',
-      environment: info.environment || 'development',
-      version: info.version || '1.0.0'
+      environment: info.environment || 'development'
     };
 
-    // Add essential tracking fields
+    // Add only the most essential fields
     if (info.requestId) axiomEntry.requestId = info.requestId;
     if (info.correlationId) axiomEntry.correlationId = info.correlationId;
     if (info.component) axiomEntry.component = info.component;
-    if (info.feature) axiomEntry.feature = info.feature;
-    if (info.action) axiomEntry.action = info.action;
-
-    // Add performance metrics
-    if (typeof info.responseTime === 'number') axiomEntry.responseTime = info.responseTime;
-    if (typeof info.duration === 'number') axiomEntry.duration = info.duration;
-    if (typeof info.memoryUsage === 'number') axiomEntry.memoryUsage = info.memoryUsage;
-
-    // Add HTTP context (flattened)
     if (info.httpMethod) axiomEntry.httpMethod = info.httpMethod;
     if (info.httpUrl) axiomEntry.httpUrl = info.httpUrl;
     if (info.httpStatusCode) axiomEntry.httpStatusCode = info.httpStatusCode;
-    if (info.httpUserAgent) axiomEntry.httpUserAgent = info.httpUserAgent;
-    if (info.clientIp) axiomEntry.clientIp = info.clientIp;
-
-    // Add business context
+    if (typeof info.responseTime === 'number') axiomEntry.responseTime = info.responseTime;
     if (info.instanceId) axiomEntry.instanceId = info.instanceId;
-    if (info.customerId) axiomEntry.customerId = info.customerId;
-    if (info.sessionId) axiomEntry.sessionId = info.sessionId;
-    if (info.operation) axiomEntry.operation = info.operation;
-
-    // Add error context
     if (info.errorType) axiomEntry.errorType = info.errorType;
-    if (info.errorCode) axiomEntry.errorCode = info.errorCode;
-    if (info.stack) axiomEntry.errorStack = info.stack;
 
-    // Add tags as a single field (array or string)
-    if (info.tags) {
-      axiomEntry.tags = Array.isArray(info.tags) ? info.tags.join(',') : info.tags;
+    // Convert tags to a single string
+    if (info.tags && Array.isArray(info.tags)) {
+      axiomEntry.tags = info.tags.join(',');
     }
 
-    // Add metadata as a JSON string to avoid field explosion
-    const metadata: any = {};
-    Object.keys(info).forEach(key => {
-      if (!axiomEntry.hasOwnProperty(key) && 
-          !['timestamp', 'level', 'message', 'service', 'environment', 'version', 'hostname', 'pid'].includes(key)) {
-        // Only include simple values in metadata to avoid field explosion
-        if (typeof info[key] === 'string' || typeof info[key] === 'number' || typeof info[key] === 'boolean') {
-          metadata[key] = info[key];
-        } else if (info[key] && typeof info[key] === 'object') {
-          // Convert complex objects to strings
-          metadata[key] = JSON.stringify(info[key]).substring(0, 500); // Limit size
-        }
-      }
-    });
-
-    if (Object.keys(metadata).length > 0) {
-      axiomEntry.metadata = JSON.stringify(metadata);
-    }
+    // DO NOT add metadata field to prevent column limit errors
+    // All other information is available in console logs
 
     return JSON.stringify(axiomEntry);
   })
@@ -185,6 +149,39 @@ export const createContextLogger = (context: LogContext = {}) => {
       logger.http(message, { ...context, ...meta });
     }
   };
+};
+
+// Utility function to limit log fields for Axiom compatibility
+export const limitLogFields = (data: any): any => {
+  if (!data || typeof data !== 'object') {
+    return data;
+  }
+
+  // Define allowed fields to prevent Axiom column limit errors
+  const allowedFields = [
+    'requestId', 'correlationId', 'component', 'action', 'operation',
+    'httpMethod', 'httpUrl', 'httpStatusCode', 'responseTime', 'duration',
+    'instanceId', 'errorType', 'memoryUsage', 'tags', 'count', 'status'
+  ];
+
+  const limited: any = {};
+  const metadata: any = {};
+
+  Object.keys(data).forEach(key => {
+    if (allowedFields.includes(key)) {
+      limited[key] = data[key];
+    } else {
+      // Put non-essential fields in metadata
+      metadata[key] = data[key];
+    }
+  });
+
+  // Add metadata as a single field if there's any
+  if (Object.keys(metadata).length > 0) {
+    limited.metadata = metadata;
+  }
+
+  return limited;
 };
 
 // Utility function to sanitize sensitive data from logs

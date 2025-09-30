@@ -36,22 +36,7 @@ export const axiomLoggingMiddleware = (
     tags: ['http', 'incoming']
   };
 
-  // Add optional fields only if they exist
-  const userAgent = requestWithLogging.get('User-Agent');
-  if (userAgent) {
-    requestContext.httpUserAgent = userAgent.substring(0, 100); // Limit length
-  }
-
-  const clientIp = requestWithLogging.ip || requestWithLogging.socket?.remoteAddress;
-  if (clientIp) {
-    requestContext.clientIp = clientIp;
-  }
-
-  // Simplified headers - avoid nested objects
-  const contentType = requestWithLogging.get('Content-Type');
-  if (contentType) {
-    requestContext.httpContentType = contentType;
-  }
+  // Additional context is available in console logs only
 
   // Log incoming request with minimal context
   requestWithLogging.logger.info('Incoming HTTP request', requestContext);
@@ -66,16 +51,7 @@ export const axiomLoggingMiddleware = (
       tags: ['http', 'outgoing']
     };
 
-    // Add response headers as flat fields to avoid nesting
-    const responseContentType = res.get('Content-Type');
-    if (responseContentType) {
-      responseContext.httpResponseContentType = responseContentType;
-    }
-
-    const contentLength = res.get('Content-Length');
-    if (contentLength) {
-      responseContext.httpResponseContentLength = parseInt(contentLength, 10);
-    }
+    // Additional response context is available in console logs only
 
     requestWithLogging.logger.httpRequest(
       requestWithLogging.method,
