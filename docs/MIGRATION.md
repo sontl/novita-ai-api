@@ -372,4 +372,4 @@ Key performance indicators to track:
 - **API Error Rate**: Target <1%
 - **Schedule Adherence**: Jobs should run within 1 minute of schedule
 
-For additional support, refer to the [Troubleshooting Guide](./TROUBLESHOOTING.md) and [Operations Runbook](./OPERATIONS.md).
+For additional support, refer to the [Troubleshooting Guide](./TROUBLESHOOTING.md) and [Operations Runbook](./deployment/operations.md).

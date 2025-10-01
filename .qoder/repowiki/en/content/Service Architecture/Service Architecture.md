@@ -14,17 +14,22 @@
 - [instances.ts](file://src/routes/instances.ts)
 - [cache.ts](file://src/routes/cache.ts)
 - [health.ts](file://src/routes/health.ts)
-- [jobWorkerService.ts](file://src/services/jobWorkerService.ts) - *Updated in recent commit*
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts)
 - [jobQueueService.ts](file://src/services/jobQueueService.ts)
+- [migrationScheduler.ts](file://src/services/migrationScheduler.ts) - *Added in recent commit*
+- [instanceMigrationService.ts](file://src/services/instanceMigrationService.ts) - *Updated in recent commit*
+- [job.ts](file://src/types/job.ts) - *Updated in recent commit*
+- [migration.ts](file://src/types/migration.ts) - *Added in recent commit*
 </cite>
 
 ## Update Summary
 **Changes Made**   
-- Updated documentation to reflect integration of job worker service startup and shutdown in server lifecycle
-- Added details about JobWorkerService's role in background processing and graceful shutdown
-- Enhanced dependency analysis to include job worker service relationships
-- Added new section on job processing workflow and lifecycle management
-- Updated architecture overview diagram to include job processing components
+- Added documentation for automated spot instance migration system including MigrationScheduler and InstanceMigrationService
+- Updated service interface contracts to include new MIGRATE_SPOT_INSTANCES job type
+- Added new section on migration workflow and lifecycle management
+- Enhanced dependency analysis to include migration service relationships
+- Updated architecture overview diagram to include migration components
+- Added detailed documentation for migration error handling and monitoring
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -38,7 +43,7 @@
 9. [Conclusion](#conclusion)
 
 ## Introduction
-The novitai application implements a clean architecture pattern with clear separation of concerns between presentation, business logic, external integrations, and cross-cutting concerns. This document details the service layer design, focusing on the composition and interaction of services that power the application's core functionality. The architecture follows established patterns for scalability, maintainability, and observability, with services organized around domain concepts and technical concerns. Recent updates have enhanced the job processing system with improved startup and shutdown handling.
+The novitai application implements a clean architecture pattern with clear separation of concerns between presentation, business logic, external integrations, and cross-cutting concerns. This document details the service layer design, focusing on the composition and interaction of services that power the application's core functionality. The architecture follows established patterns for scalability, maintainability, and observability, with services organized around domain concepts and technical concerns. Recent updates have enhanced the system with an automated spot instance migration feature and improved instance startup monitoring.
 
 ## Project Structure
 
@@ -75,7 +80,7 @@ all --> utils
 
 ## Core Components
 
-The application's core components are organized into a clean architecture with distinct layers. The service layer contains the business logic and acts as the central orchestrator between the presentation layer (routes) and external integration layer (clients). Services are designed to be stateless and horizontally scalable, with dependencies managed through configuration and dependency injection patterns. The architecture emphasizes separation of concerns, with each service having a well-defined responsibility and interface contract. The JobWorkerService has been enhanced to ensure proper initialization and graceful shutdown during server lifecycle events.
+The application's core components are organized into a clean architecture with distinct layers. The service layer contains the business logic and acts as the central orchestrator between the presentation layer (routes) and external integration layer (clients). Services are designed to be stateless and horizontally scalable, with dependencies managed through configuration and dependency injection patterns. The architecture emphasizes separation of concerns, with each service having a well-defined responsibility and interface contract. The new MigrationScheduler service enables automated spot instance migration with configurable intervals and graceful shutdown handling.
 
 **Section sources**
 - [index.ts](file://src/index.ts#L1-L114)
@@ -99,6 +104,8 @@ S5[MetricsService]
 S6[JobQueueService]
 S7[JobWorkerService]
 S8[NovitaApiService]
+S9[MigrationScheduler]
+S10[InstanceMigrationService]
 end
 subgraph "Integration"
 C1[NovitaClient]
@@ -121,16 +128,22 @@ S1 --> S3
 S1 --> S6
 S1 --> S7
 S1 --> S8
+S1 --> S9
 S2 --> S8
 S3 --> S8
 S4 --> C1
 S5 --> U2
 S6 --> S7
 S8 --> C1
+S9 --> S10
+S9 --> S6
+S10 --> S8
 style S4 fill:#f9f,stroke:#333
 style S5 fill:#f9f,stroke:#333
 style S2 fill:#bbf,stroke:#333
 style S3 fill:#bbf,stroke:#333
+style S9 fill:#f9f,stroke:#333
+style S10 fill:#f9f,stroke:#333
 ```
 
 **Diagram sources**
@@ -145,7 +158,7 @@ style S3 fill:#bbf,stroke:#333
 
 ### Service Composition Pattern
 
-The service composition pattern in the novitai application is centered around the `index.ts` file, which serves as the composition root for the entire application. This file imports and wires together all components, establishing the dependency graph and configuring the Express application. Services are instantiated as singletons and made available globally through named exports, allowing for easy dependency management and testing. The JobWorkerService is now properly integrated into the server lifecycle, starting during initialization and shutting down gracefully when termination signals are received.
+The service composition pattern in the novitai application is centered around the `index.ts` file, which serves as the composition root for the entire application. This file imports and wires together all components, establishing the dependency graph and configuring the Express application. Services are instantiated as singletons and made available globally through named exports, allowing for easy dependency management and testing. The MigrationScheduler is now properly integrated into the server lifecycle, starting during initialization and shutting down gracefully when termination signals are received.
 
 ```mermaid
 graph TD
@@ -298,6 +311,22 @@ class JobQueueService {
 +shutdown(timeoutMs) : Promise~void~
 +registerHandler(type, handler) : void
 }
+class MigrationScheduler {
++start() : void
++stop() : void
++shutdown(timeoutMs) : Promise~void~
++getStatus() : SchedulerStatus
++executeNow() : Promise~string~
++isHealthy() : boolean
++getHealthDetails() : Object
+}
+class InstanceMigrationService {
++fetchAllInstances() : Promise~InstanceResponse[]~
++checkMigrationEligibility(instance) : Promise~MigrationEligibilityResult~
++migrateInstance(instanceId, attempt?) : Promise~MigrationResponse~
++processMigrationBatch(jobId?) : Promise~MigrationJobResult~
++getServiceStatus() : Object
+}
 ProductService --> CacheService : "uses"
 TemplateService --> CacheService : "uses"
 ProductService --> NovitaApiService : "depends on"
@@ -305,6 +334,9 @@ TemplateService --> NovitaApiService : "depends on"
 MetricsService --> Logger : "uses"
 JobWorkerService --> JobQueueService : "manages"
 JobQueueService --> JobWorkerService : "executes"
+MigrationScheduler --> InstanceMigrationService : "orchestrates"
+MigrationScheduler --> JobQueueService : "schedules jobs"
+InstanceMigrationService --> NovitaApiService : "integrates with"
 ```
 
 **Diagram sources**
@@ -314,6 +346,10 @@ JobQueueService --> JobWorkerService : "executes"
 - [metricsService.ts](file://src/services/metricsService.ts#L1-L391)
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L1-L610)
 - [jobQueueService.ts](file://src/services/jobQueueService.ts#L1-L377)
+- [migrationScheduler.ts](file://src/services/migrationScheduler.ts#L1-L404)
+- [instanceMigrationService.ts](file://src/services/instanceMigrationService.ts#L1-L684)
+- [job.ts](file://src/types/job.ts#L1-L128)
+- [migration.ts](file://src/types/migration.ts#L1-L251)
 
 **Section sources**
 - [productService.ts](file://src/services/productService.ts#L1-L280)
@@ -322,6 +358,10 @@ JobQueueService --> JobWorkerService : "executes"
 - [metricsService.ts](file://src/services/metricsService.ts#L1-L391)
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L1-L610)
 - [jobQueueService.ts](file://src/services/jobQueueService.ts#L1-L377)
+- [migrationScheduler.ts](file://src/services/migrationScheduler.ts#L1-L404)
+- [instanceMigrationService.ts](file://src/services/instanceMigrationService.ts#L1-L684)
+- [job.ts](file://src/types/job.ts#L1-L128)
+- [migration.ts](file://src/types/migration.ts#L1-L251)
 
 ### Error Propagation Mechanism
 
@@ -361,7 +401,7 @@ Note over Middleware,Client : Error response includes code, message,<br/>timesta
 
 ### Service Roles and Responsibilities
 
-Each service in the application has a well-defined role and set of responsibilities. The CacheService provides performance optimization through caching of frequently accessed data. The MetricsService enables observability by collecting and exposing performance and system metrics. The ProductService and TemplateService handle domain-specific business logic related to products and templates respectively. The JobWorkerService manages background job processing with proper lifecycle management.
+Each service in the application has a well-defined role and set of responsibilities. The CacheService provides performance optimization through caching of frequently accessed data. The MetricsService enables observability by collecting and exposing performance and system metrics. The ProductService and TemplateService handle domain-specific business logic related to products and templates respectively. The MigrationScheduler manages automated spot instance migrations with configurable intervals and health monitoring.
 
 ```mermaid
 graph TD
@@ -381,15 +421,20 @@ P[TemplateService] --> Q["Template configuration"]
 P --> R["Template validation"]
 P --> S["Cache template data"]
 P --> T["Extract instance config"]
-U[JobWorkerService] --> V["Background job processing"]
-U --> W["Instance creation workflow"]
-U --> X["Startup monitoring"]
-U --> Y["Webhook delivery"]
+U[MigrationScheduler] --> V["Automated migration scheduling"]
+U --> W["Spot instance monitoring"]
+U --> X["Migration job orchestration"]
+U --> Y["Health status monitoring"]
+Z[InstanceMigrationService] --> AA["Instance eligibility checking"]
+Z --> AB["Migration execution"]
+Z --> AC["Batch processing"]
+Z --> AD["Error handling and retry"]
 style A fill:#f9f,stroke:#333
 style F fill:#f9f,stroke:#333
 style K fill:#bbf,stroke:#333
 style P fill:#bbf,stroke:#333
 style U fill:#f9f,stroke:#333
+style Z fill:#f9f,stroke:#333
 ```
 
 **Section sources**
@@ -397,46 +442,45 @@ style U fill:#f9f,stroke:#333
 - [metricsService.ts](file://src/services/metricsService.ts#L1-L391)
 - [productService.ts](file://src/services/productService.ts#L1-L280)
 - [templateService.ts](file://src/services/templateService.ts#L1-L287)
-- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L1-L610)
+- [migrationScheduler.ts](file://src/services/migrationScheduler.ts#L1-L404)
+- [instanceMigrationService.ts](file://src/services/instanceMigrationService.ts#L1-L684)
 
-### Job Processing Workflow
+### Migration Workflow
 
-The JobWorkerService orchestrates background processing for instance creation, monitoring, and webhook delivery. During server startup, the job worker service is initialized and begins processing jobs from the queue. The service handles three primary job types: instance creation, instance monitoring, and webhook delivery. Each job type follows a specific workflow with error handling and retry mechanisms.
+The MigrationScheduler orchestrates automated spot instance migrations by scheduling periodic jobs to identify and migrate instances in exited status. During server startup, the migration scheduler is initialized and begins scheduling migration jobs at configurable intervals. The service handles instance eligibility checking, migration execution, and comprehensive error handling with retry mechanisms.
 
 ```mermaid
 sequenceDiagram
 participant Server
-participant JobWorker
+participant MigrationScheduler
 participant JobQueue
-participant Services
-Server->>JobWorker : start()
-JobWorker->>JobQueue : startProcessing()
-JobQueue->>JobWorker : Poll for jobs
+participant InstanceMigrationService
+participant NovitaApi
+Server->>MigrationScheduler : start()
+MigrationScheduler->>MigrationScheduler : scheduleNextExecution()
 loop Polling Interval
-JobQueue->>JobWorker : Job available
-JobWorker->>Services : Execute job handler
-alt Success
-Services->>JobWorker : Success
-JobWorker->>JobQueue : Mark as completed
-else Failure
-JobWorker->>JobQueue : Schedule retry with backoff
+MigrationScheduler->>JobQueue : Check for active migration jobs
+JobQueue->>MigrationScheduler : No active jobs
+MigrationScheduler->>JobQueue : addJob(MIGRATE_SPOT_INSTANCES)
+JobQueue->>InstanceMigrationService : Execute migration job
+InstanceMigrationService->>NovitaApi : listInstances()
+NovitaApi->>InstanceMigrationService : Return instances
+InstanceMigrationService->>InstanceMigrationService : Check eligibility
+InstanceMigrationService->>NovitaApi : migrateInstance() for eligible instances
+NovitaApi->>InstanceMigrationService : Migration response
+InstanceMigrationService->>JobQueue : Mark job completed
 end
-end
-Server->>JobWorker : SIGTERM/SIGINT
-JobWorker->>JobQueue : shutdown()
-JobQueue->>JobWorker : Wait for active jobs
-JobWorker->>Server : Ready to terminate
+Server->>MigrationScheduler : SIGTERM/SIGINT
+MigrationScheduler->>MigrationScheduler : shutdown()
+MigrationScheduler->>JobQueue : Wait for active jobs
+MigrationScheduler->>Server : Ready to terminate
 ```
 
 **Diagram sources**
 - [index.ts](file://src/index.ts#L101-L129)
-- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L555-L610)
-- [jobQueueService.ts](file://src/services/jobQueueService.ts#L345-L377)
-
-**Section sources**
-- [index.ts](file://src/index.ts#L101-L129)
-- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L555-L610)
-- [jobQueueService.ts](file://src/services/jobQueueService.ts#L345-L377)
+- [migrationScheduler.ts](file://src/services/migrationScheduler.ts#L1-L404)
+- [instanceMigrationService.ts](file://src/services/instanceMigrationService.ts#L1-L684)
+- [jobQueueService.ts](file://src/services/jobQueueService.ts#L1-L377)
 
 ## Dependency Analysis
 
@@ -473,27 +517,32 @@ M[MetricsService]
 N[JobQueueService]
 O[JobWorkerService]
 P[NovitaApiService]
+Q[MigrationScheduler]
+R[InstanceMigrationService]
 end
 subgraph "Presentation"
 A[InstancesRoute]
-Q[CacheRoute]
-R[HealthRoute]
+S[CacheRoute]
+T[HealthRoute]
 E[RequestLogger]
-S[MetricsMiddleware]
+U[MetricsMiddleware]
 end
 B --> J
 B --> K
 B --> N
 B --> O
 B --> P
+B --> Q
 J --> P
 K --> P
 L --> C
 M --> G
 N --> O
 P --> C
-S --> M
-O --> N
+U --> M
+Q --> R
+Q --> N
+R --> P
 style F fill:#eff,stroke:#333
 style G fill:#eff,stroke:#333
 style H fill:#eff,stroke:#333
@@ -507,11 +556,13 @@ style M fill:#efe,stroke:#333
 style N fill:#efe,stroke:#333
 style O fill:#efe,stroke:#333
 style P fill:#efe,stroke:#333
+style Q fill:#efe,stroke:#333
+style R fill:#efe,stroke:#333
 style A fill:#eef,stroke:#333
-style Q fill:#eef,stroke:#333
-style R fill:#eef,stroke:#333
+style S fill:#eef,stroke:#333
+style T fill:#eef,stroke:#333
 style E fill:#ffe,stroke:#333
-style S fill:#ffe,stroke:#333
+style U fill:#ffe,stroke:#333
 ```
 
 **Diagram sources**
@@ -530,25 +581,25 @@ style S fill:#ffe,stroke:#333
 
 ## Performance Considerations
 
-The application is designed with performance and scalability in mind. Services are stateless, allowing for horizontal scaling across multiple instances. The CacheService reduces the load on external APIs by caching frequently accessed data with configurable TTLs and cleanup intervals. The MetricsService collects performance data with minimal overhead, enabling monitoring and optimization. Database connection management is handled through connection pooling and efficient query patterns, though specific implementation details are abstracted within the client services. The JobWorkerService ensures background processing does not block the main request thread, improving overall responsiveness.
+The application is designed with performance and scalability in mind. Services are stateless, allowing for horizontal scaling across multiple instances. The CacheService reduces the load on external APIs by caching frequently accessed data with configurable TTLs and cleanup intervals. The MetricsService collects performance data with minimal overhead, enabling monitoring and optimization. Database connection management is handled through connection pooling and efficient query patterns, though specific implementation details are abstracted within the client services. The MigrationScheduler ensures automated migrations do not block the main request thread, improving overall responsiveness.
 
 **Section sources**
 - [cacheService.ts](file://src/services/cacheService.ts#L1-L490)
 - [metricsService.ts](file://src/services/metricsService.ts#L1-L391)
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L1-L384)
-- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L1-L610)
+- [migrationScheduler.ts](file://src/services/migrationScheduler.ts#L1-L404)
 
 ## Troubleshooting Guide
 
-The application includes comprehensive error handling and logging to facilitate troubleshooting. The global error handler middleware captures and standardizes all errors, providing consistent error responses with unique request IDs for correlation. The health check endpoint exposes detailed system and service metrics, including memory usage, CPU utilization, and service dependencies. Cache and metrics endpoints allow for inspection of internal state and performance characteristics. The structured logging approach includes contextual information such as request IDs, correlation IDs, and operation details to aid in debugging. The JobWorkerService logs detailed information about job processing, including retries and failures, which can be used to diagnose background processing issues.
+The application includes comprehensive error handling and logging to facilitate troubleshooting. The global error handler middleware captures and standardizes all errors, providing consistent error responses with unique request IDs for correlation. The health check endpoint exposes detailed system and service metrics, including memory usage, CPU utilization, and service dependencies. Cache and metrics endpoints allow for inspection of internal state and performance characteristics. The structured logging approach includes contextual information such as request IDs, correlation IDs, and operation details to aid in debugging. The MigrationScheduler logs detailed information about migration jobs, including eligibility checks and failures, which can be used to diagnose migration issues.
 
 **Section sources**
 - [errorHandler.ts](file://src/middleware/errorHandler.ts#L1-L286)
 - [utils/errorHandler.ts](file://src/utils/errorHandler.ts#L1-L185)
 - [health.ts](file://src/routes/health.ts#L1-L288)
 - [cache.ts](file://src/routes/cache.ts#L1-L152)
-- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L1-L610)
+- [migrationScheduler.ts](file://src/services/migrationScheduler.ts#L1-L404)
 
 ## Conclusion
 
-The novitai application demonstrates a well-structured service layer design following clean architecture principles. The clear separation between routes, services, clients, and utilities enables maintainability and testability. The service composition pattern in `index.ts` establishes a consistent dependency graph, while the error propagation mechanism ensures standardized API responses. The architecture supports scalability through stateless services and horizontal scaling, with performance optimization provided by caching and efficient resource management. The recent integration of job worker service startup and shutdown handling ensures proper lifecycle management of background processing. The design patterns established in the codebase provide a solid foundation for adding new services and features while maintaining consistency and quality.
+The novitai application demonstrates a well-structured service layer design following clean architecture principles. The clear separation between routes, services, clients, and utilities enables maintainability and testability. The service composition pattern in `index.ts` establishes a consistent dependency graph, while the error propagation mechanism ensures standardized API responses. The architecture supports scalability through stateless services and horizontal scaling, with performance optimization provided by caching and efficient resource management. The recent integration of automated spot instance migration with the MigrationScheduler and InstanceMigrationService ensures proper lifecycle management of background processing. The design patterns established in the codebase provide a solid foundation for adding new services and features while maintaining consistency and quality.

@@ -2,11 +2,20 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [jobQueueService.ts](file://src/services/jobQueueService.ts)
-- [jobWorkerService.ts](file://src/services/jobWorkerService.ts)
-- [job.ts](file://src/types/job.ts)
+- [jobQueueService.ts](file://src/services/jobQueueService.ts) - *Updated with MONITOR_STARTUP and MIGRATE_SPOT_INSTANCES job types*
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts) - *Added handlers for new job types*
+- [migrationScheduler.ts](file://src/services/migrationScheduler.ts) - *Added for automated spot instance migration*
+- [job.ts](file://src/types/job.ts) - *Updated with new job type definitions*
 - [jobQueueExample.ts](file://src/examples/jobQueueExample.ts)
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Added documentation for new MONITOR_STARTUP job type for tracking instance startup status
+- Added documentation for new MIGRATE_SPOT_INSTANCES job type for automated spot instance migration
+- Updated job payload structure diagram to include new job types
+- Updated integration sections to reflect new workflows
+- Enhanced technology assumptions section with migration scheduler details
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -23,11 +32,11 @@
 12. [Graceful Shutdown and Cleanup](#graceful-shutdown-and-cleanup)
 
 ## Introduction
-The JobQueueService provides asynchronous job processing capabilities for long-running operations such as instance creation and monitoring. It enables non-blocking API responses by decoupling request handling from time-consuming tasks. The service manages a queue of jobs with different priorities, processes them sequentially, and provides robust error handling and retry mechanisms. This documentation details the architecture, functionality, and integration points of the JobQueueService within the application ecosystem.
+The JobQueueService provides asynchronous job processing capabilities for long-running operations such as instance creation, startup monitoring, and spot instance migration. It enables non-blocking API responses by decoupling request handling from time-consuming tasks. The service manages a queue of jobs with different priorities, processes them sequentially, and provides robust error handling and retry mechanisms. This documentation details the architecture, functionality, and integration points of the JobQueueService within the application ecosystem.
 
 ## Core Components
 
-The JobQueueService is implemented as an in-memory queue that manages job lifecycle from creation to completion or failure. It works in conjunction with the JobWorkerService to process different types of jobs including instance creation, instance monitoring, and webhook sending. The service maintains job state, handles retries with exponential backoff, and provides comprehensive monitoring capabilities.
+The JobQueueService is implemented as an in-memory queue that manages job lifecycle from creation to completion or failure. It works in conjunction with the JobWorkerService to process different types of jobs including instance creation, instance monitoring, webhook sending, and spot instance migration. The service maintains job state, handles retries with exponential backoff, and provides comprehensive monitoring capabilities.
 
 **Section sources**
 - [jobQueueService.ts](file://src/services/jobQueueService.ts#L21-L374)
@@ -199,7 +208,9 @@ The JobQueueService supports different job types with specific payload structure
 erDiagram
 JOB ||--o{ CREATE_INSTANCE_JOB : "extends"
 JOB ||--o{ MONITOR_INSTANCE_JOB : "extends"
+JOB ||--o{ MONITOR_STARTUP_JOB : "extends"
 JOB ||--o{ SEND_WEBHOOK_JOB : "extends"
+JOB ||--o{ MIGRATE_SPOT_INSTANCES_JOB : "extends"
 JOB {
 string id PK
 enum type
@@ -230,10 +241,24 @@ string webhookUrl
 datetime startTime
 int maxWaitTime
 }
+MONITOR_STARTUP_JOB {
+string instanceId
+string novitaInstanceId
+string webhookUrl
+datetime startTime
+int maxWaitTime
+object healthCheckConfig
+int targetPort
+}
 SEND_WEBHOOK_JOB {
 string url
 object payload
 object headers
+}
+MIGRATE_SPOT_INSTANCES_JOB {
+datetime scheduledAt
+string jobId
+object config
 }
 ```
 
@@ -247,7 +272,7 @@ object headers
 
 ## Technology Assumptions and Scalability
 
-The JobQueueService is implemented as an in-memory queue with no external message broker dependencies. This design choice provides simplicity and low latency but has implications for scalability and fault tolerance in distributed environments.
+The JobQueueService is implemented as an in-memory queue with no external message broker dependencies. This design choice provides simplicity and low latency but has implications for scalability and fault tolerance in distributed environments. The MigrationScheduler component enables automated spot instance migration through scheduled job execution.
 
 ```mermaid
 graph TD
@@ -261,15 +286,21 @@ C --> H[Single Point of Failure]
 C --> I[No Persistence]
 C --> J[Limited Scalability]
 C --> K[Process Restart Loses Jobs]
+L[MigrationScheduler] --> M[Automated Spot Instance Migration]
+L --> N[Scheduled Job Execution]
+L --> O[Deduplication]
+L --> P[Graceful Shutdown]
 ```
 
 **Diagram sources**
 - [jobQueueService.ts](file://src/services/jobQueueService.ts#L21-L374)
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L20-L562)
+- [migrationScheduler.ts](file://src/services/migrationScheduler.ts#L20-L405)
 
 **Section sources**
 - [jobQueueService.ts](file://src/services/jobQueueService.ts#L21-L374)
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L20-L562)
+- [migrationScheduler.ts](file://src/services/migrationScheduler.ts#L20-L405)
 
 ## Performance Considerations
 
@@ -316,12 +347,14 @@ A --> F[Failed Jobs]
 A --> G[Jobs by Type]
 G --> H[CREATE_INSTANCE]
 G --> I[MONITOR_INSTANCE]
-G --> J[SEND_WEBHOOK]
-K[Monitoring Use Cases] --> L[Health Checks]
-K --> M[Performance Analysis]
-K --> N[Capacity Planning]
-K --> O[Error Rate Tracking]
-K --> P[Processing Time Trends]
+G --> J[MONITOR_STARTUP]
+G --> K[SEND_WEBHOOK]
+G --> L[MIGRATE_SPOT_INSTANCES]
+M[Monitoring Use Cases] --> N[Health Checks]
+M --> O[Performance Analysis]
+M --> P[Capacity Planning]
+M --> Q[Error Rate Tracking]
+M --> R[Processing Time Trends]
 ```
 
 **Diagram sources**

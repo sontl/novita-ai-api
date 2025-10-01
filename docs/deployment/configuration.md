@@ -679,4 +679,4 @@ docker-compose config
 docker-compose run --rm novita-api node -e "console.log(require('./dist/config/config').default)"
 ```
 
-For more troubleshooting help, see the [Troubleshooting Guide](./TROUBLESHOOTING.md).
+For more troubleshooting help, see the [Troubleshooting Guide](../TROUBLESHOOTING.md).

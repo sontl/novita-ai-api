@@ -2,8 +2,8 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [package.json](file://client-examples/nodejs/package.json)
-- [httpClientExample.ts](file://src/examples/httpClientExample.ts)
+- [package.json](file://client-examples/nodejs/package.json) - *Updated in recent commit 68921546*
+- [httpClientExample.ts](file://src/examples/httpClientExample.ts) - *Updated in recent commits 68921546 and 52581c45*
 - [novitaClient.ts](file://src/clients/novitaClient.ts)
 - [webhookClient.ts](file://src/clients/webhookClient.ts)
 - [config.ts](file://src/config/config.ts)
@@ -14,11 +14,12 @@
 
 ## Update Summary
 **Changes Made**   
-- Updated API usage examples to reflect POST-based instance creation with payload
-- Added new section on registry authentication for private Docker images
-- Updated configuration and environment variable references
-- Added code examples and workflow explanation for registry authentication
-- Enhanced error handling documentation with new error types
+- Added new section on instance control endpoints and startup operations
+- Updated API usage examples to reflect new instance start functionality
+- Enhanced webhook client documentation with startup lifecycle notifications
+- Added code examples for starting instances by ID and name
+- Updated configuration references to include new instance startup parameters
+- Added new sequence diagram for instance startup workflow
 - Updated file references and source tracking annotations
 
 ## Table of Contents
@@ -327,6 +328,116 @@ This approach provides secure credential management by:
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L275)
 - [templateService.ts](file://src/services/templateService.ts#L1-L288)
 
+### Instance Control Implementation
+The system now supports controlling instances that are in exited status, allowing users to start instances by ID or name with comprehensive webhook notifications.
+
+#### Instance Startup Workflow
+```mermaid
+sequenceDiagram
+participant Client as "Node.js Client"
+participant Service as "NovitaApiService"
+participant API as "Novitai API"
+participant Webhook as "Webhook Client"
+Client->>Service : startInstance(instanceId)
+Service->>API : POST /v1/gpu/instance/start
+API-->>Service : { status : "starting", operationId : "op_123" }
+Service->>Webhook : sendStartupInitiatedNotification()
+Service->>Service : monitorInstanceStatus()
+Service->>API : GET /v1/gpu/instance/{id}
+Service->>Webhook : sendStartupProgressNotification()
+Service->>Service : performHealthChecks()
+Service->>Webhook : sendHealthCheckStartedNotification()
+Service->>Webhook : sendReadyNotification() or sendStartupFailedNotification()
+```
+
+**Section sources**
+- [httpClientExample.ts](file://src/examples/httpClientExample.ts#L1-L131) - *Updated in recent commit 52581c45*
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L276-L350) - *Added in recent commit 52581c45*
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L244-L799) - *Added new startup notification methods*
+
+#### Starting Instances by ID or Name
+The system supports starting instances using either their unique ID or their name, with configurable lookup behavior:
+
+```typescript
+// Start instance by ID
+await novitaApiService.startInstance('instance-123');
+
+// Start instance by name (when enabled in configuration)
+await novitaApiService.startInstance('my-gpu-instance');
+
+// With custom timeout and webhook URL
+await novitaApiService.startInstance('instance-123', {
+  timeoutMs: 600000, // 10 minutes
+  webhookUrl: 'https://myapp.com/webhooks/instance-start',
+  webhookSecret: process.env.WEBHOOK_SECRET
+});
+```
+
+The instance startup process includes:
+- **Operation Initiation**: Sending start command to Novitai API
+- **Status Monitoring**: Polling instance status with configurable intervals
+- **Health Checking**: Performing application-level health checks on exposed endpoints
+- **Webhook Notifications**: Sending lifecycle notifications at key stages
+
+**Section sources**
+- [httpClientExample.ts](file://src/examples/httpClientExample.ts#L1-L131) - *Updated in recent commit 52581c45*
+- [config.ts](file://src/config/config.ts#L500-L550) - *Added instance startup configuration*
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L276-L350) - *Added in recent commit 52581c45*
+
+#### Startup Lifecycle Webhook Notifications
+The webhook client now supports comprehensive notifications for the instance startup lifecycle:
+
+```typescript
+// Send startup initiated notification
+await webhookClient.sendStartupInitiatedNotification(
+  webhookUrl,
+  instanceId,
+  {
+    operationId: 'op_123',
+    startedAt: new Date(),
+    estimatedReadyTime: new Date(Date.now() + 300000).toISOString()
+  }
+);
+
+// Send startup progress notification
+await webhookClient.sendStartupProgressNotification(
+  webhookUrl,
+  instanceId,
+  'monitoring',
+  {
+    operationId: 'op_123',
+    startedAt: new Date(),
+    phases: {
+      startRequested: new Date()
+    },
+    currentStatus: 'instance is starting'
+  }
+);
+
+// Send startup completed notification
+await webhookClient.sendStartupCompletedNotification(
+  webhookUrl,
+  instanceId,
+  {
+    operationId: 'op_123',
+    startedAt: new Date(Date.now() - 450000),
+    completedAt: new Date(),
+    phases: {
+      startRequested: new Date(Date.now() - 450000),
+      instanceRunning: new Date(Date.now() - 300000),
+      healthCheckCompleted: new Date()
+    },
+    healthCheckResult: healthCheckResult
+  }
+);
+```
+
+These notifications include detailed timing information and can be used to track the complete startup process from initiation to readiness.
+
+**Section sources**
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L244-L799) - *Added in recent commit 52581c45*
+- [httpClientExample.ts](file://src/examples/httpClientExample.ts#L1-L131) - *Updated in recent commit 52581c45*
+
 ## Dependency Analysis
 The Node.js client has minimal external dependencies, relying primarily on Axios for HTTP communication and standard libraries for cryptographic operations. The internal dependency graph shows a clean separation between components.
 
@@ -387,6 +498,7 @@ Common issues and their solutions when integrating with the Novitai API.
 - **401 Unauthorized**: Verify API key is correctly configured
 - **Circuit Breaker Open**: Wait for recovery period or check upstream service health
 - **REGISTRY_AUTH_NOT_FOUND**: Verify registry authentication ID exists in Novitai system
+- **INSTANCE_NOT_FOUND**: Verify instance ID or name exists and is accessible
 
 ### Debugging Strategies
 1. Enable debug logging to trace request/response cycles

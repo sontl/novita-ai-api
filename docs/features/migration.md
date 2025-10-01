@@ -1,6 +1,16 @@
-# Migration Recreation Fix
+# Migration Features Documentation
 
-## Problem
+This document describes the migration features of the Novita GPU Instance API, including the system for recreating instances after failed migrations and the time-based eligibility system.
+
+## Overview
+
+The migration system enables automatic handling of GPU instance migrations with two key components:
+1. **Failed Migration Recovery**: Automatic recreation of instances after failed migrations
+2. **Time-Based Eligibility**: Configurable schedule for when instances can be migrated
+
+## Failed Migration Recreation Fix
+
+### Problem
 
 When recreating instances after failed migrations, the system was trying to fetch template details using `templateId` to get configuration data like:
 - `imageUrl`
@@ -15,11 +25,9 @@ However, this approach had several issues:
 2. **Unnecessary API Call**: We already have all the required data from the deleted instance
 3. **Potential Failure Point**: Template fetching could fail and prevent instance recreation
 
-## Solution
+### Solution
 
 Modified the `handleFailedMigration` method in `src/services/instanceMigrationService.ts` to use instance data directly instead of fetching template details.
-
-### Changes Made
 
 #### Before (Problematic Approach)
 ```typescript
@@ -125,14 +133,14 @@ Enhanced logging provides visibility into the recreation process:
 [INFO] Successfully recreated instance after failed migration: usedExistingData=true
 ```
 
-## Impact
+### Impact
 
 - **Reduced API Calls**: Eliminates template fetching during recreation
 - **Improved Reliability**: Removes potential failure point
 - **Faster Recovery**: Quicker instance recreation after failed migrations
 - **Better Resource Utilization**: Less load on template API endpoints
 
-## Backward Compatibility
+### Backward Compatibility
 
 This change is fully backward compatible:
 - No changes to public APIs
@@ -140,8 +148,83 @@ This change is fully backward compatible:
 - Existing migration workflows continue to work
 - Only internal recreation logic is optimized
 
-## Future Considerations
+## Time-Based Migration Eligibility
 
-1. **Cache Instance Data**: Consider caching instance configuration data for even faster recreation
-2. **Validation**: Add validation to ensure all required fields are present before recreation
-3. **Metrics**: Track recreation success rates and performance improvements
+### Overview
+
+The migration eligibility system has been simplified to use a time-based approach instead of checking GPU IDs, spot status, and reclaim times. This provides a more predictable and configurable migration schedule.
+
+### How It Works
+
+#### Eligibility Criteria
+
+1. **Instance Status**: Instance must have "exited" status
+2. **Time Since Last Migration**: Must be at least X hours since the last migration (configurable)
+
+#### Configuration
+
+- **Environment Variable**: `MIGRATION_ELIGIBILITY_INTERVAL_HOURS`
+- **Default Value**: 4 hours
+- **Range**: 1-168 hours (1 week maximum)
+
+#### Migration Tracking
+
+- Migration times are stored in Redis cache with 7-day TTL
+- Each successful migration (including dry runs) records the timestamp
+- Cache key format: `migration-times:{instanceId}`
+
+### Benefits
+
+1. **Predictable**: Migrations happen on a regular schedule
+2. **Configurable**: Easy to adjust the migration frequency
+3. **Simple**: No complex logic based on GPU types or spot status
+4. **Reliable**: Uses persistent storage to track migration history
+
+### Configuration Example
+
+```bash
+# Migrate every 4 hours (default)
+MIGRATION_ELIGIBILITY_INTERVAL_HOURS=4
+
+# More frequent migrations (every 2 hours)
+MIGRATION_ELIGIBILITY_INTERVAL_HOURS=2
+
+# Less frequent migrations (every 12 hours)
+MIGRATION_ELIGIBILITY_INTERVAL_HOURS=12
+```
+
+### Migration Process
+
+1. **Fetch Instances**: Get all instances from Novita API
+2. **Filter by Status**: Only consider "exited" instances
+3. **Check Time Eligibility**: For each exited instance:
+   - Get last migration time from cache
+   - Calculate hours since last migration
+   - Mark as eligible if enough time has passed or no previous migration
+4. **Migrate Eligible Instances**: Process migrations for eligible instances
+5. **Record Migration Time**: Store successful migration timestamp in cache
+
+### Logging
+
+The system provides detailed logging for migration eligibility:
+
+```
+Instance eligible for migration - time-based check passed
+Instance not eligible for migration - insufficient time elapsed
+No previous migration found - eligible for migration
+```
+
+### Backward Compatibility
+
+This change removes the previous logic that checked:
+- GPU IDs (gpuIds array)
+- Spot status (spotStatus field)
+- Spot reclaim time (spotReclaimTime field)
+
+All exited instances are now eligible based purely on time since last migration.
+
+## Related Documentation
+
+- [API Client Reference](../API_CLIENT_REFERENCE.md)
+- [API Endpoints Summary](../API_ENDPOINTS_SUMMARY.md)
+- [Error Handling Guide](../ERROR_HANDLING_GUIDE.md)

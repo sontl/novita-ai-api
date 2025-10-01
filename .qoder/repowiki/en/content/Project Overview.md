@@ -10,7 +10,7 @@
 - [src/middleware/metricsMiddleware.ts](file://src/middleware/metricsMiddleware.ts)
 - [src/services/jobQueueService.ts](file://src/services/jobQueueService.ts)
 - [src/config/config.ts](file://src/config/config.ts)
-- [API_ENDPOINTS_SUMMARY.md](file://API_ENDPOINTS_SUMMARY.md)
+- [API_ENDPOINTS_SUMMARY.md](file://docs/api/endpoints.md)
 - [client-examples/README.md](file://client-examples/README.md)
 </cite>
 
@@ -314,7 +314,7 @@ The Novitai backend application provides several entry points for developers and
 
 ### API Endpoints
 
-The primary entry point for interacting with the application is through its RESTful API. The key endpoints are documented in [API_ENDPOINTS_SUMMARY.md](file://API_ENDPOINTS_SUMMARY.md) and include:
+The primary entry point for interacting with the application is through its RESTful API. The key endpoints are documented in [docs/api/endpoints.md](file://docs/api/endpoints.md) and include:
 
 - `GET /health`: Health check endpoint
 - `POST /api/instances`: Create new GPU instance
@@ -331,6 +331,6 @@ The application's behavior is controlled through environment variables defined i
 For developers looking to integrate with the API, the [client-examples/](file://client-examples/) directory contains ready-to-use code samples in multiple programming languages, including Node.js, Python, and shell scripts using cURL. These examples demonstrate common use cases and best practices for interacting with the API.
 
 **Section sources**
-- [API_ENDPOINTS_SUMMARY.md](file://API_ENDPOINTS_SUMMARY.md#L1-L10)
+- [docs/api/endpoints.md](file://docs/api/endpoints.md#L1-L10)
 - [client-examples/README.md](file://client-examples/README.md#L1-L10)
 - [src/config/config.ts](file://src/config/config.ts#L1-L50)

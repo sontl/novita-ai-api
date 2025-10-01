@@ -9,16 +9,19 @@
 - [webhookClient.ts](file://src/clients/webhookClient.ts) - *Webhook handling implementation*
 - [registryAuthExample.ts](file://src/examples/registryAuthExample.ts) - *Added in recent commit for registry authentication*
 - [templateServiceExample.ts](file://src/examples/templateServiceExample.ts) - *Updated instance API calls to use POST with payload*
+- [instances.ts](file://src/routes/instances.ts) - *Added instance control endpoints in recent commit*
+- [novitaApiService.ts](file://src/services/novitaApiService.ts) - *Added registry authentication support*
 </cite>
 
 ## Update Summary
 **Changes Made**   
-- Updated instance creation API call to use POST with payload as per recent changes
-- Added new section on registry authentication for private image instances
-- Updated environment variable references to match current naming conventions
-- Added code examples for registry authentication workflow
-- Enhanced error handling examples to include registry authentication errors
-- Updated diagram sources to reflect new implementation details
+- Added new section on starting GPU instances by ID and name
+- Updated instance creation examples to include imageAuth field for registry authentication
+- Enhanced registry authentication section with new workflow details
+- Added code examples for starting instances with webhook notifications
+- Updated error handling examples to include startup operation errors
+- Added new sequence diagram for instance start workflow
+- Updated document sources to include newly relevant files
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -32,6 +35,7 @@
 9. [Performance Optimization](#performance-optimization)
 10. [Common Pitfalls and Solutions](#common-pitfalls-and-solutions)
 11. [Registry Authentication](#registry-authentication)
+12. [Starting GPU Instances](#starting-gpu-instances)
 
 ## Introduction
 This guide provides comprehensive instructions for integrating Python applications with the Novita API to manage GPU instances. It covers environment setup, instance lifecycle management, webhook integration, error handling, and performance optimization. The documentation draws from the official TypeScript implementation patterns and adapts them for Python using the requests library and best practices in asynchronous programming.
@@ -336,7 +340,7 @@ participant API as "Novita API"
 Client->>Service : getRegistryAuth(authId)
 Service->>API : GET /v1/repository/auths
 API-->>Service : List of registry auths
-Service->>Service : Find auth by ID
+Service->>Service : Find credentials by ID
 Service-->>Client : Username and password
 Client->>Service : createInstance(config) with imageAuth
 ```
@@ -359,3 +363,39 @@ Benefits:
 - [registryAuthExample.ts](file://src/examples/registryAuthExample.ts#L0-L97)
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L222)
 - [api.ts](file://src/types/api.ts#L267-L344)
+
+## Starting GPU Instances
+
+The Novita API now supports starting GPU instances that are in exited status. This feature allows users to resume instances without recreating them, preserving data and configuration. Instances can be started by ID or name using the new start endpoint.
+
+```mermaid
+sequenceDiagram
+participant Client as "Python Client"
+participant Service as "InstanceService"
+participant API as "Novita API"
+Client->>Service : startInstance(instanceId)
+Service->>Service : Validate instance ID
+Service->>Service : Create startup operation
+Service->>API : POST /api/instances/{id}/start
+API-->>Service : 202 Accepted
+Service->>Service : Monitor startup status
+Service->>Client : Return operation status
+```
+
+The startup process involves:
+1. Making a POST request to `/api/instances/{instanceId}/start`
+2. Receiving a 202 Accepted response with operation details
+3. Monitoring the startup operation status via polling or webhooks
+4. Handling success or failure notifications
+
+Key parameters for starting an instance:
+- `instanceId`: The unique identifier of the instance to start
+- `webhookUrl`: Optional URL to receive startup completion notifications
+- `timeout`: Maximum time to wait for startup (default: 300 seconds)
+
+The system generates a unique operation ID for tracking startup progress and maintains state through the `activeStartupOperations` map in the `InstanceService`. The estimated startup time is approximately 3 minutes, during which health checks are performed.
+
+**Section sources**
+- [instances.ts](file://src/routes/instances.ts#L243-L287)
+- [instanceService.ts](file://src/services/instanceService.ts#L1023-L1084)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L1556-L1587)

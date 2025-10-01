@@ -9,7 +9,7 @@ Successfully implemented an auto-stop feature for the Novita GPU Instance API th
 ### New Files Created
 
 1. **`src/services/autoStopService.ts`** - Main auto-stop service implementation
-2. **`AUTO_STOP_FEATURE.md`** - Comprehensive documentation
+2. **`docs/features/auto-stop.md`** - Comprehensive documentation
 3. **`test-auto-stop.js`** - Test script for the feature
 4. **`IMPLEMENTATION_SUMMARY.md`** - This summary
 
@@ -23,7 +23,7 @@ Successfully implemented an auto-stop feature for the Novita GPU Instance API th
 6. **`src/services/jobWorkerService.ts`** - Added auto-stop job handler
 7. **`src/services/jobQueueService.ts`** - Updated job statistics
 8. **`src/index.ts`** - Added auto-stop service initialization
-9. **`API_CLIENT_REFERENCE.md`** - Updated API documentation
+9. **`docs/api/client-reference.md`** - Updated API documentation
 
 ## Key Features Implemented
 

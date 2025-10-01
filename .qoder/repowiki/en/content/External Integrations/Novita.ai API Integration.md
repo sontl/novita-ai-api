@@ -2,8 +2,9 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [novitaClient.ts](file://src/clients/novitaClient.ts)
-- [novitaApiService.ts](file://src/services/novitaApiService.ts)
+- [novitaClient.ts](file://src/clients/novitaClient.ts) - *Updated in recent commit*
+- [novitaApiService.ts](file://src/services/novitaApiService.ts) - *Updated in recent commit*
+- [instanceMigrationService.ts](file://src/services/instanceMigrationService.ts) - *Added in recent commit*
 - [config.ts](file://src/config/config.ts)
 - [api.ts](file://src/types/api.ts)
 - [productService.ts](file://src/services/productService.ts)
@@ -11,6 +12,14 @@
 - [health.ts](file://src/routes/health.ts)
 - [metricsService.ts](file://src/services/metricsService.ts)
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Updated documentation to reflect changes in API response handling and instance data transformation
+- Added new section for automated spot instance migration system
+- Updated service layer abstraction section to include new migrateInstance method
+- Added diagram for migration workflow
+- Updated section sources to reflect modified and new files
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -22,12 +31,13 @@
 7. [Service Layer Abstraction in NovitaApiService](#service-layer-abstraction-in-novitaapiservice)
 8. [Product Filtering and Optimal Pricing Selection](#product-filtering-and-optimal-pricing-selection)
 9. [Instance Lifecycle Management](#instance-lifecycle-management)
-10. [Health Check and Monitoring Endpoints](#health-check-and-monitoring-endpoints)
-11. [Common Issues and Troubleshooting](#common-issues-and-troubleshooting)
-12. [Conclusion](#conclusion)
+10. [Automated Spot Instance Migration System](#automated-spot-instance-migration-system)
+11. [Health Check and Monitoring Endpoints](#health-check-and-monitoring-endpoints)
+12. [Common Issues and Troubleshooting](#common-issues-and-troubleshooting)
+13. [Conclusion](#conclusion)
 
 ## Introduction
-This document provides a comprehensive overview of the Novita.ai API integration within the application. It details the implementation of the NovitaClient HTTP client wrapper, which incorporates advanced reliability features such as request/response interceptors for logging, correlation IDs, error handling, circuit breaker pattern, rate limiting, and retry logic. The service layer abstraction in NovitaApiService transforms raw API responses into typed domain models and provides high-level methods for product filtering, optimal pricing selection, and instance lifecycle management. The integration also includes health check endpoints that expose circuit breaker state and request queue metrics for monitoring purposes. This documentation is designed to be accessible to beginners while providing sufficient technical depth for experienced developers regarding fault tolerance and resilience patterns.
+This document provides a comprehensive overview of the Novita.ai API integration within the application. It details the implementation of the NovitaClient HTTP client wrapper, which incorporates advanced reliability features such as request/response interceptors for logging, correlation IDs, error handling, circuit breaker pattern, rate limiting, and retry logic. The service layer abstraction in NovitaApiService transforms raw API responses into typed domain models and provides high-level methods for product filtering, optimal pricing selection, and instance lifecycle management. A new automated spot instance migration system has been added to handle reclaimed spot instances. The integration also includes health check endpoints that expose circuit breaker state and request queue metrics for monitoring purposes. This documentation is designed to be accessible to beginners while providing sufficient technical depth for experienced developers regarding fault tolerance and resilience patterns.
 
 ## NovitaClient HTTP Client Implementation
 
@@ -49,9 +59,6 @@ I --> J[Retry Request]
 H --> |No| K[Return Response/Error]
 ```
 
-**Diagram sources**
-- [novitaClient.ts](file://src/clients/novitaClient.ts#L116-L380)
-
 **Section sources**
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L116-L380)
 
@@ -71,9 +78,6 @@ HALF_OPEN --> OPEN : failure
 OPEN --> OPEN : failureCount < threshold
 CLOSED --> CLOSED : success
 ```
-
-**Diagram sources**
-- [novitaClient.ts](file://src/clients/novitaClient.ts#L51-L99)
 
 **Section sources**
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L51-L99)
@@ -100,9 +104,6 @@ H --> I[Update Request Timestamps]
 I --> J[Return Response]
 ```
 
-**Diagram sources**
-- [novitaClient.ts](file://src/clients/novitaClient.ts#L116-L380)
-
 **Section sources**
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L116-L380)
 
@@ -127,9 +128,6 @@ H --> I{Success?}
 I --> |Yes| J[Return Response]
 I --> |No| D
 ```
-
-**Diagram sources**
-- [novitaClient.ts](file://src/clients/novitaClient.ts#L254-L296)
 
 **Section sources**
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L254-L296)
@@ -157,10 +155,6 @@ API-->>Client : Authenticated Response
 Client-->>App : Return Response
 ```
 
-**Diagram sources**
-- [novitaClient.ts](file://src/clients/novitaClient.ts#L116-L380)
-- [config.ts](file://src/config/config.ts#L152-L197)
-
 **Section sources**
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L116-L380)
 - [config.ts](file://src/config/config.ts#L152-L197)
@@ -180,7 +174,8 @@ class NovitaApiService {
 +getOptimalProduct(name : string, region? : string) : Promise~Product~
 +createInstance(data : InstanceData) : Promise~InstanceResponse~
 +getInstance(id : string) : Promise~Instance~
--handleApiError(error : any, context : string) : never
++migrateInstance(instanceId : string) : Promise~MigrationResponse~
++handleApiError(error : any, context : string) : never
 }
 class NovitaClient {
 +get(url, config?) : Promise~AxiosResponse~
@@ -222,10 +217,6 @@ NovitaApiService --> CircuitBreakerError : "throws"
 NovitaApiService --> TimeoutError : "throws"
 ```
 
-**Diagram sources**
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L36-L75)
-- [api.ts](file://src/types/api.ts#L250-L308)
-
 **Section sources**
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L36-L75)
 - [api.ts](file://src/types/api.ts#L250-L308)
@@ -251,10 +242,6 @@ H --> I[Select Cheapest]
 I --> J[Cache Result]
 J --> K[Return Optimal Product]
 ```
-
-**Diagram sources**
-- [productService.ts](file://src/services/productService.ts#L91-L135)
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L36-L75)
 
 **Section sources**
 - [productService.ts](file://src/services/productService.ts#L91-L135)
@@ -286,13 +273,47 @@ Service-->>Router : Return Response
 Router-->>Client : 201 Created
 ```
 
-**Diagram sources**
-- [instances.ts](file://src/routes/instances.ts#L41-L84)
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L36-L75)
-
 **Section sources**
 - [instances.ts](file://src/routes/instances.ts#L41-L84)
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L36-L75)
+
+## Automated Spot Instance Migration System
+
+A new automated spot instance migration system has been implemented to handle instances that have been reclaimed by the cloud provider. This system automatically detects reclaimed spot instances and migrates them to new instances to maintain service availability.
+
+The migration process is handled by the InstanceMigrationService, which periodically checks for instances in the EXITED state with a non-zero spotReclaimTime. When such instances are found, the service initiates a migration request to create a new instance with the same configuration.
+
+The migration workflow includes:
+1. Fetching all instances from the Novita.ai API
+2. Filtering for instances in the EXITED state
+3. Checking migration eligibility based on spot status and reclaim time
+4. Initiating migration for eligible instances
+5. Handling retry logic for failed migrations
+
+```mermaid
+flowchart TD
+A[Start Migration Batch] --> B[Fetch All Instances]
+B --> C[Filter Exited Instances]
+C --> D[Check Migration Eligibility]
+D --> E{Eligible?}
+E --> |Yes| F[Initiate Migration]
+E --> |No| G[Skip Instance]
+F --> H{Migration Successful?}
+H --> |Yes| I[Record Success]
+H --> |No| J{Retry Needed?}
+J --> |Yes| K[Wait & Retry]
+J --> |No| L[Record Failure]
+I --> M[Next Instance]
+G --> M
+L --> M
+M --> N{More Instances?}
+N --> |Yes| D
+N --> |No| O[Complete Batch]
+```
+
+**Section sources**
+- [instanceMigrationService.ts](file://src/services/instanceMigrationService.ts#L27-L681)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L499-L554)
 
 ## Health Check and Monitoring Endpoints
 
@@ -317,10 +338,6 @@ J --> K[Collect Job Metrics]
 K --> L[Collect Cache Metrics]
 L --> M[Return Metrics Response]
 ```
-
-**Diagram sources**
-- [health.ts](file://src/routes/health.ts#L16-L45)
-- [metricsService.ts](file://src/services/metricsService.ts#L100-L150)
 
 **Section sources**
 - [health.ts](file://src/routes/health.ts#L16-L45)
@@ -364,6 +381,8 @@ When the circuit breaker is in the OPEN state, requests are immediately rejected
 The Novita.ai API integration demonstrates a comprehensive approach to building resilient and reliable API clients. By implementing the circuit breaker pattern, rate limiting, retry logic with exponential backoff, and comprehensive error handling, the system is well-equipped to handle the challenges of distributed systems and external API dependencies.
 
 The layered architecture, with the NovitaClient providing low-level reliability features and the NovitaApiService offering high-level business abstractions, creates a maintainable and extensible design. The service layer transforms raw API responses into typed domain models while handling error mapping to custom error types, making it easier for other components to interact with the API.
+
+A new automated spot instance migration system enhances the reliability of spot instance usage by automatically recovering from instance reclamation events. This feature ensures continuous service availability even when spot instances are terminated by the cloud provider.
 
 Monitoring and health check endpoints provide valuable insights into the system's operational status, enabling proactive issue detection and resolution. The combination of these patterns and practices ensures that the application can gracefully handle failures, maintain performance under load, and provide a reliable experience for end users.
 

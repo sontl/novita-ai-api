@@ -82,16 +82,21 @@ curl http://localhost:3000/health
 - `GET /api/cache/stats` - Cache statistics
 - `GET /api/metrics` - Service metrics
 
-**📖 Complete API Reference:** [API_CLIENT_REFERENCE.md](./API_CLIENT_REFERENCE.md)
+**📖 Complete API Reference:** [docs/api/client-reference.md](./docs/api/client-reference.md)
 
 ## Documentation
 
-📚 **[Complete Documentation Index](./DOCUMENTATION_INDEX.md)** - Navigate all documentation
+📚 **[Complete Documentation Index](./docs/README.md)** - Navigate all documentation
 
-### Essential Documentation
-- **[API Quick Start](./API_QUICK_START.md)** - Get started in minutes
-- **[API Client Reference](./API_CLIENT_REFERENCE.md)** - Complete API documentation
-- **[Deployment Guide](./DEPLOYMENT.md)** - Docker deployment instructions
+### Quick Start
+- **[API Quick Start](./docs/api/quick-start.md)** - Get started in minutes
+- **[Docker Deployment Guide](./docs/deployment/docker.md)** - Deploy with Docker Compose
+
+### Core Documentation
+- **[API Client Reference](./docs/api/client-reference.md)** - Complete API documentation
+- **[Configuration Reference](./docs/deployment/configuration.md)** - Environment variables and settings
+- **[Features Documentation](./docs/features/)** - Feature-specific guides
+- **[Integration Guides](./docs/integrations/)** - Redis, Axiom, and other integrations
 
 ### Client Examples
 
@@ -99,14 +104,6 @@ See [client-examples/](./client-examples/) for ready-to-use client code in:
 - Node.js/JavaScript
 - Python
 - Shell scripts (cURL)
-
-### Quick Reference
-- **[API Quick Start](./API_QUICK_START.md)** - Get started in minutes
-- **[API Client Reference](./API_CLIENT_REFERENCE.md)** - Complete API documentation for client integration
-- **[Redis Configuration Guide](./docs/REDIS_CONFIGURATION.md)** - Configure Redis persistence and deployment
-- **[Redis Troubleshooting Guide](./docs/REDIS_TROUBLESHOOTING.md)** - Diagnose and resolve Redis issues
-- [API Endpoints Summary](./API_ENDPOINTS_SUMMARY.md) - Technical implementation summary
-- [Docker Deployment Summary](./DOCKER_DEPLOYMENT_SUMMARY.md)
 
 ## Development
 

@@ -251,21 +251,30 @@ Starts an existing stopped instance.
 **URL Pattern**: `/api/instances/{instanceId}/start`  
 **Authentication Required**: Yes
 
-#### Request Body
+#### Request Body Schema (StartInstanceRequest)
+The request body must be a JSON object with the following properties:
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| webhookUrl | string | No | - | Webhook URL for status updates (HTTP/HTTPS) |
+| healthCheckConfig | object | No | - | Health check configuration for startup |
+| healthCheckConfig.timeoutMs | number | No | 30000 | Total timeout for health checks in milliseconds |
+| healthCheckConfig.retryAttempts | number | No | 3 | Number of retry attempts for failed health checks |
+| healthCheckConfig.retryDelayMs | number | No | 5000 | Delay between retry attempts in milliseconds |
+| healthCheckConfig.maxWaitTimeMs | number | No | 300000 | Maximum wait time for instance to become ready |
+| targetPort | number | No | - | Specific port to check for health check |
+
+#### Response Schema (StartInstanceResponse)
+Returns a 202 Accepted status with the following JSON response:
+
 ```json
 {
-  "instanceId": "string"
-}
-```
-
-#### Response Schema
-Returns a 200 OK status with the following JSON response:
-
-```json
-{
-  "id": "string",
+  "instanceId": "string",
+  "novitaInstanceId": "string",
   "status": "starting",
-  "message": "Instance start initiated successfully"
+  "message": "Instance start initiated successfully",
+  "operationId": "string",
+  "estimatedReadyTime": "ISO timestamp"
 }
 ```
 
@@ -274,20 +283,104 @@ Returns a 200 OK status with the following JSON response:
 curl -X POST https://api.novitai.com/api/instances/inst_1697843200_abc123/start \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"instanceId": "inst_1697843200_abc123"}'
+  -d '{
+    "webhookUrl": "https://webhook.example.com/notify",
+    "healthCheckConfig": {
+      "timeoutMs": 30000,
+      "retryAttempts": 3,
+      "retryDelayMs": 5000,
+      "maxWaitTimeMs": 300000
+    },
+    "targetPort": 8888
+  }'
 ```
 
 #### Example Response
 ```json
 {
-  "id": "inst_1697843200_abc123",
+  "instanceId": "inst_1697843200_abc123",
+  "novitaInstanceId": "nv_inst_12345",
   "status": "starting",
-  "message": "Instance start initiated successfully"
+  "message": "Instance start initiated successfully",
+  "operationId": "op_1697843200_xyz789",
+  "estimatedReadyTime": "2023-10-20T10:35:00.000Z"
 }
 ```
 
 **Section sources**
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L250-L280) - *Updated in commit eb20e150f556a2dbbd7b947ea379df561f4a9b53*
+- [instances.ts](file://src/routes/instances.ts#L250-L320)
+- [api.ts](file://src/types/api.ts#L30-L45)
+- [instanceService.ts](file://src/services/instanceService.ts#L800-L950)
+
+### POST /api/instances/start
+Starts an instance by name rather than by ID.
+
+**HTTP Method**: POST  
+**URL Pattern**: `/api/instances/start`  
+**Authentication Required**: Yes
+
+#### Request Body Schema (StartInstanceRequest)
+The request body must be a JSON object with the following properties:
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| instanceName | string | Yes | - | Name of the instance to start |
+| webhookUrl | string | No | - | Webhook URL for status updates (HTTP/HTTPS) |
+| healthCheckConfig | object | No | - | Health check configuration for startup |
+| healthCheckConfig.timeoutMs | number | No | 30000 | Total timeout for health checks in milliseconds |
+| healthCheckConfig.retryAttempts | number | No | 3 | Number of retry attempts for failed health checks |
+| healthCheckConfig.retryDelayMs | number | No | 5000 | Delay between retry attempts in milliseconds |
+| healthCheckConfig.maxWaitTimeMs | number | No | 300000 | Maximum wait time for instance to become ready |
+| targetPort | number | No | - | Specific port to check for health check |
+
+#### Response Schema (StartInstanceResponse)
+Returns a 202 Accepted status with the following JSON response:
+
+```json
+{
+  "instanceId": "string",
+  "novitaInstanceId": "string",
+  "status": "starting",
+  "message": "Instance start initiated successfully",
+  "operationId": "string",
+  "estimatedReadyTime": "ISO timestamp"
+}
+```
+
+#### Example Request
+```bash
+curl -X POST https://api.novitai.com/api/instances/start \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "instanceName": "my-instance",
+    "webhookUrl": "https://webhook.example.com/notify",
+    "healthCheckConfig": {
+      "timeoutMs": 30000,
+      "retryAttempts": 3,
+      "retryDelayMs": 5000,
+      "maxWaitTimeMs": 300000
+    },
+    "targetPort": 8888
+  }'
+```
+
+#### Example Response
+```json
+{
+  "instanceId": "inst_1697843200_abc123",
+  "novitaInstanceId": "nv_inst_12345",
+  "status": "starting",
+  "message": "Instance start initiated successfully",
+  "operationId": "op_1697843200_xyz789",
+  "estimatedReadyTime": "2023-10-20T10:35:00.000Z"
+}
+```
+
+**Section sources**
+- [instances.ts](file://src/routes/instances.ts#L322-L399)
+- [api.ts](file://src/types/api.ts#L30-L45)
+- [instanceService.ts](file://src/services/instanceService.ts#L800-L950)
 
 ### POST /api/instances/:instanceId/stop
 Stops a running instance.

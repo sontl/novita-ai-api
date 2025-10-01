@@ -244,7 +244,7 @@ When adding new examples:
 
 For questions about these examples:
 
-1. Check the main [API Documentation](../docs/API.md)
+1. Check the main [API Documentation](../docs/api/client-reference.md)
 2. Review the [Troubleshooting Guide](../docs/TROUBLESHOOTING.md)
 3. Open an issue on GitHub
 4. Contact the development team

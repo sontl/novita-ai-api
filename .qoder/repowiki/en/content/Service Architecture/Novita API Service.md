@@ -11,11 +11,12 @@
 
 ## Update Summary
 **Changes Made**   
-- Updated key methods section to reflect POST-based API calls and new request parameters
-- Added new section for getRegistryAuth method introduced in recent commit
-- Updated error handling strategy to reflect current implementation
-- Revised architecture diagrams to match updated API call patterns
-- Enhanced security and configuration section with registry authentication details
+- Updated key methods section to reflect direct API response handling without success/data wrapper
+- Added new section for migrateInstance method introduced in recent commit
+- Updated error handling strategy to reflect current implementation with enhanced startup context
+- Added new section for retry logic in startInstanceWithRetry method
+- Enhanced response parsing section to reflect data transformation for instance responses
+- Updated integration section to include migration workflow
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -135,6 +136,50 @@ Retrieves registry authentication credentials by authentication ID.
 **Section sources**
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L150-L180)
 
+### migrateInstance
+Migrates a spot instance that has been reclaimed to a new instance.
+
+**Process Flow:**
+1. Sends migration request to Novita.ai API via POST with instanceId in payload
+2. Validates API response success
+3. Returns migration response with new instance ID if successful
+4. Logs operation for monitoring
+
+**Request Parameters:**
+- `instanceId`: Identifier of the instance to be migrated
+
+**Response:**
+- `success`: Boolean indicating migration success
+- `instanceId`: Original instance ID
+- `newInstanceId`: New instance ID created by migration
+- `message`: Status message
+- `migrationTime`: Timestamp of migration
+
+**Section sources**
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L750-L780)
+
+### startInstanceWithRetry
+Starts an existing instance with retry logic for transient failures.
+
+**Process Flow:**
+1. Attempts to start instance with exponential backoff on failure
+2. Checks if error is retryable based on error type
+3. Implements exponential backoff delay between retries
+4. Returns transformed instance response on success
+
+**Request Parameters:**
+- `instanceId`: Identifier of the instance to start
+- `maxRetries`: Maximum number of retry attempts (default: 3)
+
+**Retry Logic:**
+- Retries on RateLimitError, TimeoutError, and CircuitBreakerError
+- Retries on server errors (5xx status codes) and rate limiting (429)
+- Retries on network errors (ECONNABORTED, ENOTFOUND, ECONNRESET)
+- Implements exponential backoff (1s, 2s, 4s, etc.)
+
+**Section sources**
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L850-L900)
+
 ## Error Handling Strategy
 The NovitaApiService implements a comprehensive error handling strategy to manage various failure scenarios:
 
@@ -167,8 +212,10 @@ The service handles specific HTTP status codes with appropriate error types:
 
 - **429 (Rate Limit)**: Transformed into RateLimitError with retry-after information
 - **401 (Unauthorized)**: Converted to authentication failure error
-- **403 (Forbidden)**: Transformed to access forbidden error
+- **403 (Forbidden)**: Transformed to access forbidden error or resource constraints error
 - **404 (Not Found)**: Converted to resource not found error
+- **409 (Conflict)**: Transformed to resource conflict error
+- **422 (Unprocessable Entity)**: Converted to validation error
 - **5xx (Server Errors)**: Transformed to server error with appropriate status code
 
 **Updated** Error handling updated to reflect current implementation in code
@@ -185,6 +232,7 @@ The service automatically retries failed requests based on the following criteri
 - **Network Errors**: Retries on connection issues (ECONNABORTED, ENOTFOUND, ECONNRESET)
 - **Server Errors**: Retries on 5xx status codes
 - **Rate Limiting**: Retries on 429 status with exponential backoff
+- **Circuit Breaker**: Retries when circuit breaker is open
 
 Retry attempts are limited by the configuration setting `maxRetryAttempts` (default: 3).
 
@@ -228,8 +276,13 @@ The InstanceService uses NovitaApiService methods as part of its instance creati
 5. Create instance via NovitaApiService.createInstance
 6. Monitor instance status via NovitaApiService.getInstance
 
-### State Management
-The InstanceService maintains internal state while using NovitaApiService for external API communication:
+### Migration Integration
+The InstanceMigrationService uses NovitaApiService for automated spot instance migration:
+
+1. Detect reclaimed spot instance
+2. Initiate migration via NovitaApiService.migrateInstance
+3. Handle migration response and update instance state
+4. Log migration results for monitoring
 
 ```mermaid
 sequenceDiagram
@@ -255,17 +308,25 @@ NovitaClient->>NovitaAPI : HTTP Request
 NovitaAPI-->>NovitaClient : Instance Data
 NovitaClient-->>NovitaApiService : Response
 NovitaApiService-->>InstanceService : Created Instance
+InstanceMigrationService->>NovitaApiService : migrateInstance()
+NovitaApiService->>NovitaClient : post(/gpu-instance/openapi/v1/gpu/instance/migrate)
+NovitaClient->>NovitaAPI : HTTP Request
+NovitaAPI-->>NovitaClient : Migration Response
+NovitaClient-->>NovitaApiService : Response
+NovitaApiService-->>InstanceMigrationService : Migration Result
 ```
 
-**Updated** Sequence diagram updated to reflect POST-based instance creation
+**Updated** Sequence diagram updated to reflect POST-based instance creation and migration
 
 **Diagram sources**
 - [instanceService.ts](file://src/services/instanceService.ts#L50-L150)
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L250-L360)
+- [instanceMigrationService.ts](file://src/services/instanceMigrationService.ts#L225-L363)
 
 **Section sources**
 - [instanceService.ts](file://src/services/instanceService.ts#L1-L200)
 - [novitaApiService.ts](file://src/services/novitaApiService.ts#L1-L500)
+- [instanceMigrationService.ts](file://src/services/instanceMigrationService.ts#L1-L400)
 
 ## Security and Configuration
 The NovitaApiService handles sensitive credentials and security concerns through the configuration system:

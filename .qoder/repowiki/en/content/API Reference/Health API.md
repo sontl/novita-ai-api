@@ -2,12 +2,22 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [health.ts](file://src/routes/health.ts)
-- [api.ts](file://src/types/api.ts)
+- [health.ts](file://src/routes/health.ts) - *Updated in recent commit*
+- [api.ts](file://src/types/api.ts) - *Updated in recent commit*
+- [healthCheckerService.ts](file://src/services/healthCheckerService.ts) - *Added in recent commit*
 - [novitaApiService.ts](file://src/services/novitaApiService.ts)
 - [jobQueueService.ts](file://src/services/jobQueueService.ts)
 - [cacheService.ts](file://src/services/cacheService.ts)
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Added new section for migration service health details
+- Updated response schema to include migrationService field
+- Enhanced health determination logic to include migration service status
+- Updated example responses to reflect new structure
+- Added new diagram for health check workflow with migration service
+- Updated section sources to reflect recent changes
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -24,10 +34,10 @@
 12. [Operational Guidance](#operational-guidance)
 
 ## Introduction
-The Health API endpoint provides a comprehensive system health check for monitoring and operational purposes. It evaluates service dependencies, performance metrics, and system resources to determine the overall health status of the application. This document details the structure, behavior, and usage of the `GET /health` endpoint, including response formats, health logic, and integration considerations.
+The Health API endpoint provides a comprehensive system health check for monitoring and operational purposes. It evaluates service dependencies, performance metrics, system resources, and migration service status to determine the overall health status of the application. This document details the structure, behavior, and usage of the `GET /health` endpoint, including response formats, health logic, and integration considerations.
 
 ## Endpoint Overview
-The `GET /health` endpoint returns the current health status of the system. It performs checks on critical services and system metrics to determine whether the application is operating within acceptable parameters.
+The `GET /health` endpoint returns the current health status of the system. It performs checks on critical services, system metrics, and migration service to determine whether the application is operating within acceptable parameters.
 
 **Section sources**
 - [health.ts](file://src/routes/health.ts#L0-L14)
@@ -43,7 +53,8 @@ The response follows the `EnhancedHealthCheckResponse` schema defined in the API
   "services": {
     "novitaApi": "up|down",
     "jobQueue": "up|down",
-    "cache": "up|down"
+    "cache": "up|down",
+    "migrationService": "up|down"
   },
   "performance": {
     "requestsPerMinute": "number",
@@ -63,16 +74,25 @@ The response follows the `EnhancedHealthCheckResponse` schema defined in the API
       "loadAverage": "number[]"
     }
   },
-  "dependencies": { /* detailed service status */ }
+  "dependencies": { /* detailed service status */ },
+  "migrationService": {
+    "enabled": "boolean",
+    "status": "healthy|unhealthy|disabled",
+    "recentErrors": "number",
+    "totalExecutions": "number",
+    "uptime": "number",
+    "lastExecution": "ISO8601",
+    "nextExecution": "ISO8601"
+  }
 }
 ```
 
 **Section sources**
-- [api.ts](file://src/types/api.ts)
+- [api.ts](file://src/types/api.ts#L136-L165)
 
 ## Health Determination Logic
 The system is considered healthy when all of the following conditions are met:
-- All service dependencies (novitaApi, jobQueue, cache) are reporting status 'up'
+- All service dependencies (novitaApi, jobQueue, cache, migrationService) are reporting status 'up'
 - Memory usage is less than 1GB
 - CPU usage is below 90% (in production mode)
 
@@ -149,7 +169,8 @@ This information is excluded in production mode for security and performance rea
   "services": {
     "novitaApi": "up",
     "jobQueue": "up",
-    "cache": "up"
+    "cache": "up",
+    "migrationService": "up"
   },
   "performance": {
     "requestsPerMinute": 120.5,
@@ -168,6 +189,43 @@ This information is excluded in production mode for security and performance rea
       "usage": 0.45,
       "loadAverage": [0.8, 0.7, 0.6]
     }
+  },
+  "dependencies": {
+    "novitaApi": {
+      "status": "up",
+      "responseTime": 120,
+      "lastChecked": "2023-12-07T10:00:00.000Z"
+    },
+    "jobQueue": {
+      "status": "up",
+      "queueSize": 5,
+      "processing": 2,
+      "completed": 150,
+      "failed": 0,
+      "lastChecked": "2023-12-07T10:00:00.000Z"
+    },
+    "cache": {
+      "status": "up",
+      "instanceCache": {
+        "size": 25,
+        "hitRatio": 85
+      },
+      "instanceStatesCache": {
+        "size": 10,
+        "hitRatio": 90
+      },
+      "totalStates": 35,
+      "lastChecked": "2023-12-07T10:00:00.000Z"
+    }
+  },
+  "migrationService": {
+    "enabled": true,
+    "status": "healthy",
+    "recentErrors": 0,
+    "totalExecutions": 45,
+    "uptime": 3600,
+    "lastExecution": "2023-12-07T09:55:00.000Z",
+    "nextExecution": "2023-12-07T10:05:00.000Z"
   }
 }
 ```
@@ -181,7 +239,8 @@ This information is excluded in production mode for security and performance rea
   "services": {
     "novitaApi": "down",
     "jobQueue": "up",
-    "cache": "up"
+    "cache": "up",
+    "migrationService": "up"
   },
   "performance": {
     "requestsPerMinute": 80.0,
@@ -204,8 +263,40 @@ This information is excluded in production mode for security and performance rea
   "dependencies": {
     "novitaApi": {
       "status": "down",
-      "error": "Health check timeout"
+      "responseTime": 5000,
+      "error": "Health check timeout",
+      "lastChecked": "2023-12-07T10:00:00.000Z"
+    },
+    "jobQueue": {
+      "status": "up",
+      "queueSize": 15,
+      "processing": 5,
+      "completed": 200,
+      "failed": 2,
+      "lastChecked": "2023-12-07T10:00:00.000Z"
+    },
+    "cache": {
+      "status": "up",
+      "instanceCache": {
+        "size": 30,
+        "hitRatio": 75
+      },
+      "instanceStatesCache": {
+        "size": 15,
+        "hitRatio": 80
+      },
+      "totalStates": 45,
+      "lastChecked": "2023-12-07T10:00:00.000Z"
     }
+  },
+  "migrationService": {
+    "enabled": true,
+    "status": "healthy",
+    "recentErrors": 0,
+    "totalExecutions": 45,
+    "uptime": 3600,
+    "lastExecution": "2023-12-07T09:55:00.000Z",
+    "nextExecution": "2023-12-07T10:05:00.000Z"
   }
 }
 ```

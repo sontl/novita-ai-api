@@ -2,11 +2,21 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [webhookClient.ts](file://src/clients/webhookClient.ts)
-- [config.ts](file://src/config/config.ts)
-- [instanceService.ts](file://src/services/instanceService.ts)
-- [api.ts](file://src/types/api.ts)
+- [webhookClient.ts](file://src/clients/webhookClient.ts) - *Updated with enhanced startup notifications and retry logic*
+- [config.ts](file://src/config/config.ts) - *Configuration for webhook settings*
+- [instanceService.ts](file://src/services/instanceService.ts) - *Integration with instance lifecycle management*
+- [api.ts](file://src/types/api.ts) - *Type definitions for webhook payloads and health checks*
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Updated **WebhookClient Class Overview** to include new startup lifecycle methods and enhanced retry mechanism
+- Expanded **Payload Structure** to include `healthCheck` and `startupOperation` fields with detailed schema
+- Added new section **Startup Lifecycle Notifications** to document specialized notification methods for startup operations
+- Enhanced **Retry Mechanism** section to describe the new `sendWebhookWithRetry` method with exponential backoff and jitter
+- Updated **Integration with InstanceService** to reflect new startup monitoring workflow
+- Added **Health Check Integration** section to document comprehensive health check data in notifications
+- Revised **Best Practices** to include guidance on handling startup progress notifications
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -15,11 +25,13 @@
 4. [Security Features](#security-features)
 5. [Retry Mechanism](#retry-mechanism)
 6. [Notification Methods](#notification-methods)
-7. [Error Handling Strategy](#error-handling-strategy)
-8. [Integration with InstanceService](#integration-with-instanceservice)
-9. [Configuration Options](#configuration-options)
-10. [Common Issues and Solutions](#common-issues-and-solutions)
-11. [Best Practices](#best-practices)
+7. [Startup Lifecycle Notifications](#startup-lifecycle-notifications)
+8. [Health Check Integration](#health-check-integration)
+9. [Error Handling Strategy](#error-handling-strategy)
+10. [Integration with InstanceService](#integration-with-instanceservice)
+11. [Configuration Options](#configuration-options)
+12. [Common Issues and Solutions](#common-issues-and-solutions)
+13. [Best Practices](#best-practices)
 
 ## Introduction
 The webhook notification system provides reliable, secure communication between the GPU instance management platform and external services when instances reach terminal states. This system ensures that users are promptly informed about instance status changes through configurable webhook endpoints. The implementation focuses on delivery reliability, security, and ease of integration, making it suitable for both beginners and experienced developers who need to build robust notification workflows.
@@ -34,9 +46,15 @@ class WebhookClient {
 +sendSuccessNotification(url : string, instanceId : string, options : object) Promise~void~
 +sendFailureNotification(url : string, instanceId : string, error : string, options : object) Promise~void~
 +sendTimeoutNotification(url : string, instanceId : string, options : object) Promise~void~
++sendHealthCheckNotification(url : string, instanceId : string, status : 'health_checking' | 'ready' | 'failed', options : object) Promise~void~
++sendStartupInitiatedNotification(url : string, instanceId : string, options : object) Promise~void~
++sendStartupProgressNotification(url : string, instanceId : string, currentPhase : 'monitoring' | 'health_checking', options : object) Promise~void~
++sendStartupCompletedNotification(url : string, instanceId : string, options : object) Promise~void~
++sendStartupFailedNotification(url : string, instanceId : string, error : string, options : object) Promise~void~
 +createNotificationPayload(instanceId : string, status : string, options : object) WebhookNotificationPayload
 -generateSignature(payload : string, secret : string) string
 -sendWebhook(request : WebhookRequest, maxRetries : number) Promise~void~
+-sendWebhookWithRetry(request : WebhookRequest, maxRetries : number) Promise~void~
 }
 class WebhookRequest {
 +url : string
@@ -47,21 +65,50 @@ class WebhookRequest {
 class WebhookNotificationPayload {
 +instanceId : string
 +novitaInstanceId? : string
-+status : 'running' | 'failed' | 'timeout'
++status : 'running' | 'failed' | 'timeout' | 'ready' | 'health_checking' | 'startup_initiated' | 'startup_completed' | 'startup_failed'
 +timestamp : string
 +elapsedTime? : number
 +error? : string
 +data? : any
++healthCheck? : HealthCheckData
++startupOperation? : StartupOperationData
++reason? : string
+}
+class HealthCheckData {
++status : 'pending' | 'in_progress' | 'completed' | 'failed'
++overallStatus? : 'healthy' | 'unhealthy' | 'partial'
++endpoints? : EndpointHealthCheck[]
++startedAt? : string
++completedAt? : string
++totalResponseTime? : number
+}
+class StartupOperationData {
++operationId : string
++status : 'initiated' | 'monitoring' | 'health_checking' | 'completed' | 'failed'
++startedAt : string
++phases : StartupPhases
++totalElapsedTime? : number
++error? : string
+}
+class StartupPhases {
++startRequested : string
++instanceStarting? : string
++instanceRunning? : string
++healthCheckStarted? : string
++healthCheckCompleted? : string
++ready? : string
 }
 WebhookClient --> WebhookRequest : "uses"
 WebhookClient --> WebhookNotificationPayload : "creates"
+WebhookNotificationPayload --> HealthCheckData : "optional"
+WebhookNotificationPayload --> StartupOperationData : "optional"
 ```
 
 **Diagram sources**
-- [webhookClient.ts](file://src/clients/webhookClient.ts#L47-L239)
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L47-L881)
 
 **Section sources**
-- [webhookClient.ts](file://src/clients/webhookClient.ts#L47-L239)
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L47-L881)
 
 ## Payload Structure
 
@@ -77,23 +124,64 @@ string timestamp
 number elapsedTime
 string error
 any data
+string reason
+}
+WEBHOOK_NOTIFICATION_PAYLOAD ||--o{ HEALTH_CHECK_DATA : "contains"
+HEALTH_CHECK_DATA {
+string status
+string overallStatus
+array endpoints
+string startedAt
+string completedAt
+number totalResponseTime
+}
+HEALTH_CHECK_DATA ||--o{ ENDPOINT_HEALTH_CHECK : "has"
+ENDPOINT_HEALTH_CHECK {
+number port
+string endpoint
+string type
+string status
+string lastChecked
+string error
+number responseTime
+}
+WEBHOOK_NOTIFICATION_PAYLOAD ||--o{ STARTUP_OPERATION_DATA : "contains"
+STARTUP_OPERATION_DATA {
+string operationId
+string status
+string startedAt
+object phases
+number totalElapsedTime
+string error
+}
+STARTUP_OPERATION_DATA ||--o{ STARTUP_PHASES : "has"
+STARTUP_PHASES {
+string startRequested
+string instanceStarting
+string instanceRunning
+string healthCheckStarted
+string healthCheckCompleted
+string ready
 }
 ```
 
 The payload includes essential information about the instance state change:
 - **instanceId**: Unique identifier for the instance within the system
-- **status**: Terminal state reached ('running', 'failed', or 'timeout')
+- **status**: Terminal state reached ('running', 'failed', 'timeout', 'ready', 'health_checking', 'startup_initiated', 'startup_completed', 'startup_failed')
 - **timestamp**: ISO 8601 formatted timestamp of the event
 - **elapsedTime**: Optional duration in milliseconds for operation completion
 - **error**: Error message for failed or timeout states
 - **data**: Optional additional data specific to the event
+- **reason**: Human-readable explanation of the status change
+- **healthCheck**: Comprehensive health check results including endpoint status and response times
+- **startupOperation**: Detailed startup operation timeline with phase timestamps
 
 **Diagram sources**
-- [api.ts](file://src/types/api.ts#L26-L33)
+- [api.ts](file://src/types/api.ts#L26-L137)
 
 **Section sources**
-- [webhookClient.ts](file://src/clients/webhookClient.ts#L16-L24)
-- [api.ts](file://src/types/api.ts#L26-L33)
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L17-L57)
+- [api.ts](file://src/types/api.ts#L26-L137)
 
 ## Security Features
 
@@ -123,7 +211,7 @@ The signature generation process uses the `generateSignature` method, which crea
 
 ## Retry Mechanism
 
-The system implements an exponential backoff retry strategy to handle transient failures while avoiding unnecessary load on external services.
+The system implements an exponential backoff retry strategy with jitter to handle transient failures while avoiding thundering herd problems on external services.
 
 ```mermaid
 flowchart TD
@@ -135,7 +223,7 @@ Success --> |Yes| End([Success])
 Success --> |No| ClientError{"Client Error (4xx)?"}
 ClientError --> |Yes| Fail([Don't Retry - Throw Error])
 ClientError --> |No| MaxAttempts{"Max Attempts Reached?"}
-MaxAttempts --> |No| CalculateDelay["Delay = 2^(attempt-1) * 1000ms"]
+MaxAttempts --> |No| CalculateDelay["Delay = min(2^(attempt-1) * 1000ms + jitter, 30s)"]
 CalculateDelay --> Wait["Wait delay period"]
 Wait --> Increment["attempt++"]
 Increment --> Attempt
@@ -143,21 +231,24 @@ MaxAttempts --> |Yes| FinalFail([All retries failed])
 ```
 
 The retry mechanism follows these rules:
-- Maximum of 3 attempts by default
-- Exponential backoff delays: 1s, 2s, and 4s between retries
+- Maximum of 5 attempts for startup-related notifications, 3 attempts for standard notifications
+- Exponential backoff delays: 1s, 2s, 4s, 8s, 16s (capped at 30s) with 10% random jitter
 - Only retries on 5xx server errors and network issues
 - Does not retry on 4xx client errors, which indicate permanent problems
 - Configurable retry count through the `maxRetries` parameter
+- Enhanced `sendWebhookWithRetry` method specifically for startup operations with additional logging
 
 **Diagram sources**
 - [webhookClient.ts](file://src/clients/webhookClient.ts#L117-L188)
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L586-L684)
 
 **Section sources**
 - [webhookClient.ts](file://src/clients/webhookClient.ts#L117-L188)
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L586-L684)
 
 ## Notification Methods
 
-The WebhookClient provides three specialized methods for sending notifications based on the terminal state of GPU instances.
+The WebhookClient provides specialized methods for sending notifications based on the terminal state of GPU instances.
 
 ```mermaid
 classDiagram
@@ -183,6 +274,88 @@ Each method internally calls `createNotificationPayload` with the appropriate st
 
 **Section sources**
 - [webhookClient.ts](file://src/clients/webhookClient.ts#L191-L239)
+
+## Startup Lifecycle Notifications
+
+The WebhookClient now includes specialized methods for tracking the complete startup lifecycle of GPU instances, providing detailed progress updates.
+
+```mermaid
+sequenceDiagram
+participant InstanceService as "InstanceService"
+participant WebhookClient as "WebhookClient"
+participant ExternalService as "External Service"
+InstanceService->>WebhookClient : sendStartupInitiatedNotification()
+WebhookClient->>ExternalService : POST startup_initiated
+ExternalService-->>WebhookClient : 2xx
+WebhookClient-->>InstanceService : Success
+InstanceService->>WebhookClient : sendStartupProgressNotification()
+WebhookClient->>ExternalService : POST monitoring/health_checking
+ExternalService-->>WebhookClient : 2xx
+WebhookClient-->>InstanceService : Success
+alt Startup Success
+InstanceService->>WebhookClient : sendStartupCompletedNotification()
+WebhookClient->>ExternalService : POST startup_completed
+else Startup Failure
+InstanceService->>WebhookClient : sendStartupFailedNotification()
+WebhookClient->>ExternalService : POST startup_failed
+end
+```
+
+The startup lifecycle notification methods include:
+- **sendStartupInitiatedNotification**: Called when startup operation begins, includes operation ID and estimated ready time
+- **sendStartupProgressNotification**: Provides periodic updates during startup, indicating current phase (monitoring or health_checking)
+- **sendStartupCompletedNotification**: Sent when instance is fully ready, includes complete timeline and health check results
+- **sendStartupFailedNotification**: Notifies of startup failure with specific failure phase and error details
+
+These methods use the enhanced `sendWebhookWithRetry` method with 5 maximum attempts and jittered exponential backoff for improved reliability during critical startup operations.
+
+**Diagram sources**
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L550-L684)
+
+**Section sources**
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L550-L684)
+
+## Health Check Integration
+
+The webhook system now includes comprehensive health check data in notifications, providing detailed insights into application readiness.
+
+```mermaid
+erDiagram
+HEALTH_CHECK_RESULT {
+string status
+string overallStatus
+array endpoints
+string startedAt
+string completedAt
+number totalResponseTime
+}
+HEALTH_CHECK_RESULT ||--o{ ENDPOINT_HEALTH_CHECK : "has"
+ENDPOINT_HEALTH_CHECK {
+number port
+string endpoint
+string type
+string status
+string lastChecked
+string error
+number responseTime
+}
+```
+
+When health checks are performed, the notification payload includes a `healthCheck` object with:
+- **status**: Current health check status ('pending', 'in_progress', 'completed', 'failed')
+- **overallStatus**: Final assessment ('healthy', 'unhealthy', 'partial')
+- **endpoints**: Array of individual endpoint check results with response times and errors
+- **startedAt/completedAt**: Timestamps for health check duration calculation
+- **totalResponseTime**: Aggregate response time across all endpoints
+
+The `sendHealthCheckNotification` method can send updates at various stages of the health check process, allowing external systems to monitor application readiness in real-time.
+
+**Diagram sources**
+- [api.ts](file://src/types/api.ts#L100-L137)
+
+**Section sources**
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L484-L545)
+- [api.ts](file://src/types/api.ts#L100-L137)
 
 ## Error Handling Strategy
 
@@ -211,12 +384,15 @@ The error handling strategy includes:
 - Immediate termination on client errors (4xx status codes)
 - Exhaustive retry attempts on server errors (5xx status codes)
 - Final error throw after all retries are exhausted
+- Enhanced error logging for startup operations with permanent failure logging
 
 **Diagram sources**
 - [webhookClient.ts](file://src/clients/webhookClient.ts#L137-L188)
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L620-L684)
 
 **Section sources**
 - [webhookClient.ts](file://src/clients/webhookClient.ts#L137-L188)
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L620-L684)
 
 ## Integration with InstanceService
 
@@ -230,29 +406,27 @@ participant WebhookClient as "WebhookClient"
 participant ExternalService as "External Service"
 JobWorker->>InstanceService : Instance ready
 InstanceService->>InstanceService : Update instance state
-InstanceService->>WebhookClient : sendSuccessNotification()
-WebhookClient->>WebhookClient : Create payload
-WebhookClient->>WebhookClient : Add security headers
-WebhookClient->>WebhookClient : Apply retry logic
-WebhookClient->>ExternalService : POST notification
-alt Success
-ExternalService-->>WebhookClient : 2xx response
+InstanceService->>WebhookClient : sendStartupInitiatedNotification()
+WebhookClient->>ExternalService : POST startup_initiated
+ExternalService-->>WebhookClient : 2xx
 WebhookClient-->>InstanceService : Success
-else Failure
-WebhookClient->>WebhookClient : Retry with backoff
-WebhookClient->>ExternalService : Retry notification
-end
+InstanceService->>WebhookClient : sendStartupProgressNotification()
+WebhookClient->>ExternalService : POST monitoring
+InstanceService->>WebhookClient : sendHealthCheckNotification()
+WebhookClient->>ExternalService : POST health_checking
+InstanceService->>WebhookClient : sendReadyNotification()
+WebhookClient->>ExternalService : POST ready
 ```
 
-When a GPU instance becomes ready, the job worker updates the instance state in InstanceService, which then calls the appropriate notification method on WebhookClient. The webhook URL is stored in the instance state when the instance is created, allowing the system to notify the correct endpoint.
+When a GPU instance startup is initiated, InstanceService calls the appropriate notification methods on WebhookClient at key milestones. The webhook URL is stored in the instance state when the instance is created, allowing the system to notify the correct endpoint throughout the startup lifecycle.
 
 **Diagram sources**
 - [instanceService.ts](file://src/services/instanceService.ts#L110-L125)
-- [webhookClient.ts](file://src/clients/webhookClient.ts#L191-L199)
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L550-L684)
 
 **Section sources**
 - [instanceService.ts](file://src/services/instanceService.ts#L110-L125)
-- [webhookClient.ts](file://src/clients/webhookClient.ts#L191-L199)
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L550-L684)
 
 ## Configuration Options
 
@@ -316,6 +490,7 @@ To ensure reliable and secure webhook notifications, follow these best practices
 - Implement idempotency in the receiver to handle duplicate notifications
 - Use the instanceId as a unique identifier for deduplication
 - Monitor delivery logs for patterns of failure
+- Consider using the operationId for tracking specific startup operations
 
 **Security Best Practices**
 - Use strong, randomly generated webhook secrets
@@ -334,6 +509,7 @@ To ensure reliable and secure webhook notifications, follow these best practices
 - Monitor the X-Webhook-Signature header format
 - Verify payload structure matches expected schema
 - Test with sample payloads during development
+- Use the reason field to understand the context of status changes
 
 **Section sources**
 - [webhookClient.ts](file://src/clients/webhookClient.ts#L64-L72)

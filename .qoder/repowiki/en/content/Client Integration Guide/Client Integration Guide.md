@@ -17,11 +17,10 @@
 </cite>
 
 ## Update Summary
-- Added new section on **Multi-Region Fallback** with implementation details and code examples
-- Added new section on **Registry Authentication** for private Docker images
-- Updated **Template Service** section to reflect environment variable key change from 'name' to 'key'
-- Updated **Instance Management** section to include region fallback functionality
-- Added new Mermaid diagrams for region fallback and registry authentication workflows
+- Added new section on **Webhook Notification Types for Instance Startup** with implementation details and code examples
+- Enhanced **Error Handling and Retry Logic** section with startup-specific webhook retry mechanisms
+- Updated **Webhook Integration** section to include new startup notification types and enhanced retry logic
+- Added new Mermaid diagrams for startup notification workflow
 - Updated section sources to reflect new and modified files
 
 ## Table of Contents
@@ -36,6 +35,7 @@
 9. [Production Implementation Guidance](#production-implementation-guidance)
 10. [Multi-Region Fallback](#multi-region-fallback)
 11. [Registry Authentication](#registry-authentication)
+12. [Webhook Notification Types for Instance Startup](#webhook-notification-types-for-instance-startup)
 
 ## Introduction
 This guide provides comprehensive instructions for integrating client applications with the Novitai API. It covers implementation patterns for both Node.js and Python clients, based on the examples provided in the client-examples directory. The documentation details recommended libraries, authentication methods, and best practices for building robust, production-ready integrations that handle various operational scenarios including network failures, service interruptions, and security requirements.
@@ -196,10 +196,23 @@ When encountering rate limits, respect the Retry-After header returned by the AP
 ### Circuit Breaker Pattern
 The client libraries implement the circuit breaker pattern to prevent cascading failures. When the circuit breaker is open, requests are immediately rejected without contacting the API. This allows the service time to recover from failures and prevents overwhelming a struggling backend.
 
+### Enhanced Webhook Retry Logic for Startup Operations
+The webhook client now includes enhanced retry logic specifically for startup operations with the `sendWebhookWithRetry` method. This method implements exponential backoff with jitter and has a higher default retry count (5 attempts) compared to regular webhooks (3 attempts). The retry logic only applies to server errors (5xx) and network errors, not client errors (4xx).
+
+```typescript
+async sendWebhookWithRetry(request: WebhookRequest, maxRetries: number = 5): Promise<void> {
+  // Implementation with exponential backoff and jitter
+  const exponentialDelay = Math.min(baseDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
+  const jitter = Math.random() * 0.1 * exponentialDelay; // Add up to 10% jitter
+  const delayMs = Math.floor(exponentialDelay + jitter);
+}
+```
+
 **Section sources**
 - [novitaClient.ts](file://src/clients/novitaClient.ts)
 - [novitaApiService.ts](file://src/services/novitaApiService.ts)
 - [httpClientExample.ts](file://src/examples/httpClientExample.ts)
+- [webhookClient.ts](file://src/clients/webhookClient.ts)
 
 ## Performance Optimization
 
@@ -388,3 +401,194 @@ NovitaApiService-->>Client : Instance created
 **Section sources**
 - [registryAuthExample.ts](file://src/examples/registryAuthExample.ts)
 - [novitaApiService.ts](file://src/services/novitaApiService.ts)
+
+## Webhook Notification Types for Instance Startup
+
+The Novitai API now supports detailed webhook notifications for instance startup operations, providing granular status updates throughout the startup lifecycle. These notifications help clients track the progress of instance initialization and respond appropriately to different stages.
+
+### Startup Notification Types
+The system provides four distinct webhook notification types for startup operations:
+
+- **startup_initiated**: Sent when a startup operation begins
+- **startup_progress**: Sent during startup to indicate progress
+- **startup_completed**: Sent when startup completes successfully
+- **startup_failed**: Sent when startup fails at any stage
+
+### Notification Payload Structure
+All startup notifications include detailed information about the operation:
+
+```typescript
+interface WebhookNotificationPayload {
+  instanceId: string;
+  status: 'startup_initiated' | 'startup_completed' | 'startup_failed' | 'running' | 'health_checking';
+  timestamp: string;
+  startupOperation: {
+    operationId: string;
+    status: 'initiated' | 'monitoring' | 'health_checking' | 'completed' | 'failed';
+    startedAt: string;
+    phases: {
+      startRequested: string;
+      instanceStarting?: string;
+      instanceRunning?: string;
+      healthCheckStarted?: string;
+      healthCheckCompleted?: string;
+      ready?: string;
+    };
+    totalElapsedTime?: number;
+    error?: string;
+  };
+  reason?: string;
+  elapsedTime?: number;
+  healthCheck?: HealthCheckData;
+}
+```
+
+### Implementation Examples
+
+#### Node.js Example
+```javascript
+// Send startup initiated notification
+await webhookClient.sendStartupInitiatedNotification(
+  process.env.WEBHOOK_URL,
+  instanceId,
+  {
+    operationId: 'op-123',
+    startedAt: new Date(),
+    estimatedReadyTime: '2024-01-01T10:05:00Z',
+    secret: process.env.WEBHOOK_SECRET
+  }
+);
+
+// Send startup progress notification
+await webhookClient.sendStartupProgressNotification(
+  process.env.WEBHOOK_URL,
+  instanceId,
+  'monitoring',
+  {
+    operationId: 'op-123',
+    startedAt: new Date(),
+    phases: {
+      startRequested: new Date(),
+      instanceStarting: new Date()
+    },
+    currentStatus: 'instance starting',
+    secret: process.env.WEBHOOK_SECRET
+  }
+);
+
+// Send startup completed notification
+await webhookClient.sendStartupCompletedNotification(
+  process.env.WEBHOOK_URL,
+  instanceId,
+  {
+    operationId: 'op-123',
+    startedAt: new Date('2024-01-01T10:00:00Z'),
+    completedAt: new Date('2024-01-01T10:04:30Z'),
+    phases: {
+      startRequested: new Date('2024-01-01T10:00:00Z'),
+      instanceStarting: new Date('2024-01-01T10:00:15Z'),
+      instanceRunning: new Date('2024-01-01T10:01:30Z'),
+      healthCheckStarted: new Date('2024-01-01T10:02:00Z'),
+      healthCheckCompleted: new Date('2024-01-01T10:04:00Z'),
+      ready: new Date('2024-01-01T10:04:30Z')
+    },
+    healthCheckResult: healthCheckResult,
+    secret: process.env.WEBHOOK_SECRET
+  }
+);
+
+// Send startup failed notification
+await webhookClient.sendStartupFailedNotification(
+  process.env.WEBHOOK_URL,
+  instanceId,
+  'Health check timeout after 30 seconds',
+  {
+    operationId: 'op-123',
+    startedAt: new Date('2024-01-01T10:00:00Z'),
+    failedAt: new Date('2024-01-01T10:05:00Z'),
+    phases: {
+      startRequested: new Date('2024-01-01T10:00:00Z'),
+      instanceStarting: new Date('2024-01-01T10:00:15Z'),
+      instanceRunning: new Date('2024-01-01T10:01:30Z'),
+      healthCheckStarted: new Date('2024-01-01T10:02:00Z')
+    },
+    failurePhase: 'health_check',
+    healthCheckResult: healthCheckResult,
+    secret: process.env.WEBHOOK_SECRET
+  }
+);
+```
+
+#### Python Example
+```python
+# Send startup initiated notification
+webhook_client.send_startup_initiated_notification(
+    webhook_url=os.getenv('WEBHOOK_URL'),
+    instance_id=instance_id,
+    operation_id='op-123',
+    started_at=datetime.now(),
+    estimated_ready_time='2024-01-01T10:05:00Z',
+    secret=os.getenv('WEBHOOK_SECRET')
+)
+
+# Send startup progress notification
+webhook_client.send_startup_progress_notification(
+    webhook_url=os.getenv('WEBHOOK_URL'),
+    instance_id=instance_id,
+    current_phase='monitoring',
+    operation_id='op-123',
+    started_at=datetime.now(),
+    phases={
+        'start_requested': datetime.now(),
+        'instance_starting': datetime.now()
+    },
+    current_status='instance starting',
+    secret=os.getenv('WEBHOOK_SECRET')
+)
+```
+
+### Startup Notification Workflow
+The startup notification system follows a sequential workflow:
+
+```mermaid
+sequenceDiagram
+participant Client as "Client Application"
+participant InstanceService as "InstanceService"
+participant WebhookClient as "WebhookClient"
+participant WebhookHandler as "Webhook Handler"
+Client->>InstanceService : Start instance
+InstanceService->>WebhookClient : sendStartupInitiatedNotification
+WebhookClient->>WebhookClient : sendWebhookWithRetry()
+WebhookClient->>WebhookHandler : POST /webhook
+WebhookHandler-->>WebhookClient : 200 OK
+WebhookClient-->>InstanceService : Success
+loop Monitor startup progress
+InstanceService->>WebhookClient : sendStartupProgressNotification
+WebhookClient->>WebhookClient : sendWebhookWithRetry()
+WebhookClient->>WebhookHandler : POST /webhook
+WebhookHandler-->>WebhookClient : 200 OK
+WebhookClient-->>InstanceService : Success
+end
+alt Startup successful
+InstanceService->>WebhookClient : sendStartupCompletedNotification
+WebhookClient->>WebhookClient : sendWebhookWithRetry()
+WebhookClient->>WebhookHandler : POST /webhook
+WebhookHandler-->>WebhookClient : 200 OK
+WebhookClient-->>InstanceService : Success
+else Startup failed
+InstanceService->>WebhookClient : sendStartupFailedNotification
+WebhookClient->>WebhookClient : sendWebhookWithRetry()
+WebhookClient->>WebhookHandler : POST /webhook
+WebhookHandler-->>WebhookClient : 200 OK
+WebhookClient-->>InstanceService : Success
+end
+```
+
+**Diagram sources**
+- [webhookClient.ts](file://src/clients/webhookClient.ts#L526-L881)
+- [instanceService.ts](file://src/services/instanceService.ts#L1000-L1200)
+
+**Section sources**
+- [webhookClient.ts](file://src/clients/webhookClient.ts)
+- [instanceService.ts](file://src/services/instanceService.ts)
+- [webhookClient.startup.test.ts](file://src/clients/__tests__/webhookClient.startup.test.ts)

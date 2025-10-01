@@ -78,7 +78,7 @@ docker-compose exec novita-api env | grep NOVITA
    ```
    Error: Configuration validation failed
    ```
-   **Solution:** Check configuration values against the [Configuration Reference](./CONFIGURATION.md)
+   **Solution:** Check configuration values against the [Configuration Reference](../deployment/configuration.md)
 
 3. **Port Already in Use**
    ```
@@ -1018,4 +1018,4 @@ docker-compose ps            # Service status
 curl http://localhost:3000/health    # Health check
 ```
 
-For additional help, refer to the [API Documentation](./API.md) and [Configuration Reference](./CONFIGURATION.md).
+For additional help, refer to the [API Documentation](./API.md) and [Configuration Reference](../deployment/configuration.md).

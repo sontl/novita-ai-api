@@ -10,14 +10,18 @@
 - [templateService.ts](file://src/services/templateService.ts) - *Updated in commit e324432*
 - [registryAuthExample.ts](file://src/examples/registryAuthExample.ts) - *Added in commit 90d221d*
 - [templateServiceExample.ts](file://src/examples/templateServiceExample.ts) - *Updated in commit e324432*
+- [.env.example](file://.env.example) - *Updated in recent commit*
 </cite>
 
 ## Update Summary
 **Changes Made**   
-- Updated environment variable naming convention from 'name' to 'key' in template service examples and validation
-- Added new section on registry authentication configuration and workflow
-- Updated code examples to reflect the new 'key' property for environment variables
-- Added documentation for new registry authentication feature
+- Added new section on instance startup configuration with timeout and health check settings
+- Added new section on automated migration system configuration
+- Updated environment variables reference table to include new migration and instance startup parameters
+- Updated configuration hierarchy section to reflect new configuration sections
+- Added new configuration injection examples for migration and instance startup services
+- Updated startup validation section to include new validation rules
+- Added troubleshooting guidance for new configuration parameters
 - Updated section sources to reflect modified and new files
 
 ## Table of Contents
@@ -31,6 +35,8 @@
 8. [Extending the Configuration System](#extending-the-configuration-system)
 9. [Troubleshooting Common Configuration Issues](#troubleshooting-common-configuration-issues)
 10. [Registry Authentication Configuration](#registry-authentication-configuration)
+11. [Instance Startup Configuration](#instance-startup-configuration)
+12. [Migration System Configuration](#migration-system-configuration)
 
 ## Configuration System Overview
 
@@ -92,9 +98,35 @@ The following table provides a complete reference of all configurable parameters
 | Enable Helmet | `ENABLE_HELMET` | `true` | No | `true`, `false` | Not sensitive, can be logged |
 | Rate Limit Window | `RATE_LIMIT_WINDOW_MS` | `900000` | No | Integer 60000-3600000 ms | Not sensitive, can be logged |
 | Rate Limit Max Requests | `RATE_LIMIT_MAX_REQUESTS` | `100` | No | Integer 10-1000 | Not sensitive, can be logged |
+| Comprehensive Listing | `ENABLE_COMPREHENSIVE_LISTING` | `true` | No | `true`, `false` | Not sensitive, can be logged |
+| Default Include Novita Only | `DEFAULT_INCLUDE_NOVITA_ONLY` | `true` | No | `true`, `false` | Not sensitive, can be logged |
+| Default Sync Local State | `DEFAULT_SYNC_LOCAL_STATE` | `false` | No | `true`, `false` | Not sensitive, can be logged |
+| Comprehensive Cache TTL | `COMPREHENSIVE_CACHE_TTL` | `30` | No | Integer 10-600 seconds | Not sensitive, can be logged |
+| Novita API Cache TTL | `NOVITA_API_CACHE_TTL` | `60` | No | Integer 30-1800 seconds | Not sensitive, can be logged |
+| Enable Fallback to Local | `ENABLE_FALLBACK_TO_LOCAL` | `true` | No | `true`, `false` | Not sensitive, can be logged |
+| Novita API Timeout | `NOVITA_API_TIMEOUT` | `15000` | No | Integer 5000-60000 ms | Not sensitive, can be logged |
+| Health Check Timeout | `HEALTH_CHECK_TIMEOUT_MS` | `10000` | No | Integer 1000-60000 ms | Not sensitive, can be logged |
+| Health Check Retry Attempts | `HEALTH_CHECK_RETRY_ATTEMPTS` | `3` | No | Integer 1-10 | Not sensitive, can be logged |
+| Health Check Retry Delay | `HEALTH_CHECK_RETRY_DELAY_MS` | `2000` | No | Integer 500-30000 ms | Not sensitive, can be logged |
+| Health Check Max Wait Time | `HEALTH_CHECK_MAX_WAIT_TIME_MS` | `300000` | No | Integer 30000-1800000 ms | Not sensitive, can be logged |
+| Migration Enabled | `MIGRATION_ENABLED` | `true` | No | `true`, `false` | Not sensitive, can be logged |
+| Migration Interval Minutes | `MIGRATION_INTERVAL_MINUTES` | `15` | No | Integer 1-60 minutes | Not sensitive, can be logged |
+| Migration Job Timeout | `MIGRATION_JOB_TIMEOUT_MS` | `600000` | No | Integer 60000-1800000 ms | Not sensitive, can be logged |
+| Migration Max Concurrent | `MIGRATION_MAX_CONCURRENT` | `5` | No | Integer 1-20 | Not sensitive, can be logged |
+| Migration Dry Run | `MIGRATION_DRY_RUN` | `false` | No | `true`, `false` | Not sensitive, can be logged |
+| Migration Retry Failed | `MIGRATION_RETRY_FAILED` | `true` | No | `true`, `false` | Not sensitive, can be logged |
+| Migration Log Level | `MIGRATION_LOG_LEVEL` | `info` | No | `error`, `warn`, `info`, `debug` | Not sensitive, can be logged |
+| Instance Startup Max Wait Time | `INSTANCE_STARTUP_MAX_WAIT_TIME` | `600000` | No | Integer 60000-1800000 ms | Not sensitive, can be logged |
+| Instance Startup Health Check Timeout | `INSTANCE_STARTUP_HEALTH_CHECK_TIMEOUT_MS` | `10000` | No | Integer 1000-60000 ms | Not sensitive, can be logged |
+| Instance Startup Health Check Retry Attempts | `INSTANCE_STARTUP_HEALTH_CHECK_RETRY_ATTEMPTS` | `3` | No | Integer 1-10 | Not sensitive, can be logged |
+| Instance Startup Health Check Retry Delay | `INSTANCE_STARTUP_HEALTH_CHECK_RETRY_DELAY_MS` | `2000` | No | Integer 500-30000 ms | Not sensitive, can be logged |
+| Instance Startup Health Check Max Wait Time | `INSTANCE_STARTUP_HEALTH_CHECK_MAX_WAIT_TIME_MS` | `300000` | No | Integer 30000-1800000 ms | Not sensitive, can be logged |
+| Instance Startup Enable Name Lookup | `INSTANCE_STARTUP_ENABLE_NAME_LOOKUP` | `true` | No | `true`, `false` | Not sensitive, can be logged |
+| Instance Startup Operation Timeout | `INSTANCE_STARTUP_OPERATION_TIMEOUT_MS` | `900000` | No | Integer 60000-3600000 ms | Not sensitive, can be logged |
 
 **Section sources**
 - [config.ts](file://src/config/config.ts#L152-L303)
+- [.env.example](file://.env.example#L0-L50)
 - [README.md](file://src/config/README.md#L54-L349)
 
 ## Configuration Hierarchy and Merging Strategy
@@ -139,6 +171,10 @@ class Config {
 +WebhookConfig webhook
 +DefaultsConfig defaults
 +SecurityConfig security
++InstanceListingConfig instanceListing
++HealthCheckConfig healthCheck
++MigrationConfig migration
++InstanceStartupConfig instanceStartup
 }
 class NovitaConfig {
 +string apiKey
@@ -162,6 +198,42 @@ class SecurityConfig {
 +boolean enableHelmet
 +number rateLimitWindowMs
 +number rateLimitMaxRequests
+}
+class InstanceListingConfig {
++boolean enableComprehensiveListing
++boolean defaultIncludeNovitaOnly
++boolean defaultSyncLocalState
++number comprehensiveCacheTtl
++number novitaApiCacheTtl
++boolean enableFallbackToLocal
++number novitaApiTimeout
+}
+class HealthCheckConfig {
++number defaultTimeoutMs
++number defaultRetryAttempts
++number defaultRetryDelayMs
++number defaultMaxWaitTimeMs
+}
+class MigrationConfig {
++boolean enabled
++number scheduleIntervalMs
++number jobTimeoutMs
++number maxConcurrentMigrations
++boolean dryRunMode
++boolean retryFailedMigrations
++string logLevel
+}
+class InstanceStartupConfig {
++number defaultMaxWaitTime
++InstanceStartupHealthCheckConfig defaultHealthCheckConfig
++boolean enableNameBasedLookup
++number operationTimeoutMs
+}
+class InstanceStartupHealthCheckConfig {
++number timeoutMs
++number retryAttempts
++number retryDelayMs
++number maxWaitTimeMs
 }
 class ApiService {
 -config : Config
@@ -435,3 +507,92 @@ const templateWithAuth = {
 - [registryAuthExample.ts](file://src/examples/registryAuthExample.ts#L0-L97)
 - [templateServiceExample.ts](file://src/examples/templateServiceExample.ts#L34)
 - [api.ts](file://src/types/api.ts#L267-L344)
+
+## Instance Startup Configuration
+
+The Novitai application now supports configurable instance startup operations with timeout and health check settings. This feature enables users to customize the behavior of instance startup operations, including maximum wait times, health check configurations, and operation timeouts.
+
+### Configuration Parameters
+
+The instance startup configuration is controlled by the following environment variables:
+
+- `INSTANCE_STARTUP_MAX_WAIT_TIME`: Default maximum wait time for instance startup operations (default: 600000ms/10 minutes)
+- `INSTANCE_STARTUP_HEALTH_CHECK_TIMEOUT_MS`: Default health check timeout during startup (default: 10000ms/10 seconds)
+- `INSTANCE_STARTUP_HEALTH_CHECK_RETRY_ATTEMPTS`: Default number of health check retry attempts during startup (default: 3)
+- `INSTANCE_STARTUP_HEALTH_CHECK_RETRY_DELAY_MS`: Default delay between health check retries during startup (default: 2000ms/2 seconds)
+- `INSTANCE_STARTUP_HEALTH_CHECK_MAX_WAIT_TIME_MS`: Default maximum wait time for health checks during startup (default: 300000ms/5 minutes)
+- `INSTANCE_STARTUP_ENABLE_NAME_LOOKUP`: Enable instance lookup by name for startup operations (default: true)
+- `INSTANCE_STARTUP_OPERATION_TIMEOUT_MS`: Timeout for startup operations (default: 900000ms/15 minutes)
+
+### Usage in Services
+
+The instance startup configuration is used by the `InstanceService` to manage startup operations. The service uses these configuration values to determine how long to wait for instances to start, how frequently to check their health, and when to consider a startup operation failed.
+
+```typescript
+// Example of configuration usage in InstanceService
+const startupConfig = config.instanceStartup;
+const operationTimeout = startupConfig.operationTimeoutMs;
+const maxWaitTime = startupConfig.defaultMaxWaitTime;
+const healthCheckConfig = startupConfig.defaultHealthCheckConfig;
+```
+
+### Validation Rules
+
+The configuration system validates instance startup parameters with the following rules:
+- `INSTANCE_STARTUP_MAX_WAIT_TIME`: Integer 60000-1800000ms (1-30 minutes)
+- `INSTANCE_STARTUP_HEALTH_CHECK_TIMEOUT_MS`: Integer 1000-60000ms (1-60 seconds)
+- `INSTANCE_STARTUP_HEALTH_CHECK_RETRY_ATTEMPTS`: Integer 1-10
+- `INSTANCE_STARTUP_HEALTH_CHECK_RETRY_DELAY_MS`: Integer 500-30000ms (0.5-30 seconds)
+- `INSTANCE_STARTUP_HEALTH_CHECK_MAX_WAIT_TIME_MS`: Integer 30000-1800000ms (30 seconds-30 minutes)
+- `INSTANCE_STARTUP_ENABLE_NAME_LOOKUP`: Boolean
+- `INSTANCE_STARTUP_OPERATION_TIMEOUT_MS`: Integer 60000-3600000ms (1-60 minutes)
+
+**Section sources**
+- [config.ts](file://src/config/config.ts#L466-L492)
+- [instanceService.ts](file://src/services/instanceService.ts#L975-L1084)
+- [.env.example](file://.env.example#L40-L48)
+
+## Migration System Configuration
+
+The Novitai application now includes an automated spot instance migration system with configurable settings. This feature enables automatic migration of spot instances when they are about to be reclaimed, ensuring service continuity.
+
+### Configuration Parameters
+
+The migration system is configured through the following environment variables:
+
+- `MIGRATION_ENABLED`: Enable automatic spot instance migration (default: true)
+- `MIGRATION_INTERVAL_MINUTES`: Migration job schedule interval in minutes (default: 15)
+- `MIGRATION_JOB_TIMEOUT_MS`: Migration job timeout in milliseconds (default: 600000ms/10 minutes)
+- `MIGRATION_MAX_CONCURRENT`: Maximum concurrent migration operations (default: 5)
+- `MIGRATION_DRY_RUN`: Enable dry run mode for migration (logs actions without executing) (default: false)
+- `MIGRATION_RETRY_FAILED`: Enable retry for failed migration attempts (default: true)
+- `MIGRATION_LOG_LEVEL`: Migration-specific log level (default: info)
+
+### Usage in Services
+
+The migration configuration is used by the `MigrationScheduler` and `InstanceMigrationService` to control the behavior of the automated migration system. The configuration values determine how frequently migration checks are performed, how many migrations can run concurrently, and how long migration jobs can run before timing out.
+
+```typescript
+// Example of configuration usage in MigrationScheduler
+const migrationConfig = config.migration;
+const isEnabled = migrationConfig.enabled;
+const scheduleIntervalMs = migrationConfig.scheduleIntervalMs;
+const maxConcurrent = migrationConfig.maxConcurrentMigrations;
+```
+
+### Validation Rules
+
+The configuration system validates migration parameters with the following rules:
+- `MIGRATION_ENABLED`: Boolean
+- `MIGRATION_INTERVAL_MINUTES`: Integer 1-60 minutes
+- `MIGRATION_JOB_TIMEOUT_MS`: Integer 60000-1800000ms (1-30 minutes)
+- `MIGRATION_MAX_CONCURRENT`: Integer 1-20
+- `MIGRATION_DRY_RUN`: Boolean
+- `MIGRATION_RETRY_FAILED`: Boolean
+- `MIGRATION_LOG_LEVEL`: String, one of 'error', 'warn', 'info', 'debug'
+
+**Section sources**
+- [config.ts](file://src/config/config.ts#L438-L465)
+- [migrationScheduler.ts](file://src/services/migrationScheduler.ts#L388-L404)
+- [instanceMigrationService.ts](file://src/services/instanceMigrationService.ts#L654-L684)
+- [.env.example](file://.env.example#L34-L40)

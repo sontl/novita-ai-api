@@ -10,6 +10,7 @@
 - [templateService.ts](file://src/services/templateService.ts)
 - [productService.ts](file://src/services/productService.ts) - *Added in recent commit*
 - [config.ts](file://src/config/config.ts)
+- [healthCheckerService.ts](file://src/services/healthCheckerService.ts) - *Added in recent commit*
 </cite>
 
 ## Update Summary
@@ -23,6 +24,12 @@
 - Added comprehensive documentation for multi-region fallback capability in product selection
 - Updated end-to-end workflow diagram to include region fallback logic
 - Enhanced failure recovery section with multi-region fallback details
+- Added new section on instance startup functionality with operation tracking
+- Added new section on application-level health checks for instance readiness
+- Updated InstanceService section to include startup operations
+- Added sequence diagram for instance startup workflow
+- Updated failure recovery section to include startup-specific error handling
+- Added new section on health check configuration and implementation
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -37,6 +44,8 @@
 10. [Failure Recovery and Retry Mechanisms](#failure-recovery-and-retry-mechanisms)
 11. [Performance Considerations](#performance-considerations)
 12. [Client Implementation Best Practices](#client-implementation-best-practices)
+13. [Instance Startup Operations](#instance-startup-operations)
+14. [Application-Level Health Checks](#application-level-health-checks)
 
 ## Introduction
 The Instance Management System provides a comprehensive solution for GPU instance lifecycle management, from API request to fully provisioned instance. This document details the end-to-end workflow, component interactions, and architectural patterns that enable reliable instance provisioning through the Novita.ai platform. The system is designed with scalability, fault tolerance, and operational observability in mind, implementing asynchronous processing, circuit breaker patterns, and comprehensive retry mechanisms to ensure reliable operation in distributed environments.
@@ -378,3 +387,74 @@ Configuration management is critical for reliable operation. Clients should use 
 - [client-examples/README.md](file://client-examples/README.md#L190-L204)
 - [instanceService.ts](file://src/services/instanceService.ts#L37-L119)
 - [novitaClient.ts](file://src/clients/novitaClient.ts#L116-L380)
+
+## Instance Startup Operations
+The system now supports explicit startup operations for GPU instances that are in an exited state. This functionality allows clients to restart previously created instances without going through the full creation workflow. The startup process is managed through the InstanceService's startInstance method, which coordinates with NovitaApiService to initiate the instance and monitors its readiness through the job queue system.
+
+When a client requests to start an instance, the system first validates that the instance exists and is in a startable state (exited). It then creates a startup operation record to track the operation's progress and queues a MONITOR_STARTUP job to monitor the instance's health and readiness. The system supports optional health check configuration and webhook notifications for startup operations, providing clients with detailed status updates.
+
+The startup workflow includes enhanced error handling with specific error types for startup failures, such as ResourceConstraintsError and NetworkError. The system implements retry logic with exponential backoff for transient API errors during startup, ensuring reliable operation even during periods of API instability.
+
+```mermaid
+sequenceDiagram
+participant Client as "Client Application"
+participant API as "API Endpoint"
+participant InstanceService as "InstanceService"
+participant JobQueue as "JobQueueService"
+participant JobWorker as "Job Worker"
+participant HealthChecker as "HealthCheckerService"
+participant NovitaAPI as "Novita.ai API"
+Client->>API : POST /api/instances/{id}/start<br/>{healthCheckConfig, webhookUrl}
+API->>InstanceService : startInstance(instanceId, config)
+activate InstanceService
+InstanceService->>InstanceService : Validate instance exists and is startable
+InstanceService->>InstanceService : Create startup operation record
+InstanceService->>NovitaAPI : startInstance(instanceId)
+activate NovitaAPI
+NovitaAPI-->>InstanceService : Instance start initiated
+deactivate NovitaAPI
+InstanceService->>InstanceService : Update instance status to "starting"
+InstanceService->>JobQueue : addJob(MONITOR_STARTUP, payload)
+JobQueue-->>InstanceService : Job ID
+deactivate InstanceService
+InstanceService-->>API : StartInstanceResponse<br/>{status : "starting", operationId}
+API-->>Client : 202 Accepted<br/>{operationId, estimatedReadyTime}
+loop Startup Monitoring
+JobQueue->>JobWorker : Process MONITOR_STARTUP job
+activate JobWorker
+JobWorker->>HealthChecker : performHealthChecks(portMappings, config)
+JobWorker->>NovitaAPI : getInstance(instanceId)
+NovitaAPI-->>JobWorker : Instance status
+alt Instance is healthy and running
+JobWorker->>InstanceService : updateInstanceState(status : "running")
+JobWorker->>JobQueue : addJob(SEND_WEBHOOK, payload)
+else Instance still starting or unhealthy
+JobWorker->>JobQueue : Reschedule MONITOR_STARTUP job
+end
+deactivate JobWorker
+end
+```
+
+**Diagram sources**
+- [instanceService.ts](file://src/services/instanceService.ts#L1366-L1564)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L23-L905)
+- [jobQueueService.ts](file://src/services/jobQueueService.ts#L21-L374)
+- [healthCheckerService.ts](file://src/services/healthCheckerService.ts#L0-L1093)
+
+**Section sources**
+- [instanceService.ts](file://src/services/instanceService.ts#L1366-L1564)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L23-L905)
+
+## Application-Level Health Checks
+The system implements application-level health checks to verify instance readiness beyond simple status checks. The HealthCheckerService performs comprehensive health verification by checking all configured endpoints and ports, ensuring that applications are fully operational and responsive. This approach provides more reliable readiness detection than relying solely on infrastructure-level status.
+
+The health check system supports configurable parameters including timeout duration, retry attempts, retry delay, and maximum wait time. Clients can specify custom health check configurations when starting instances, allowing them to tailor the readiness criteria to their specific application requirements. The system also supports targeting specific ports for health checks, which is useful for applications with multiple services running on different ports.
+
+Health checks are performed using HTTP GET requests to each configured endpoint, with response validation that goes beyond just checking HTTP status codes. The system analyzes response content to detect error indicators such as "Bad Gateway", "Service Unavailable", or "Internal Server Error" messages that might be returned with a 200 OK status. This advanced validation ensures that truly unhealthy instances are not reported as ready.
+
+The health check results include detailed information about each endpoint's status, response time, and any errors encountered. This comprehensive reporting enables clients to diagnose startup issues and understand why an instance might be failing to become ready. The system also supports webhook notifications for health check results, allowing clients to receive immediate updates about instance readiness.
+
+**Section sources**
+- [healthCheckerService.ts](file://src/services/healthCheckerService.ts#L0-L1093)
+- [instanceService.ts](file://src/services/instanceService.ts#L1366-L1564)
+- [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L26-L562)

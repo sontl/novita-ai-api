@@ -2,11 +2,19 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts)
-- [novitaApiService.ts](file://src/services/novitaApiService.ts)
-- [api.ts](file://src/types/api.ts)
-- [config.ts](file://src/config/config.ts)
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts) - *Updated in recent commit*
+- [novitaApiService.ts](file://src/services/novitaApiService.ts) - *Updated in recent commit*
+- [api.ts](file://src/types/api.ts) - *Updated in recent commit*
+- [templateService.ts](file://src/services/templateService.ts) - *Updated in recent commit*
 </cite>
+
+## Update Summary
+**Changes Made**   
+- Updated section sources to reflect recent code changes
+- Enhanced documentation for registry authentication workflow based on actual implementation
+- Added clarification on integration between templateService and novitaApiService
+- Updated error handling section with accurate error types and messages
+- Verified all code examples against current implementation
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -63,12 +71,12 @@ NovitaApiService --> RegistryAuth : "returns credentials"
 ```
 
 **Diagram sources**
-- [api.ts](file://src/types/api.ts#L325-L344)
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L222)
+- [api.ts](file://src/types/api.ts#L542-L584)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L243)
 
 **Section sources**
-- [api.ts](file://src/types/api.ts#L325-L344)
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L222)
+- [api.ts](file://src/types/api.ts#L542-L584)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L243)
 
 ## Authentication Workflow
 
@@ -87,10 +95,10 @@ style G fill:#bbf,stroke:#333
 ```
 
 **Diagram sources**
-- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts#L63-L74)
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts#L63-L97)
 
 **Section sources**
-- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts#L63-L74)
+- [registryAuthExample.ts](file://src/examples/registryAuthExample.ts#L63-L97)
 
 ### Step-by-Step Process
 
@@ -123,10 +131,10 @@ Note over Service,API : Credentials never stored in templates
 ```
 
 **Diagram sources**
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L222)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L243)
 
 **Section sources**
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L222)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L243)
 
 ### Method Signature
 
@@ -196,7 +204,7 @@ style F fill:#bbf,stroke:#333
 ```
 
 **Diagram sources**
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L224-L275)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L243)
 
 ## Error Handling
 
@@ -216,10 +224,10 @@ Success --> [*]
 ```
 
 **Diagram sources**
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L222)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L197-L243)
 
 **Section sources**
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L178-L222)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L197-L243)
 
 ### Error Types
 
@@ -268,7 +276,7 @@ logger.info('Registry authentication credentials found', {
 ```
 
 **Section sources**
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L180-L195)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L197-L243)
 
 ## Best Practices
 

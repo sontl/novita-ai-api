@@ -2,26 +2,21 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [instanceService.ts](file://src/services/instanceService.ts) - *Updated in commit 7b2515db*
-- [jobWorkerService.ts](file://src/services/jobWorkerService.ts) - *Added registry authentication support in commit 90d221d8*
-- [novitaApiService.ts](file://src/services/novitaApiService.ts) - *Updated API endpoint in commit 7b2515db*
-- [api.ts](file://src/types/api.ts) - *Updated request parameters in commit 7b2515db*
-- [job.ts](file://src/types/job.ts)
-- [instances.ts](file://src/routes/instances.ts)
-- [productService.ts](file://src/services/productService.ts) - *Updated in commit 7839892b*
-- [templateService.ts](file://src/services/templateService.ts) - *Updated in commit 90d221d8*
+- [instanceService.ts](file://src/services/instanceService.ts) - *Updated in commit 52581c45*
+- [instances.ts](file://src/routes/instances.ts) - *Updated in commit 52581c45*
+- [api.ts](file://src/types/api.ts) - *Updated in commit 52581c45*
+- [job.ts](file://src/types/job.ts) - *Updated in commit 52581c45*
 </cite>
 
 ## Update Summary
 **Changes Made**   
-- Updated API endpoint from `/api/instances` to `/v1/gpu/instance/create` with new request parameters
-- Added documentation for registry authentication support for private image instances
-- Updated CreateInstanceJobPayload structure to include image authentication details
-- Modified sequence diagram to reflect new authentication workflow
-- Updated error handling strategy to include registry authentication errors
-- Implemented multi-region fallback for GPU product selection with priority-based region ordering
-- Added support for preferred region specification in product selection
-- Enhanced error logging with detailed region attempt information
+- Added documentation for instance startup functionality and validation
+- Updated sequence diagram to include startup workflow
+- Added new section on instance startup validation and monitoring
+- Updated CreateInstanceJobPayload structure to reflect current implementation
+- Enhanced error handling strategy to include startup-specific errors
+- Added new sequence diagram for instance startup flow
+- Updated performance considerations to include startup monitoring
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -32,8 +27,9 @@
 6. [CreateInstanceJobPayload Structure](#createinstancejobpayload-structure)
 7. [Error Handling Strategy](#error-handling-strategy)
 8. [Sequence Diagram: Instance Creation Flow](#sequence-diagram-instance-creation-flow)
-9. [Performance Considerations](#performance-considerations)
-10. [Conclusion](#conclusion)
+9. [Instance Startup Workflow](#instance-startup-workflow)
+10. [Performance Considerations](#performance-considerations)
+11. [Conclusion](#conclusion)
 
 ## Introduction
 This document details the end-to-end workflow for creating GPU instances within the Novitai platform. The process begins with an API request to create an instance and concludes with the queuing of a high-priority job for asynchronous processing. The workflow involves multiple services coordinating to validate input parameters, determine optimal configurations, and initiate background processing. This documentation provides a comprehensive analysis of the instance creation process, including validation mechanisms, service interactions, job queuing, and error handling strategies.
@@ -133,7 +129,6 @@ The payload structure includes the following fields:
 - **rootfsSize**: Size of the root filesystem in GB
 - **region**: Target region for instance deployment
 - **webhookUrl**: Optional webhook URL for status notifications
-- **imageAuth**: Optional authentication ID for private container images
 
 This payload structure ensures that all necessary information is preserved between the initial API request and the asynchronous job execution, maintaining data integrity throughout the creation process.
 
@@ -213,6 +208,63 @@ end
 - [templateService.ts](file://src/services/templateService.ts#L20-L288)
 - [jobQueueService.ts](file://src/services/jobQueueService.ts#L21-L374)
 - [jobWorkerService.ts](file://src/services/jobWorkerService.ts#L26-L604)
+
+## Instance Startup Workflow
+The instance startup workflow allows users to start instances that are in the 'exited' status. This feature adds a new endpoint to the API that validates whether an instance can be started and initiates the startup process through a high-priority job.
+
+The startup workflow begins with a validation check to ensure the instance is in a startable state (specifically 'exited' status). If the instance is not in the correct state, a detailed error response is returned explaining why the instance cannot be started. The validation also checks for any active startup operations to prevent duplicate startup attempts.
+
+Once validation passes, the system creates a startup operation record to track the progress of the startup process. This operation includes a unique operation ID, timestamps for each phase, and status tracking. The system then queues a MONITOR_STARTUP job with HIGH priority to handle the asynchronous startup process.
+
+The startup job payload includes the instance ID, health check configuration, and optional webhook URL for status notifications. The job worker service handles the actual startup process by calling the Novita.ai API to start the instance and then monitoring its status through health checks until it reaches the 'ready' state.
+
+```mermaid
+sequenceDiagram
+participant Client as "Client Application"
+participant InstancesRouter as "instancesRouter"
+participant InstanceService as "InstanceService"
+participant NovitaApiService as "NovitaApiService"
+participant JobQueueService as "JobQueueService"
+participant JobWorkerService as "JobWorkerService"
+Client->>InstancesRouter : POST /api/instances/ : instanceId/start
+activate InstancesRouter
+InstancesRouter->>InstanceService : startInstance(instanceId)
+activate InstanceService
+InstanceService->>InstanceService : validateInstanceStartable()
+alt Validation Failed
+InstanceService-->>InstancesRouter : InstanceNotStartableError
+InstancesRouter-->>Client : 400 Bad Request
+deactivate InstancesRouter
+deactivate InstanceService
+else Valid Request
+InstanceService->>InstanceService : createStartupOperation()
+Note over InstanceService : Create tracking record
+InstanceService->>NovitaApiService : startInstance(novitaInstanceId)
+activate NovitaApiService
+NovitaApiService-->>InstanceService : Success
+deactivate NovitaApiService
+InstanceService->>InstanceService : updateInstanceState(STARTING)
+InstanceService->>JobQueueService : addJob(MONITOR_STARTUP, HIGH)
+activate JobQueueService
+JobQueueService-->>InstanceService : Job ID
+deactivate JobQueueService
+InstanceService-->>InstancesRouter : StartInstanceResponse
+deactivate InstanceService
+InstancesRouter-->>Client : 202 Accepted
+deactivate InstancesRouter
+end
+```
+
+**Diagram sources**
+- [instances.ts](file://src/routes/instances.ts#L200-L350)
+- [instanceService.ts](file://src/services/instanceService.ts#L1000-L1500)
+- [novitaApiService.ts](file://src/services/novitaApiService.ts#L282-L323)
+- [jobQueueService.ts](file://src/services/jobQueueService.ts#L21-L374)
+
+**Section sources**
+- [instanceService.ts](file://src/services/instanceService.ts#L1000-L1500)
+- [instances.ts](file://src/routes/instances.ts#L200-L350)
+- [api.ts](file://src/types/api.ts#L400-L450)
 
 ## Performance Considerations
 The instance creation workflow incorporates several performance optimizations to ensure responsiveness and scalability:

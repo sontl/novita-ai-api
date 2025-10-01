@@ -187,6 +187,20 @@ app.post('/webhook', (req, res) => {
 });
 ```
 
+### Auto-Stop Integration
+```javascript
+// Mark instance as used to prevent auto-stop
+const markInstanceAsUsed = async (instanceId) => {
+  await fetch(`/api/instances/${instanceId}/last-used`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' }
+  });
+};
+
+// For long-running tasks, update periodically
+setInterval(() => markInstanceAsUsed(instanceId), 10 * 60 * 1000); // Every 10 minutes
+```
+
 ## Instance Status Flow
 
 ```
@@ -195,15 +209,111 @@ creating → starting → running → health_checking → ready
   failed    failed    failed      failed
 ```
 
+## Request Configuration
+
+### Required Headers
+```http
+Content-Type: application/json
+```
+
+### Optional Headers
+```http
+X-Request-ID: unique-request-identifier  # For debugging
+X-Correlation-ID: correlation-identifier  # For request tracing
+```
+
+### Environment Variables
+```bash
+# Required for backend operations
+export NOVITA_API_KEY="your_api_key_here"
+export NOVITA_INTERNAL_API_KEY="your_internal_api_key_here"
+
+# Optional Redis configuration
+export UPSTASH_REDIS_REST_URL="https://your-redis.upstash.io"
+export UPSTASH_REDIS_REST_TOKEN="your-redis-token"
+```
+
+## Common Use Cases
+
+### 1. Simple Instance Creation and Usage
+```bash
+# Create instance
+INSTANCE_ID=$(curl -s -X POST http://localhost:3000/api/instances \
+  -H "Content-Type: application/json" \
+  -d '{"name": "test-instance", "productName": "RTX 4090 24GB", "templateId": "pytorch-jupyter"}' \
+  | jq -r '.instanceId')
+
+# Wait for ready status
+while true; do
+  STATUS=$(curl -s http://localhost:3000/api/instances/$INSTANCE_ID | jq -r '.status')
+  echo "Status: $STATUS"
+  
+  if [ "$STATUS" = "ready" ]; then
+    echo "Instance is ready!"
+    break
+  elif [ "$STATUS" = "failed" ]; then
+    echo "Instance failed!"
+    exit 1
+  fi
+  
+  sleep 5
+done
+
+# Get connection details
+curl -s http://localhost:3000/api/instances/$INSTANCE_ID | jq '.connectionDetails'
+```
+
+### 2. Batch Instance Management
+```javascript
+const instances = [
+  { name: 'worker-1', productName: 'RTX 4090 24GB', templateId: 'pytorch-jupyter' },
+  { name: 'worker-2', productName: 'RTX 4090 24GB', templateId: 'pytorch-jupyter' },
+  { name: 'worker-3', productName: 'RTX 4090 24GB', templateId: 'pytorch-jupyter' }
+];
+
+// Create all instances
+const createPromises = instances.map(config => 
+  fetch('/api/instances', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config)
+  }).then(r => r.json())
+);
+
+const results = await Promise.all(createPromises);
+console.log('Created instances:', results.map(r => r.instanceId));
+```
+
+### 3. Health Monitoring
+```javascript
+const checkHealth = async () => {
+  const response = await fetch('/health');
+  const health = await response.json();
+  
+  if (health.status !== 'healthy') {
+    console.error('Service unhealthy:', health.services);
+    return false;
+  }
+  
+  console.log('Service healthy, uptime:', health.uptime);
+  return true;
+};
+
+// Check health every minute
+setInterval(checkHealth, 60000);
+```
+
 ## Next Steps
 
-1. **Full Documentation**: [API_CLIENT_REFERENCE.md](./API_CLIENT_REFERENCE.md)
-2. **Client Examples**: [client-examples/](./client-examples/)
-3. **Deployment**: [DEPLOYMENT.md](./DEPLOYMENT.md)
-4. **Troubleshooting**: Check `/health` endpoint and logs
+1. **Full Documentation**: [Client Reference](./client-reference.md)
+2. **Detailed Endpoints**: [Endpoints Reference](./endpoints.md)
+3. **Client Examples**: [Examples](./examples.md)
+4. **Deployment**: [Deployment Guide](../deployment/README.md)
+5. **Troubleshooting**: Check `/health` endpoint and logs
 
 ## Support
 
 - Health check: `GET /health`
 - Metrics: `GET /api/metrics`
 - Cache stats: `GET /api/cache/stats`
+- Auto-stop stats: `GET /api/instances/auto-stop/stats`

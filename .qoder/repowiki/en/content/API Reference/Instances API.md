@@ -2,20 +2,19 @@
 
 <cite>
 **Referenced Files in This Document**   
-- [instances.ts](file://src/routes/instances.ts) - *Updated in commit 7b2515dbb109d7f8f77fbff4467ab022f92e2aa6*
-- [api.ts](file://src/types/api.ts) - *Updated in commit 7b2515dbb109d7f8f77fbff4467ab022f92e2aa6*
-- [novitaApiService.ts](file://src/services/novitaApiService.ts) - *Updated in commits 7b2515dbb109d7f8f77fbff4467ab022f92e2aa6, 10a1ebde6b8beca610c60eb4aea30a1fdf86a39a, eb20e150f556a2dbbd7b947ea379df561f4a9b53*
-- [validation.ts](file://src/types/validation.ts) - *Updated in commit 7b2515dbb109d7f8f77fbff4467ab022f92e2aa6*
-- [errorHandler.ts](file://src/middleware/errorHandler.ts) - *Updated in recent commits*
-- [webhookClient.ts](file://src/clients/webhookClient.ts) - *Updated in recent commits*
+- [instances.ts](file://src/routes/instances.ts) - *Updated in commit 52581c452e31f4d1a110825576ca34aef2b51121*
+- [api.ts](file://src/types/api.ts) - *Updated in commit 68921546572c58eee3b1b9a39dbb1e41bc0064bd*
+- [instanceService.ts](file://src/services/instanceService.ts) - *Updated in commit 52581c452e31f4d1a110825576ca34aef2b51121*
 </cite>
 
 ## Update Summary
 **Changes Made**   
-- Updated API endpoint paths and request formats based on code changes
-- Corrected instance retrieval endpoint to use query parameter format
-- Updated instance creation endpoint path and response format
-- Added missing status values in CreateInstanceResponse schema
+- Added new endpoints for starting instances: POST /api/instances/:instanceId/start and POST /api/instances/start
+- Added StartInstanceRequest and StartInstanceResponse schemas to API types
+- Added support for starting instances by name or ID
+- Updated instance status enumeration to include 'exited' status
+- Added comprehensive error handling for instance startup operations
+- Added operationId to startup responses for tracking
 - Updated source references to reflect actual file changes
 
 ## Table of Contents
@@ -25,17 +24,19 @@
 4. [POST /api/instances](#post-ap-instances)
 5. [GET /api/instances/:instanceId](#get-ap-instancesinstanceid)
 6. [GET /api/instances](#get-ap-instances)
-7. [Webhook Integration](#webhook-integration)
-8. [Error Handling](#error-handling)
-9. [Examples](#examples)
+7. [POST /api/instances/:instanceId/start](#post-ap-instancesinstanceidstart)
+8. [POST /api/instances/start](#post-ap-instancesstart)
+9. [Webhook Integration](#webhook-integration)
+10. [Error Handling](#error-handling)
+11. [Examples](#examples)
 
 ## Introduction
-The Instances API provides endpoints for managing GPU instances within the Novita platform. This API allows users to create, retrieve, and list GPU instances with various configuration options. The API follows RESTful principles and returns JSON responses with appropriate HTTP status codes.
+The Instances API provides endpoints for managing GPU instances within the Novita platform. This API allows users to create, retrieve, list, and start GPU instances with various configuration options. The API follows RESTful principles and returns JSON responses with appropriate HTTP status codes.
 
-The core functionality revolves around instance lifecycle management, from creation through to monitoring and retrieval of instance details. The API supports webhook notifications for asynchronous status updates and implements comprehensive error handling with detailed validation feedback.
+The core functionality revolves around instance lifecycle management, from creation through to monitoring, retrieval of instance details, and starting instances that are in exited status. The API supports webhook notifications for asynchronous status updates and implements comprehensive error handling with detailed validation feedback.
 
 **Section sources**
-- [instances.ts](file://src/routes/instances.ts#L1-L132)
+- [instances.ts](file://src/routes/instances.ts#L1-L400)
 
 ## Authentication
 All API requests require authentication via an API key sent in the Authorization header using the Bearer scheme. The API key must be included in every request to access protected endpoints.
@@ -47,7 +48,7 @@ Authorization: Bearer YOUR_API_KEY_HERE
 The API key should be kept confidential and not exposed in client-side code or public repositories. Unauthorized requests without a valid API key will receive a 401 Unauthorized response.
 
 **Section sources**
-- [errorHandler.ts](file://src/middleware/errorHandler.ts#L1-L286)
+- [instances.ts](file://src/routes/instances.ts#L1-L400)
 
 ## Rate Limiting
 The API implements rate limiting to ensure fair usage and prevent abuse. Clients are subject to request limits based on their account type and subscription level.
@@ -62,8 +63,8 @@ Retry-After: 60
 Rate limiting is applied per API key, allowing for consistent tracking of usage across requests. Clients should implement exponential backoff strategies when encountering rate limit responses to improve success rates for subsequent requests.
 
 **Section sources**
-- [errorHandler.ts](file://src/middleware/errorHandler.ts#L1-L286)
-- [api.ts](file://src/types/api.ts#L1-L308)
+- [instances.ts](file://src/routes/instances.ts#L1-L400)
+- [api.ts](file://src/types/api.ts#L1-L585)
 
 ## POST /api/instances
 Creates a new GPU instance with the specified configuration. Returns a 201 Created response with instance details upon successful creation.
@@ -94,10 +95,9 @@ Returns a CreateInstanceResponse object with the following schema:
 ```
 
 **Section sources**
-- [instances.ts](file://src/routes/instances.ts#L1-L132)
-- [validation.ts](file://src/types/validation.ts#L1-L224)
+- [instances.ts](file://src/routes/instances.ts#L1-L400)
 - [api.ts](file://src/types/api.ts#L9-L24)
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L300-L350)
+- [instanceService.ts](file://src/services/instanceService.ts#L25-L150)
 
 ## GET /api/instances/:instanceId
 Retrieves detailed information about a specific instance by its ID.
@@ -144,9 +144,9 @@ Clients should implement a polling mechanism to track instance status from 'crea
 The estimatedReadyTime field in the creation response provides guidance on when the instance is expected to be ready.
 
 **Section sources**
-- [instances.ts](file://src/routes/instances.ts#L1-L132)
+- [instances.ts](file://src/routes/instances.ts#L1-L400)
 - [api.ts](file://src/types/api.ts#L26-L44)
-- [novitaApiService.ts](file://src/services/novitaApiService.ts#L400-L450)
+- [instanceService.ts](file://src/services/instanceService.ts#L152-L250)
 
 ## GET /api/instances
 Lists all managed instances with basic information.
@@ -179,14 +179,90 @@ Returns a list of instances with pagination information:
 Instances are sorted by creation time (newest first). The total field indicates the total number of instances across all pages.
 
 **Section sources**
-- [instances.ts](file://src/routes/instances.ts#L1-L132)
+- [instances.ts](file://src/routes/instances.ts#L1-L400)
 - [api.ts](file://src/types/api.ts#L46-L51)
+- [instanceService.ts](file://src/services/instanceService.ts#L252-L350)
+
+## POST /api/instances/:instanceId/start
+Starts a GPU instance that is in 'exited' status by its ID. Returns a 202 Accepted response with operation details upon successful initiation.
+
+### Path Parameter
+- **instanceId**: The unique identifier of the instance to start (alphanumeric, hyphens, underscores only)
+
+### Request Body Schema (StartInstanceRequest)
+The request body is optional and can include the following properties:
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| healthCheckConfig | object | No | Default values | Configuration for health checks after startup |
+| targetPort | number | No | - | Specific port to check during health verification |
+| webhookUrl | string | No | - | Webhook URL for startup completion notifications |
+
+### healthCheckConfig Object
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| timeoutMs | number | Yes | 10000 | Timeout for each health check attempt |
+| retryAttempts | number | Yes | 3 | Number of retry attempts for health checks |
+| retryDelayMs | number | Yes | 2000 | Delay between retry attempts |
+| maxWaitTimeMs | number | Yes | 300000 | Maximum total time to wait for instance readiness |
+| targetPort | number | No | - | Specific port to check during health verification |
+
+### Response (202 Accepted)
+Returns a StartInstanceResponse object with the following schema:
+
+```json
+{
+  "instanceId": "string",
+  "novitaInstanceId": "string",
+  "status": "starting",
+  "message": "Instance startup initiated successfully",
+  "operationId": "string",
+  "estimatedReadyTime": "string (ISO 8601)"
+}
+```
+
+**Section sources**
+- [instances.ts](file://src/routes/instances.ts#L300-L350)
+- [api.ts](file://src/types/api.ts#L30-L40)
+- [instanceService.ts](file://src/services/instanceService.ts#L1200-L1500)
+
+## POST /api/instances/start
+Starts a GPU instance that is in 'exited' status by its name. Returns a 202 Accepted response with operation details upon successful initiation.
+
+### Request Body Schema (StartInstanceRequest)
+The request body must include the instance name and can include additional configuration:
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| instanceName | string | Yes | - | Name of the instance to start |
+| healthCheckConfig | object | No | Default values | Configuration for health checks after startup |
+| targetPort | number | No | - | Specific port to check during health verification |
+| webhookUrl | string | No | - | Webhook URL for startup completion notifications |
+
+### Response (202 Accepted)
+Returns a StartInstanceResponse object with the following schema:
+
+```json
+{
+  "instanceId": "string",
+  "novitaInstanceId": "string",
+  "status": "starting",
+  "message": "Instance startup initiated successfully",
+  "operationId": "string",
+  "estimatedReadyTime": "string (ISO 8601)"
+}
+```
+
+**Section sources**
+- [instances.ts](file://src/routes/instances.ts#L350-L400)
+- [api.ts](file://src/types/api.ts#L30-L40)
+- [instanceService.ts](file://src/services/instanceService.ts#L1200-L1500)
 
 ## Webhook Integration
 The API supports webhook notifications for instance lifecycle events. When an instance becomes ready, a webhook can be sent to the specified URL.
 
 ### Webhook Configuration
-Include the webhookUrl parameter in the CreateInstanceRequest:
+Include the webhookUrl parameter in the CreateInstanceRequest or StartInstanceRequest:
 
 ```json
 {
@@ -219,8 +295,8 @@ Webhook requests include signature headers for verification:
 The signature can be verified using the shared secret configured in the system.
 
 **Section sources**
-- [webhookClient.ts](file://src/clients/webhookClient.ts#L1-L242)
-- [instances.ts](file://src/routes/instances.ts#L1-L132)
+- [instances.ts](file://src/routes/instances.ts#L1-L400)
+- [instanceService.ts](file://src/services/instanceService.ts#L1000-L1100)
 
 ## Error Handling
 The API returns standardized error responses for all error conditions.
@@ -280,8 +356,9 @@ Returned when requesting a non-existent instance:
 - **503 Service Unavailable**: Service temporarily unavailable
 
 **Section sources**
-- [errorHandler.ts](file://src/middleware/errorHandler.ts#L1-L286)
-- [api.ts](file://src/types/api.ts#L1-L308)
+- [instances.ts](file://src/routes/instances.ts#L1-L400)
+- [api.ts](file://src/types/api.ts#L1-L585)
+- [instanceService.ts](file://src/services/instanceService.ts#L500-L800)
 
 ## Examples
 ### Create Instance (Success)
@@ -343,6 +420,69 @@ Authorization: Bearer YOUR_API_KEY
 }
 ```
 
+### Start Instance by ID (Success)
+**Request:**
+```http
+POST /api/instances/inst_123/start
+Content-Type: application/json
+Authorization: Bearer YOUR_API_KEY
+
+{
+  "healthCheckConfig": {
+    "timeoutMs": 10000,
+    "retryAttempts": 3,
+    "retryDelayMs": 2000,
+    "maxWaitTimeMs": 300000
+  },
+  "targetPort": 8080,
+  "webhookUrl": "https://example.com/startup-webhook"
+}
+```
+
+**Response (202 Accepted):**
+```json
+{
+  "instanceId": "inst_123",
+  "novitaInstanceId": "novita-789",
+  "status": "starting",
+  "message": "Instance startup initiated successfully",
+  "operationId": "startup_456",
+  "estimatedReadyTime": "2023-01-01T00:10:00.000Z"
+}
+```
+
+### Start Instance by Name (Success)
+**Request:**
+```http
+POST /api/instances/start
+Content-Type: application/json
+Authorization: Bearer YOUR_API_KEY
+
+{
+  "instanceName": "cuda-dev-instance",
+  "healthCheckConfig": {
+    "timeoutMs": 10000,
+    "retryAttempts": 3,
+    "retryDelayMs": 2000,
+    "maxWaitTimeMs": 300000
+  },
+  "targetPort": 8080,
+  "webhookUrl": "https://example.com/startup-webhook"
+}
+```
+
+**Response (202 Accepted):**
+```json
+{
+  "instanceId": "inst_123",
+  "novitaInstanceId": "novita-789",
+  "status": "starting",
+  "message": "Instance startup initiated successfully",
+  "operationId": "startup_456",
+  "estimatedReadyTime": "2023-01-01T00:10:00.000Z"
+}
+```
+
 ### Validation Error (400)
 **Response:**
 ```json
@@ -363,6 +503,6 @@ Authorization: Bearer YOUR_API_KEY
 ```
 
 **Section sources**
-- [instances.ts](file://src/routes/instances.ts#L1-L132)
-- [api.ts](file://src/types/api.ts#L1-L308)
-- [validation.ts](file://src/types/validation.ts#L1-L224)
+- [instances.ts](file://src/routes/instances.ts#L1-L400)
+- [api.ts](file://src/types/api.ts#L1-L585)
+- [instanceService.ts](file://src/services/instanceService.ts#L1200-L1500)

@@ -1,6 +1,8 @@
-# Novita GPU Instance API - Client Reference
+# Novita.ai API Integration
 
-A comprehensive API reference for integrating with the Novita GPU Instance API service.
+## Overview
+
+This document provides a comprehensive guide to the Novita GPU Instance API service, which acts as an intermediary between clients and the Novita.ai platform. The service provides enhanced functionality including automatic instance lifecycle management, auto-stop features, and comprehensive caching.
 
 ## Base URL
 
@@ -8,49 +10,6 @@ A comprehensive API reference for integrating with the Novita GPU Instance API s
 http://localhost:3000  # Development
 https://your-domain.com  # Production
 ```
-
-## Data Persistence
-
-The API supports both in-memory and Redis-backed data persistence using Upstash Redis:
-
-### Cache Persistence
-- **Instance Details**: GPU instance information cached with configurable TTL
-- **Product Data**: Novita.ai product catalog cached for optimal performance  
-- **API Responses**: Frequently accessed data cached to reduce external API calls
-- **Cross-Restart Persistence**: Cache data survives application restarts when Redis is enabled
-- **Distributed Caching**: Multiple application instances can share the same cache
-
-### Job Queue Persistence (Available)
-- **Background Jobs**: Asynchronous operations persisted across service restarts
-- **Job Status**: Processing status and results maintained for tracking
-- **Retry Logic**: Failed jobs automatically retried with exponential backoff
-- **Crash Recovery**: Jobs interrupted by application crashes are automatically recovered
-- **Priority Queuing**: Jobs are processed based on priority with Redis sorted sets
-
-### Redis Features
-- **Automatic Fallback**: Graceful degradation to in-memory storage when Redis is unavailable
-- **Connection Management**: Automatic reconnection with exponential backoff
-- **Error Handling**: Comprehensive error handling with circuit breaker patterns
-- **Monitoring**: Built-in Redis health checks and performance metrics
-- **Serialization**: Proper handling of complex objects including Date types
-
-### Configuration
-Redis persistence is configured via environment variables:
-```bash
-# Required for Redis mode
-UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
-UPSTASH_REDIS_REST_TOKEN=your-redis-token
-
-# Optional Redis settings
-REDIS_ENABLE_FALLBACK=true           # Graceful fallback to in-memory storage
-REDIS_CONNECTION_TIMEOUT_MS=10000    # Connection timeout (default: 10000)
-REDIS_COMMAND_TIMEOUT_MS=5000        # Command timeout (default: 5000)
-REDIS_RETRY_ATTEMPTS=3               # Retry attempts (default: 3)
-REDIS_KEY_PREFIX=novita_api          # Key prefix (default: novita_api)
-```
-
-For detailed configuration, see [Redis Configuration Guide](docs/REDIS_CONFIGURATION.md).
-For troubleshooting Redis issues, see [Redis Troubleshooting Guide](docs/REDIS_TROUBLESHOOTING.md).
 
 ## Authentication
 
@@ -1090,41 +1049,3 @@ Monitor service health and Redis status.
   "uptime": 3600
 }
 ```
-
-### Redis Status Indicators
-
-The health endpoint provides detailed Redis status information:
-
-- **`redis.available`**: Whether Redis client is initialized
-- **`redis.healthy`**: Whether Redis is responding to commands
-- **`redis.cacheManager.configuration.defaultBackend`**: Current cache backend (`redis`, `fallback`, or `memory`)
-- **`dependencies.redis.responseTime`**: Redis ping response time in milliseconds
-- **`dependencies.redis.pingResult`**: Result of Redis ping command
-
-### Monitoring Redis Performance
-
-Use the health endpoint to monitor:
-- Redis connectivity and response times
-- Cache hit ratios and performance
-- Fallback mode activation
-- Memory and system resource usage
-
-## Support
-
-For API support:
-
-1. Check the [Health Check](#health-check) endpoint
-2. Review error codes and messages
-3. Check application logs
-4. Consult the [Redis Configuration Guide](docs/REDIS_CONFIGURATION.md)
-5. Review the [Redis Troubleshooting Guide](docs/REDIS_TROUBLESHOOTING.md)
-6. Contact the development team
-
-## Changelog
-
-### v1.0.0
-- Initial API release
-- Basic instance management
-- Health checks and metrics
-- Webhook notifications
-- Cache management

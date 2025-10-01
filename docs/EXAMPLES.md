@@ -950,4 +950,4 @@ class ConfigManager {
 module.exports = ConfigManager;
 ```
 
-For more examples and integration patterns, see the complete [API Documentation](./API.md) and [Configuration Reference](./CONFIGURATION.md).
+For more examples and integration patterns, see the complete [API Documentation](./API.md) and [Configuration Reference](./deployment/configuration.md).

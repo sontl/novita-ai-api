@@ -1,12 +1,54 @@
-# Redis Command Optimization Guide
+# Redis Integration Guide
 
 ## Overview
 
-This guide outlines the strategies implemented to reduce Redis commands and improve performance in the Novita GPU Instance API.
+The application uses Redis for caching and job queue persistence, providing improved performance and data persistence across service restarts. The integration supports both standalone Redis and Upstash Redis, with automatic fallback to in-memory storage when Redis is unavailable.
 
-## Key Optimizations Implemented
+## Features
 
-### 1. Batch Operations with Pipeline Simulation
+### Cache Persistence
+- **Instance Details**: GPU instance information cached with configurable TTL
+- **Product Data**: Novita.ai product catalog cached for optimal performance  
+- **API Responses**: Frequently accessed data cached to reduce external API calls
+- **Cross-Restart Persistence**: Cache data survives application restarts when Redis is enabled
+- **Distributed Caching**: Multiple application instances can share the same cache
+
+### Job Queue Persistence (Available)
+- **Background Jobs**: Asynchronous operations persisted across service restarts
+- **Job Status**: Processing status and results maintained for tracking
+- **Retry Logic**: Failed jobs automatically retried with exponential backoff
+- **Crash Recovery**: Jobs interrupted by application crashes are automatically recovered
+- **Priority Queuing**: Jobs are processed based on priority with Redis sorted sets
+
+### Redis Features
+- **Automatic Fallback**: Graceful degradation to in-memory storage when Redis is unavailable
+- **Connection Management**: Automatic reconnection with exponential backoff
+- **Error Handling**: Comprehensive error handling with circuit breaker patterns
+- **Monitoring**: Built-in Redis health checks and performance metrics
+- **Serialization**: Proper handling of complex objects including Date types
+
+## Configuration
+
+Redis persistence is configured via environment variables:
+
+```bash
+# Required for Redis mode
+UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your-redis-token
+
+# Optional Redis settings
+REDIS_ENABLE_FALLBACK=true           # Graceful fallback to in-memory storage
+REDIS_CONNECTION_TIMEOUT_MS=10000    # Connection timeout (default: 10000)
+REDIS_COMMAND_TIMEOUT_MS=5000        # Command timeout (default: 5000)
+REDIS_RETRY_ATTEMPTS=3               # Retry attempts (default: 3)
+REDIS_KEY_PREFIX=novita_api          # Key prefix (default: novita_api)
+```
+
+## Redis Command Optimization
+
+### Key Optimizations Implemented
+
+#### 1. Batch Operations with Pipeline Simulation
 
 **Before**: Individual Redis commands for each operation
 ```typescript
@@ -28,7 +70,7 @@ await bulkOperations.bulkSet(bulkData);  // ~N/50 batch operations
 
 **Impact**: Reduces Redis commands by ~95% for bulk operations
 
-### 2. Lazy Access Count Updates
+#### 2. Lazy Access Count Updates
 
 **Before**: Immediate Redis write on every cache access
 ```typescript
@@ -46,7 +88,7 @@ scheduleAccessUpdate(key, entry);               // Batched later
 
 **Impact**: Reduces cache access Redis commands by ~80%
 
-### 3. Optimized Cache Size Tracking
+#### 3. Optimized Cache Size Tracking
 
 **Before**: Redis KEYS command on every size check
 ```typescript
@@ -65,7 +107,7 @@ if (sizeCache && !isExpired(sizeCache)) {
 
 **Impact**: Reduces size check commands by ~90%
 
-### 4. Bulk Synchronization Operations
+#### 4. Bulk Synchronization Operations
 
 **Before**: Sequential individual operations
 ```typescript
@@ -232,3 +274,85 @@ With these optimizations, you should see:
 - **Improved performance** due to reduced network round trips
 - **Better Redis server utilization** with fewer but more efficient operations
 - **Maintained data consistency** through proper error handling
+
+## WRONGTYPE Error Fix
+
+### Problem Description
+
+The application was experiencing frequent Redis `WRONGTYPE` errors with the message:
+```
+Redis GET operation failed {"command":"GET","key":"jobs:completed","error":"Command failed: WRONGTYPE Operation against a key holding the wrong kind of value"}
+```
+
+### Root Cause Analysis
+
+The issue was caused by a conflict between different Redis data structures:
+
+1. **Job Queue Service** uses `jobs:completed` as a **sorted set** (ZADD, ZCARD operations)
+2. **Cache Services** were attempting to perform **GET operations** on keys that didn't belong to their cache namespace
+
+The problem occurred in cache cleanup and LRU eviction operations where:
+- Cache services scan for keys using patterns like `cache:{name}:*`
+- Due to a bug or race condition, the SCAN operation was returning keys outside the expected pattern
+- The cache service then tried to perform GET operations on these foreign keys
+- When it tried to GET a sorted set key like `jobs:completed`, Redis returned a WRONGTYPE error
+
+### Solution Implemented
+
+#### 1. Key Filtering Defense
+Added defensive key filtering in all cache operations to ensure only keys matching the cache prefix are processed:
+
+```typescript
+// Filter keys to ensure they match our cache prefix (defense against SCAN bugs)
+const validKeys = keys.filter(key => key.startsWith(this.keyPrefix + ':'));
+```
+
+#### 2. WRONGTYPE Error Handling
+Added specific error handling for WRONGTYPE errors to gracefully skip incompatible keys:
+
+```typescript
+} catch (error) {
+  if (error instanceof Error && error.message.includes('WRONGTYPE')) {
+    // Skip keys with wrong type (they don't belong to this cache)
+    logger.warn('Skipping key with wrong type during cleanup', {
+      cache: this.name,
+      key: redisKey,
+      error: error.message
+    });
+    continue;
+  }
+  throw error; // Re-throw other errors
+}
+```
+
+#### 3. Enhanced Logging
+Added better error logging to help identify and debug similar issues in the future.
+
+### Files Modified
+
+1. **src/services/optimizedRedisCacheService.ts**
+   - Fixed `cleanupExpired()` method
+   - Fixed `size()` method  
+   - Fixed `keys()` method
+
+2. **src/services/redisCacheService.ts**
+   - Fixed `evictLeastRecentlyUsed()` method
+   - Fixed `cleanupExpired()` method
+   - Fixed `keys()` method
+   - Fixed `getCurrentSize()` method
+
+### Impact
+
+- ✅ Eliminates WRONGTYPE errors during cache operations
+- ✅ Prevents cache services from accessing job queue keys
+- ✅ Maintains cache functionality and performance
+- ✅ Adds defensive programming against Redis SCAN edge cases
+- ✅ Improves error logging and debugging capabilities
+
+### Prevention
+
+This fix prevents similar issues by:
+- Adding defensive key filtering in all SCAN-based operations
+- Implementing proper error handling for Redis data type conflicts
+- Providing better logging for debugging future issues
+- Following defensive programming principles for Redis operations
