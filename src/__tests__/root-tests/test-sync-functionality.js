@@ -2,7 +2,7 @@
  * Simple test script to verify obsolete instance sync functionality
  */
 
-const { InstanceStatus } = require('./dist/types/api');
+const { InstanceStatus } = require('../../../dist/types/api');
 
 // Mock data for testing
 const mockNovitaInstances = [
