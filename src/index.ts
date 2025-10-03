@@ -3,7 +3,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
 import { config, getConfigSummary } from './config/config';
-import { logger, createContextLogger } from './utils/logger';
+import { createAxiomSafeLogger } from './utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('app');
 import { axiomLogger } from './utils/axiomLogger';
 import { getAxiomStatus } from './config/axiomConfig';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';

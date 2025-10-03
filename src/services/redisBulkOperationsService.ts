@@ -1,6 +1,8 @@
 import { IRedisClient } from '../utils/redisClient';
 import { RedisPipelineWrapper } from '../utils/redisPipelineWrapper';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('redis-bulk-operations');
 
 /**
  * Bulk operation result interface
@@ -86,7 +88,8 @@ export class RedisBulkOperationsService {
         successful: result.successful,
         failed: result.failed,
         batches: batches.length,
-        duration: `${result.duration}ms`
+        duration: result.duration,
+        durationMs: `${result.duration}ms`
       });
 
       return result;
@@ -99,7 +102,8 @@ export class RedisBulkOperationsService {
       logger.error('Bulk set operation failed', {
         total: data.length,
         error: errorMessage,
-        duration: `${result.duration}ms`
+        duration: result.duration,
+        durationMs: `${result.duration}ms`
       });
       
       return result;
@@ -229,7 +233,8 @@ export class RedisBulkOperationsService {
         successful: result.successful,
         failed: result.failed,
         batches: batches.length,
-        duration: `${result.duration}ms`
+        duration: result.duration,
+        durationMs: `${result.duration}ms`
       });
 
       return result;
@@ -242,7 +247,8 @@ export class RedisBulkOperationsService {
       logger.error('Bulk delete operation failed', {
         total: keys.length,
         error: errorMessage,
-        duration: `${result.duration}ms`
+        duration: result.duration,
+        durationMs: `${result.duration}ms`
       });
       
       return result;
@@ -348,7 +354,8 @@ export class RedisBulkOperationsService {
         successful: deleteResult.successful,
         failed: deleteResult.failed
       },
-      totalDuration: `${totalDuration}ms`
+      totalDuration: totalDuration,
+      totalDurationMs: `${totalDuration}ms`
     });
 
     return {

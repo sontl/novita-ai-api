@@ -2,7 +2,9 @@
  * Example demonstrating multi-region fallback functionality
  */
 
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('example');
 import { productService } from '../services/productService';
 import { RegionConfig } from '../types/api';
 

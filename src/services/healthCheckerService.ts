@@ -1,5 +1,7 @@
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('health-checker');
 import {
   HealthCheckConfig,
   EndpointHealthCheck,

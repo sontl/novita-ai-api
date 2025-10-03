@@ -2,7 +2,9 @@
  * Auto-stop service for managing automatic instance shutdown based on inactivity
  */
 
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('auto-stop');
 import { instanceService } from './instanceService';
 import { serviceRegistry } from './serviceRegistry';
 import { config } from '../config/config';
@@ -108,6 +110,7 @@ export class AutoStopService {
     const dryRun = payload.config?.dryRun || false;
 
     logger.info('Processing auto-stop check', {
+      operation: 'auto_stop_check',
       jobId: payload.jobId,
       scheduledAt: payload.scheduledAt,
       inactivityThresholdMinutes: inactivityThreshold,
@@ -119,6 +122,7 @@ export class AutoStopService {
       const eligibleInstances = await instanceService.getInstancesEligibleForAutoStop(inactivityThreshold);
       
       logger.info('Found instances eligible for auto-stop', {
+        operation: 'auto_stop_check',
         jobId: payload.jobId,
         eligibleCount: eligibleInstances.length,
         inactivityThresholdMinutes: inactivityThreshold
@@ -140,8 +144,9 @@ export class AutoStopService {
             'unknown';
 
           logger.info('Processing instance for auto-stop', {
-            jobId: payload.jobId,
+            operation: 'auto_stop_check',
             instanceId: instanceState.id,
+            jobId: payload.jobId,
             instanceName: instanceState.name,
             status: instanceState.status,
             lastUsedTime: lastUsedTime?.toISOString(),
@@ -151,6 +156,7 @@ export class AutoStopService {
 
           if (dryRun) {
             logger.info('DRY RUN: Would stop instance', {
+              operation: 'auto_stop_check',
               instanceId: instanceState.id,
               instanceName: instanceState.name,
               inactiveMinutes
@@ -161,6 +167,7 @@ export class AutoStopService {
             stopped++;
             
             logger.info('Instance auto-stopped due to inactivity', {
+              operation: 'auto_stop_check',
               instanceId: instanceState.id,
               instanceName: instanceState.name,
               inactiveMinutes,
@@ -170,11 +177,11 @@ export class AutoStopService {
         } catch (error) {
           errors++;
           logger.error('Failed to auto-stop instance', {
-            jobId: payload.jobId,
+            operation: 'auto_stop_check',
             instanceId: instanceState.id,
-            instanceName: instanceState.name,
-            error: (error as Error).message
-          });
+            jobId: payload.jobId,
+            instanceName: instanceState.name
+          }, error as Error);
         }
       }
 
@@ -188,6 +195,8 @@ export class AutoStopService {
       };
 
       logger.info('Auto-stop check completed', {
+        operation: 'auto_stop_check',
+        duration: executionTimeMs,
         jobId: payload.jobId,
         ...result,
         dryRun,
@@ -201,10 +210,10 @@ export class AutoStopService {
     } catch (error) {
       const executionTimeMs = Date.now() - startTime;
       logger.error('Auto-stop check failed', {
-        jobId: payload.jobId,
-        error: (error as Error).message,
-        executionTimeMs
-      });
+        operation: 'auto_stop_check',
+        duration: executionTimeMs,
+        jobId: payload.jobId
+      }, error as Error);
       throw error;
     }
   }

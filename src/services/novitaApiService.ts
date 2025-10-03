@@ -1,7 +1,9 @@
 import { AxiosError } from 'axios';
 import { novitaClient } from '../clients/novitaClient';
 import { novitaInternalClient } from '../clients/novitaInternalClient';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('novita-api');
 import {
   NovitaApiResponse,
   Product,
@@ -151,7 +153,7 @@ export class NovitaApiService {
       const response = await novitaClient.get<{ template: any }>(
         `/v1/template?templateId=${stringTemplateId}`
       );
-      logger.info('Request url:', response.config.url);
+      logger.info('Request url:', { url: response.config.url });
       logger.debug('Raw API response for template:', response.data);
 
       if (!response.data.template) {

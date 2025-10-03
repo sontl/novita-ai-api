@@ -1,4 +1,6 @@
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('migration-tracking');
 import { serviceRegistry } from './serviceRegistry';
 
 /**

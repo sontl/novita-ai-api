@@ -1,4 +1,6 @@
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('template');
 import { novitaApiService } from './novitaApiService';
 import { Template, NovitaApiClientError } from '../types/api';
 import { cacheManager } from './cacheService';

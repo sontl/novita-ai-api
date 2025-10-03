@@ -7,7 +7,9 @@
 
 import { novitaApiService } from '../services/novitaApiService';
 import { templateService } from '../services/templateService';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('example');
 
 async function demonstrateTemplateApiResponse() {
   try {

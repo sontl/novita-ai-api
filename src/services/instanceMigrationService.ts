@@ -1,4 +1,6 @@
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('instance-migration');
 import { novitaApiService } from './novitaApiService';
 import { config } from '../config/config';
 import {

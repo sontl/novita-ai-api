@@ -3,7 +3,9 @@
  * Maintains API compatibility with the original JobQueueService while providing Redis persistence
  */
 
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('redis-job-queue');
 import { recordJobMetrics } from '../middleware/metricsMiddleware';
 import { IRedisClient } from '../utils/redisClient';
 import { RedisJobQueueDataLayer } from './redisJobQueueDataLayer';
@@ -373,6 +375,8 @@ export class RedisJobQueueService {
       recordJobMetrics(job.type, processingTime, true, queueSize);
 
       logger.info('Job completed successfully in Redis', {
+        operation: 'job_processing',
+        duration: processingTime,
         jobId: job.id,
         type: job.type,
         attempts: job.attempts,

@@ -1,5 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import { logger, createContextLogger, sanitizeLogData, LogContext } from '../utils/logger';
+import { createContextLogger, sanitizeLogData, LogContext } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('error-handler');
 import { 
   NovitaApiClientError, 
   RateLimitError, 

@@ -3,7 +3,10 @@
  * Runs migration jobs at configurable intervals with deduplication and graceful shutdown
  */
 
-import { logger, createContextLogger, LogContext } from '../utils/logger';
+import { createContextLogger, LogContext } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('migration-scheduler');
 import { RedisJobQueueService } from './redisJobQueueService';
 import { JobType, JobPriority, MigrateSpotInstancesJobPayload } from '../types/job';
 import { Config } from '../config/config';

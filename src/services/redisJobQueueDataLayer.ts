@@ -15,7 +15,9 @@ import {
   RedisJobQueueOptions,
   DEFAULT_REDIS_JOB_QUEUE_OPTIONS
 } from '../types/redisJobQueue';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('redis-job-queue-data-layer');
 
 /**
  * Redis job queue data layer for managing job persistence

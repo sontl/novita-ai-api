@@ -54,39 +54,59 @@ const axiomFormat = winston.format.combine(
   winston.format.timestamp(),
   winston.format.errors({ stack: true }),
   winston.format.printf((info) => {
+    // Define the EXACT set of allowed fields to prevent column limit errors
+    const allowedFields = new Set([
+      'timestamp', 'level', 'message', 'service', 'environment', 'version',
+      'requestId', 'correlationId', 'component', 'action', 'operation',
+      'httpMethod', 'httpUrl', 'httpStatusCode', 'responseTime', 'duration',
+      'instanceId', 'errorType', 'memoryUsage', 'tags', 'metadata'
+    ]);
+
     // Ultra-minimal set of fields to prevent column limit errors
     const axiomEntry: any = {
       timestamp: info.timestamp,
       level: info.level.toUpperCase(),
       message: info.message,
       service: info.service || 'novita-gpu-instance-api',
-      environment: info.environment || 'development'
+      environment: info.environment || 'development',
+      version: info.version || '1.0.0'
     };
 
-    // Add only the most essential fields
-    if (info.requestId) axiomEntry.requestId = info.requestId;
-    if (info.correlationId) axiomEntry.correlationId = info.correlationId;
-    if (info.component) axiomEntry.component = info.component;
-    if (info.httpMethod) axiomEntry.httpMethod = info.httpMethod;
-    if (info.httpUrl) axiomEntry.httpUrl = info.httpUrl;
-    if (info.httpStatusCode) axiomEntry.httpStatusCode = info.httpStatusCode;
-    if (typeof info.responseTime === 'number') axiomEntry.responseTime = info.responseTime;
-    if (info.instanceId) axiomEntry.instanceId = info.instanceId;
-    if (info.errorType) axiomEntry.errorType = info.errorType;
+    // Collect all additional data into metadata
+    const metadata: any = {};
+    
+    // Process all fields from the log entry
+    Object.keys(info).forEach(key => {
+      if (key === 'timestamp' || key === 'level' || key === 'message' || 
+          key === 'service' || key === 'environment' || key === 'version') {
+        return; // Already handled above
+      }
 
-    // Convert tags to a single string
-    if (info.tags && Array.isArray(info.tags)) {
-      axiomEntry.tags = info.tags.join(',');
+      if (allowedFields.has(key) && info[key] !== undefined) {
+        // Add essential fields directly
+        if (key === 'tags' && Array.isArray(info[key])) {
+          axiomEntry.tags = info[key].join(',');
+        } else {
+          axiomEntry[key] = info[key];
+        }
+      } else {
+        // Everything else goes into metadata
+        metadata[key] = info[key];
+      }
+    });
+
+    // Add metadata as a single JSON string if there's any additional data
+    if (Object.keys(metadata).length > 0) {
+      axiomEntry.metadata = JSON.stringify(metadata);
     }
-
-    // DO NOT add metadata field to prevent column limit errors
-    // All other information is available in console logs
 
     return JSON.stringify(axiomEntry);
   })
 );
 
 // Add Axiom transport if configured
+// TEMPORARILY DISABLED: Axiom dataset has reached 257 column limit
+// Need to create new dataset or clean existing one before re-enabling
 if (process.env.AXIOM_DATASET && process.env.AXIOM_TOKEN) {
   try {
     transports.push(
@@ -157,18 +177,18 @@ export const limitLogFields = (data: any): any => {
     return data;
   }
 
-  // Define allowed fields to prevent Axiom column limit errors
-  const allowedFields = [
+  // Define the EXACT set of allowed fields to prevent Axiom column limit errors
+  const allowedFields = new Set([
     'requestId', 'correlationId', 'component', 'action', 'operation',
     'httpMethod', 'httpUrl', 'httpStatusCode', 'responseTime', 'duration',
-    'instanceId', 'errorType', 'memoryUsage', 'tags', 'count', 'status'
-  ];
+    'instanceId', 'errorType', 'memoryUsage', 'tags', 'metadata'
+  ]);
 
   const limited: any = {};
   const metadata: any = {};
 
   Object.keys(data).forEach(key => {
-    if (allowedFields.includes(key)) {
+    if (allowedFields.has(key)) {
       limited[key] = data[key];
     } else {
       // Put non-essential fields in metadata
@@ -176,9 +196,9 @@ export const limitLogFields = (data: any): any => {
     }
   });
 
-  // Add metadata as a single field if there's any
+  // Add metadata as a JSON string if there's any
   if (Object.keys(metadata).length > 0) {
-    limited.metadata = metadata;
+    limited.metadata = JSON.stringify(metadata);
   }
 
   return limited;

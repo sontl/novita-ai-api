@@ -2,7 +2,9 @@
  * Background worker service for processing different job types
  */
 
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('job-worker');
 import { RedisJobQueueService } from './redisJobQueueService';
 import { productService } from './productService';
 import { templateService } from './templateService';

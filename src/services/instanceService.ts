@@ -1,4 +1,6 @@
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('instance-service');
 import { productService } from './productService';
 import { templateService } from './templateService';
 import { serviceRegistry } from './serviceRegistry';
@@ -2573,6 +2575,7 @@ export class InstanceService {
       });
 
       logger.info('Calling Novita.ai API to stop instance', {
+        operation: 'stop_instance',
         instanceId: instanceDetails.id,
         novitaInstanceId: instanceState.novitaInstanceId,
         operationId

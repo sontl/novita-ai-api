@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('cache-route');
 import { cacheManager } from '../services/cacheService';
 import { instanceService } from '../services/instanceService';
 import { productService } from '../services/productService';

@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { metricsService } from '../services/metricsService';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('metrics-route');
 
 const router = Router();
 

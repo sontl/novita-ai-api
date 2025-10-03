@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { metricsService } from '../services/metricsService';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('metrics-middleware');
 
 interface MetricsRequest extends Request {
   startTime?: number;

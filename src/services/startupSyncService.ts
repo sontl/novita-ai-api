@@ -3,7 +3,9 @@
  * Ensures data consistency between external API and local cache on application startup
  */
 
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('startup-sync');
 import { NovitaApiService } from './novitaApiService';
 import { RedisCacheService } from './redisCacheService';
 import { RedisBulkOperationsService, BulkSetData } from './redisBulkOperationsService';
@@ -121,7 +123,8 @@ export class StartupSyncService {
         // Log synchronization summary
         const duration = Date.now() - startTime;
         logger.info('Instance synchronization completed', {
-          duration: `${duration}ms`,
+          duration: duration,
+          durationMs: `${duration}ms`,
           novitaInstances: result.novitaInstances,
           redisInstances: result.redisInstances,
           synchronized: result.synchronized,

@@ -5,7 +5,9 @@
 
 import { novitaApiService } from '../services/novitaApiService';
 import { novitaClient } from '../clients/novitaClient';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('example');
 
 export async function demonstrateHttpClient() {
   try {

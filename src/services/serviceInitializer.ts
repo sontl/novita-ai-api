@@ -4,7 +4,9 @@
  */
 
 import { Config } from '../config/config';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('service-initializer');
 import { serviceRegistry } from './serviceRegistry';
 import { RedisCacheManager, createRedisCacheManager } from './redisCacheManager';
 import { RedisClient, IRedisClient } from '../utils/redisClient';

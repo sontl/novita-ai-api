@@ -5,7 +5,9 @@
 import { RedisJobQueueService } from '../services/redisJobQueueService';
 import { JobWorkerService } from '../services/jobWorkerService';
 import { JobType, JobPriority, CreateInstanceJobPayload, SendWebhookJobPayload } from '../types/job';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('example');
 
 async function demonstrateJobQueue(): Promise<void> {
   logger.info('Starting job queue demonstration');

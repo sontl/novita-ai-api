@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('health-route');
 import { getAxiomStatus } from '../config/axiomConfig';
 import { novitaApiService } from '../services/novitaApiService';
 import { serviceRegistry } from '../services/serviceRegistry';

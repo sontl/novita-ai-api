@@ -2,7 +2,9 @@ import { RedisCacheService, CacheServiceOptions, CacheMetrics, CacheStats } from
 import { IRedisClient, RedisClient } from '../utils/redisClient';
 import { RedisConnectionManager } from '../utils/redisConnectionManager';
 import { RedisSerializer } from '../utils/redisSerializer';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('redis-cache-manager');
 import { getConfig } from '../config/config';
 
 // Re-export types for external consumers

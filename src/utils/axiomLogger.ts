@@ -10,32 +10,32 @@ export interface AxiomLogContext extends LogContext {
   component?: string;
   feature?: string;
   action?: string;
-  
+
   // Business context
   customerId?: string;
   sessionId?: string;
   traceId?: string;
-  
+
   // Performance metrics
   responseTime?: number;
   memoryUsage?: number;
   cpuUsage?: number;
-  
+
   // Error context
   errorCode?: string;
   errorType?: string;
   stackTrace?: string;
-  
+
   // API context
   apiVersion?: string;
   userAgent?: string;
   clientIp?: string;
-  
+
   // Custom tags for filtering in Axiom
   tags?: string[];
-  
+
   // Additional metadata
-  metadata?: Record<string, any>;
+  metadata?: Record<string, any> | string;
 }
 
 /**
@@ -211,6 +211,14 @@ export class AxiomLogger {
    * Heavily optimized to prevent Axiom column limit errors
    */
   private enrichContext(context: AxiomLogContext): AxiomLogContext {
+    // Define the EXACT set of allowed fields to prevent column limit errors
+    const allowedFields = new Set([
+      'service', 'version', 'environment', 'timestamp', 'level',
+      'component', 'action', 'operation', 'requestId', 'correlationId',
+      'httpMethod', 'httpUrl', 'httpStatusCode', 'responseTime', 'duration',
+      'instanceId', 'errorType', 'memoryUsage', 'tags', 'metadata'
+    ]);
+
     // Start with minimal base context
     const enriched: AxiomLogContext = {
       service: this.baseContext.service,
@@ -219,38 +227,45 @@ export class AxiomLogger {
       timestamp: new Date().toISOString()
     };
 
-    // Add only essential fields from base context
-    if (this.baseContext.component) enriched.component = this.baseContext.component;
-    if (this.baseContext.requestId) enriched.requestId = this.baseContext.requestId;
-    if (this.baseContext.correlationId) enriched.correlationId = this.baseContext.correlationId;
+    // Collect all additional data into metadata
+    const metadata: any = {};
 
-    // Add only essential fields from context
-    const essentialFields = [
-      'component', 'action', 'operation', 'requestId', 'correlationId',
-      'httpMethod', 'httpUrl', 'httpStatusCode', 'responseTime', 'duration',
-      'instanceId', 'errorType', 'tags'
-    ];
-
-    essentialFields.forEach(field => {
-      if (context[field] !== undefined) {
-        enriched[field] = context[field];
+    // Process base context
+    Object.keys(this.baseContext).forEach(key => {
+      if (allowedFields.has(key) && this.baseContext[key] !== undefined) {
+        enriched[key] = this.baseContext[key];
+      } else if (key !== 'service' && key !== 'version' && key !== 'environment' && key !== 'timestamp') {
+        metadata[key] = this.baseContext[key];
       }
     });
 
-    // Add memory usage only if not already provided and not in context
+    // Process current context
+    Object.keys(context).forEach(key => {
+      if (allowedFields.has(key) && context[key] !== undefined) {
+        if (key === 'tags' && Array.isArray(context[key])) {
+          enriched.tags = context[key];
+        } else {
+          enriched[key] = context[key];
+        }
+      } else {
+        metadata[key] = context[key];
+      }
+    });
+
+    // Add memory usage only if not already provided
     if (!enriched.memoryUsage && !context.memoryUsage) {
       enriched.memoryUsage = this.getMemoryUsage();
     }
 
     // Ensure tags is always an array
-    if (context.tags && Array.isArray(context.tags)) {
-      enriched.tags = context.tags;
-    } else if (!enriched.tags) {
+    if (!enriched.tags) {
       enriched.tags = [];
     }
 
-    // DO NOT add metadata to prevent Axiom column limit errors
-    // All additional context is available in console logs
+    // Add metadata as JSON string if there's any additional data
+    if (Object.keys(metadata).length > 0) {
+      enriched.metadata = JSON.stringify(metadata);
+    }
 
     return enriched;
   }
@@ -287,8 +302,8 @@ export const createComponentLogger = (component: string, feature?: string): Axio
  * Create a logger for a specific request
  */
 export const createRequestLogger = (requestId: string, correlationId?: string): AxiomLogger => {
-  return new AxiomLogger({ 
-    requestId, 
+  return new AxiomLogger({
+    requestId,
     correlationId,
     component: 'request'
   });

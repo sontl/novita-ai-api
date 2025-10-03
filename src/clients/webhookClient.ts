@@ -4,7 +4,9 @@
 
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import crypto from 'crypto';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('webhook-client');
 import { config } from '../config/config';
 import { HealthCheckResult, EndpointHealthCheck } from '../types/api';
 

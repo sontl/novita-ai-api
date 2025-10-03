@@ -1,6 +1,8 @@
 import { IRedisClient } from '../utils/redisClient';
 import { RedisPipelineWrapper } from '../utils/redisPipelineWrapper';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('optimized-redis-cache');
 import { cacheMetricsMiddleware } from '../middleware/metricsMiddleware';
 
 /**

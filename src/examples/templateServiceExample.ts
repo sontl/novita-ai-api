@@ -1,5 +1,7 @@
 import { templateService } from '../services/templateService';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('example');
 
 /**
  * Example demonstrating TemplateService usage

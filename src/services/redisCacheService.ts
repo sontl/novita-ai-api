@@ -1,5 +1,7 @@
 import { IRedisClient } from '../utils/redisClient';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('redis-cache');
 import { cacheMetricsMiddleware } from '../middleware/metricsMiddleware';
 
 /**

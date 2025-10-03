@@ -3,7 +3,9 @@
  */
 
 import { productService } from '../services/productService';
-import { logger } from '../utils/logger';
+import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
+
+const logger = createAxiomSafeLogger('example');
 
 async function demonstrateProductService() {
   try {
