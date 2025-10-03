@@ -304,6 +304,30 @@ router.post('/:instanceId/start', asyncHandler(async (req: Request, res: Respons
       requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
     });
 
+    // Handle insufficient resource errors specifically
+    if (error instanceof Error) {
+      const { NovitaApiClientError } = await import('../types/api');
+
+      if ((error as any).code === 'INSUFFICIENT_RESOURCE' ||
+        error.message.includes('INSUFFICIENT_RESOURCE')) {
+        contextLogger.info('Insufficient resources detected, deleting instance', {
+          instanceId: instanceIdValidation.value,
+          error: error.message,
+          errorCode: (error as any).code
+        });
+
+        // Delete/terminate the instance due to insufficient resources
+        try {
+          await deleteInstanceDueToInsufficientResources(instanceIdValidation.value, contextLogger);
+        } catch (deleteError) {
+          contextLogger.warn('Failed to delete instance after insufficient resources', {
+            instanceId: instanceIdValidation.value,
+            deleteError: (deleteError as Error).message
+          });
+        }
+      }
+    }
+
     throw error;
   }
 }));
@@ -386,6 +410,30 @@ router.post('/start', asyncHandler(async (req: Request, res: Response): Promise<
       duration,
       requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
     });
+
+    // Handle insufficient resource errors specifically
+    if (error instanceof Error) {
+      const { NovitaApiClientError } = await import('../types/api');
+
+      if ((error as any).code === 'INSUFFICIENT_RESOURCE' ||
+        error.message.includes('INSUFFICIENT_RESOURCE')) {
+        contextLoggerWithName.info('Insufficient resources detected, deleting instance', {
+          instanceName: bodyValidation.value.instanceName,
+          error: error.message,
+          errorCode: (error as any).code
+        });
+
+        // Delete/terminate the instance due to insufficient resources (by name)
+        try {
+          await deleteInstanceByNameDueToInsufficientResources(bodyValidation.value.instanceName, contextLoggerWithName);
+        } catch (deleteError) {
+          contextLoggerWithName.warn('Failed to delete instance after insufficient resources', {
+            instanceName: bodyValidation.value.instanceName,
+            deleteError: (deleteError as Error).message
+          });
+        }
+      }
+    }
 
     throw error;
   }
@@ -1374,5 +1422,60 @@ router.post('/stop-all', asyncHandler(async (req: Request, res: Response): Promi
     throw error;
   }
 }));
+
+/**
+ * Helper function to delete/terminate an instance due to insufficient resources
+ */
+async function deleteInstanceDueToInsufficientResources(instanceId: string, contextLogger: any): Promise<void> {
+  try {
+    contextLogger.info('Deleting instance due to insufficient resources', {
+      instanceId,
+      reason: 'INSUFFICIENT_RESOURCE'
+    });
+
+    // Use the instance service to delete the instance
+    const result = await instanceService.deleteInstance(instanceId, {}, 'id');
+
+    contextLogger.info('Instance deleted successfully due to insufficient resources', {
+      instanceId,
+      operationId: result.operationId,
+      status: result.status
+    });
+  } catch (error) {
+    contextLogger.error('Failed to delete instance due to insufficient resources', {
+      instanceId,
+      error: (error as Error).message
+    });
+    throw error;
+  }
+}
+
+/**
+ * Helper function to delete/terminate an instance by name due to insufficient resources
+ */
+async function deleteInstanceByNameDueToInsufficientResources(instanceName: string, contextLogger: any): Promise<void> {
+  try {
+    contextLogger.info('Deleting instance by name due to insufficient resources', {
+      instanceName,
+      reason: 'INSUFFICIENT_RESOURCE'
+    });
+
+    // Use the instance service to delete the instance by name
+    const result = await instanceService.deleteInstance(instanceName, {}, 'name');
+
+    contextLogger.info('Instance deleted successfully by name due to insufficient resources', {
+      instanceName,
+      instanceId: result.instanceId,
+      operationId: result.operationId,
+      status: result.status
+    });
+  } catch (error) {
+    contextLogger.error('Failed to delete instance by name due to insufficient resources', {
+      instanceName,
+      error: (error as Error).message
+    });
+    throw error;
+  }
+}
 
 export { router as instancesRouter };

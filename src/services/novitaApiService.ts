@@ -839,6 +839,21 @@ export class NovitaApiService {
             'AUTHENTICATION_FAILED'
           );
 
+        case 400:
+          // Handle specific 400 error cases
+          if (code === 'INSUFFICIENT_RESOURCE' || (message && message.includes('INSUFFICIENT_RESOURCE'))) {
+            throw new NovitaApiClientError(
+              message || 'Insufficient resources available',
+              400,
+              'INSUFFICIENT_RESOURCE'
+            );
+          }
+          throw new NovitaApiClientError(
+            message || 'Bad request - invalid parameters',
+            400,
+            'BAD_REQUEST'
+          );
+
         case 403:
           // Check if it's a resource constraint issue
           if (message && (message.includes('insufficient') || message.includes('quota') || message.includes('limit'))) {
