@@ -1247,6 +1247,49 @@ export class InstanceService {
   }
 
   /**
+   * Clear the last used time for an instance
+   */
+  async clearLastUsedTime(instanceId: string): Promise<{ instanceId: string; message: string }> {
+    try {
+      // Get instance state
+      const instanceState = this.instanceStates.get(instanceId);
+      if (!instanceState) {
+        throw new NovitaApiClientError(
+          `Instance not found: ${instanceId}`,
+          404,
+          'INSTANCE_NOT_FOUND'
+        );
+      }
+
+      // Update instance state by removing last used time
+      const updatedTimestamps = { ...instanceState.timestamps };
+      delete updatedTimestamps.lastUsed;
+      
+      await this.updateInstanceState(instanceId, {
+        timestamps: updatedTimestamps
+      });
+
+      logger.info('Instance last used time cleared', {
+        instanceId,
+        instanceName: instanceState.name,
+        status: instanceState.status
+      });
+
+      return {
+        instanceId,
+        message: 'Last used time cleared successfully'
+      };
+
+    } catch (error) {
+      logger.error('Failed to clear instance last used time', {
+        instanceId,
+        error: (error as Error).message
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Get instances that are eligible for auto-stop (running and inactive for over threshold)
    * Enhanced version that syncs with Redis and Novita API for data consistency
    */
@@ -2343,10 +2386,15 @@ export class InstanceService {
         // Update startup operation phase
         this.updateStartupOperation(instanceDetails.id, 'monitoring', 'instanceStarting');
 
-        // Update instance status to starting (only for locally managed instances)
+        // Clear lastUsed time and update instance status to starting (only for locally managed instances)
         if (instanceState) {
+          // Clear the lastUsed time to ensure fresh start
+          const updatedTimestamps = { ...instanceState.timestamps };
+          delete updatedTimestamps.lastUsed;
+          
           await this.updateInstanceState(instanceDetails.id, {
-            status: InstanceStatus.STARTING
+            status: InstanceStatus.STARTING,
+            timestamps: updatedTimestamps
           });
         }
 

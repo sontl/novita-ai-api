@@ -162,6 +162,9 @@ export class AutoStopService {
               inactiveMinutes
             });
           } else {
+            // Clear lastUsed time before stopping the instance
+            await instanceService.clearLastUsedTime(instanceState.id);
+            
             // Actually stop the instance
             await instanceService.stopInstance(instanceState.id, {}, 'id');
             stopped++;
