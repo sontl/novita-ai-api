@@ -133,24 +133,24 @@ router.get('/', asyncHandler(async (req: Request, res: Response): Promise<void> 
 
   const startTime = Date.now();
   let result;
-
-  if (source === 'all' || source === 'comprehensive') {
-    // Check if comprehensive listing is enabled
-    if (!config.instanceListing.enableComprehensiveListing) {
-      contextLogger.warn('Comprehensive listing requested but disabled in configuration');
-      // Fallback to local listing
-      result = await instanceService.listInstances();
-    } else {
-      // Use comprehensive listing with Novita.ai integration
-      result = await instanceService.listInstancesComprehensive({
-        includeNovitaOnly,
-        syncLocalState
-      });
-    }
-  } else {
-    // Use traditional local-only listing
-    result = await instanceService.listInstances();
-  }
+  result = await instanceService.listInstances();
+  // if (source === 'all' || source === 'comprehensive') {
+  //   // Check if comprehensive listing is enabled
+  //   if (!config.instanceListing.enableComprehensiveListing) {
+  //     contextLogger.warn('Comprehensive listing requested but disabled in configuration');
+  //     // Fallback to local listing
+      
+  //   } else {
+  //     // Use comprehensive listing with Novita.ai integration
+  //     result = await instanceService.listInstancesComprehensive({
+  //       includeNovitaOnly,
+  //       syncLocalState
+  //     });
+  //   }
+  // } else {
+  //   // Use traditional local-only listing
+  //   result = await instanceService.listInstances();
+  // }
 
   const duration = Date.now() - startTime;
 
