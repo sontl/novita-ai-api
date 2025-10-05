@@ -44,58 +44,7 @@ export class InstanceService {
   // Track active startup operations to prevent duplicates
   private activeStartupOperations: Map<string, StartupOperation> = new Map();
 
-  // Cache instances - initialized lazily
-  private _instanceCache?: Promise<ICacheService<InstanceDetails>>;
-  private _instanceStateCache?: Promise<ICacheService<InstanceState>>;
-  private _mergedInstancesCache?: Promise<ICacheService<EnhancedInstanceDetails[]>>;
-  private _novitaApiCache?: Promise<ICacheService<InstanceResponse[]>>;
-
   private readonly defaultRegion = 'CN-HK-01';
-
-  // Lazy initialization methods
-  private get instanceCache(): Promise<ICacheService<InstanceDetails>> {
-    if (!this._instanceCache) {
-      this._instanceCache = cacheManager.getCache<InstanceDetails>('instance-details', {
-        maxSize: 500,
-        defaultTtl: 30 * 1000, // 30 seconds for instance status
-        cleanupIntervalMs: 60 * 1000 // Cleanup every minute
-      });
-    }
-    return this._instanceCache;
-  }
-
-  private get instanceStateCache(): Promise<ICacheService<InstanceState>> {
-    if (!this._instanceStateCache) {
-      this._instanceStateCache = cacheManager.getCache<InstanceState>('instance-states', {
-        maxSize: 1000,
-        defaultTtl: 60 * 1000, // 1 minute for instance states
-        cleanupIntervalMs: 2 * 60 * 1000 // Cleanup every 2 minutes
-      });
-    }
-    return this._instanceStateCache;
-  }
-
-  private get mergedInstancesCache(): Promise<ICacheService<EnhancedInstanceDetails[]>> {
-    if (!this._mergedInstancesCache) {
-      this._mergedInstancesCache = cacheManager.getCache<EnhancedInstanceDetails[]>('merged-instances', {
-        maxSize: 100,
-        defaultTtl: config.instanceListing.comprehensiveCacheTtl * 1000, // Convert seconds to milliseconds
-        cleanupIntervalMs: 60 * 1000 // Cleanup every minute
-      });
-    }
-    return this._mergedInstancesCache;
-  }
-
-  private get novitaApiCache(): Promise<ICacheService<InstanceResponse[]>> {
-    if (!this._novitaApiCache) {
-      this._novitaApiCache = cacheManager.getCache<InstanceResponse[]>('novita-api-instances', {
-        maxSize: 100,
-        defaultTtl: config.instanceListing.novitaApiCacheTtl * 1000, // Convert seconds to milliseconds
-        cleanupIntervalMs: 2 * 60 * 1000 // Cleanup every 2 minutes
-      });
-    }
-    return this._novitaApiCache;
-  }
 
   /**
    * Create a new GPU instance with automated lifecycle management
@@ -207,14 +156,6 @@ export class InstanceService {
    */
   async getInstanceStatus(instanceId: string): Promise<InstanceDetails> {
     try {
-      // Check cache first
-      const cache = await this.instanceCache;
-      const cachedDetails = await cache.get(instanceId);
-      if (cachedDetails) {
-        logger.debug('Returning cached instance status', { instanceId });
-        return cachedDetails;
-      }
-
       // Get instance state
       let instanceState = this.instanceStates.get(instanceId);
 
@@ -245,9 +186,6 @@ export class InstanceService {
           logger.debug('No local state found, trying to fetch from Novita API', { instanceId });
           const novitaInstance = await novitaApiService.getInstance(instanceId);
           const instanceDetails = this.transformNovitaInstanceToDetails(novitaInstance);
-
-          // Cache the result
-          await cache.set(instanceId, instanceDetails);
 
           logger.debug('Retrieved Novita-only instance details', {
             instanceId,
@@ -283,9 +221,8 @@ export class InstanceService {
             instanceState.timestamps.ready = new Date();
           }
 
-          // Update state cache
-          const stateCache = await this.instanceStateCache;
-          await stateCache.set(instanceId, instanceState);
+          // Update state in Redis
+          await this.persistInstanceStateToRedis(instanceState);
         } catch (error) {
           // Check if it's a 404 error - instance no longer exists in Novita
           if (error instanceof NovitaApiClientError && error.statusCode === 404) {
@@ -318,9 +255,6 @@ export class InstanceService {
         // Instance not yet created in Novita, return our internal state
         instanceDetails = this.mapInstanceStateToDetails(instanceState);
       }
-
-      // Cache the result
-      await cache.set(instanceId, instanceDetails);
 
       return instanceDetails;
 
@@ -457,14 +391,6 @@ export class InstanceService {
 
     // Merge updates
     Object.assign(instanceState, updates);
-
-    // Update state cache
-    const stateCache = await this.instanceStateCache;
-    await stateCache.set(instanceId, instanceState);
-
-    // Clear instance details cache for this instance to force refresh
-    const cache = await this.instanceCache;
-    await cache.delete(instanceId);
 
     // Persist to Redis asynchronously (don't block the operation)
     this.persistInstanceStateToRedis(instanceState).catch(error => {
@@ -858,13 +784,8 @@ export class InstanceService {
    */
   private async getNovitaInstances(): Promise<InstanceResponse[]> {
     try {
-      // Check cache first
-      const cache = await this.novitaApiCache;
       const response = await novitaApiService.listInstances();
       const instances = response.instances;
-
-      // Cache the result
-      await cache.set('all', instances);
 
       logger.info('Fetched instances from Novita.ai', { count: instances.length });
       return instances;
@@ -1037,8 +958,6 @@ export class InstanceService {
     }));
   }
 
-
-
   /**
    * Validate URL format
    */
@@ -1052,134 +971,123 @@ export class InstanceService {
   }
 
   /**
-   * Clear all cached data
+   * Load instance states from Redis
    */
-  async clearCache(): Promise<void> {
-    const cache = await this.instanceCache;
-    const stateCache = await this.instanceStateCache;
-    await cache.clear();
-    await stateCache.clear();
-    logger.info('Instance cache cleared');
-  }
+  private async loadInstanceStatesFromRedis(): Promise<InstanceState[]> {
+    try {
+      const cacheManager = serviceRegistry.getCacheManager();
+      if (!cacheManager) {
+        logger.debug('No cache manager available, skipping Redis load');
+        return [];
+      }
 
-  /**
-   * Clear expired cache entries
-   */
-  async clearExpiredCache(): Promise<void> {
-    const cache = await this.instanceCache;
-    const stateCache = await this.instanceStateCache;
-    const detailsCleaned = await cache.cleanupExpired();
-    const statesCleaned = await stateCache.cleanupExpired();
-    const totalCleaned = detailsCleaned + statesCleaned;
-
-    if (totalCleaned > 0) {
-      logger.debug('Cleared expired instance cache entries', {
-        detailsCleaned,
-        statesCleaned,
-        totalCleaned
+      const instanceStatesCache = await cacheManager.getCache<InstanceState>('instance-states-persistent', {
+        maxSize: 10000,
+        defaultTtl: 24 * 60 * 60 * 1000, // 24 hours for persistent states
+        cleanupIntervalMs: 60 * 60 * 1000 // Cleanup every hour
       });
+
+      const keys = await instanceStatesCache.keys();
+      const states: InstanceState[] = [];
+
+      for (const key of keys) {
+        const state = await instanceStatesCache.get(key);
+        if (state) {
+          // Convert timestamp strings back to Date objects, handling null/undefined values
+          state.timestamps.created = state.timestamps.created ? new Date(state.timestamps.created) : new Date();
+          if (state.timestamps.started) {
+            state.timestamps.started = new Date(state.timestamps.started);
+          }
+          if (state.timestamps.ready) {
+            state.timestamps.ready = new Date(state.timestamps.ready);
+          }
+          if (state.timestamps.failed) {
+            state.timestamps.failed = new Date(state.timestamps.failed);
+          }
+          if (state.timestamps.stopping) {
+            state.timestamps.stopping = new Date(state.timestamps.stopping);
+          }
+          if (state.timestamps.stopped) {
+            state.timestamps.stopped = new Date(state.timestamps.stopped);
+          }
+          if (state.timestamps.lastUsed) {
+            state.timestamps.lastUsed = new Date(state.timestamps.lastUsed);
+          }
+
+          states.push(state);
+        }
+      }
+
+      return states;
+    } catch (error) {
+      logger.error('Failed to load instance states from Redis', {
+        error: (error as Error).message
+      });
+      return [];
     }
   }
 
   /**
-   * Get cache statistics for monitoring
+   * Persist instance states to Redis
    */
-  async getCacheStats(): Promise<{
-    instanceDetailsCache: {
-      size: number;
-      hitRatio: number;
-      metrics: any;
-    };
-    instanceStatesCache: {
-      size: number;
-      hitRatio: number;
-      metrics: any;
-    };
-    instanceStatesSize: number;
-    cachedInstanceIds: string[];
-  }> {
-    const cache = await this.instanceCache;
-    const stateCache = await this.instanceStateCache;
-
-    return {
-      instanceDetailsCache: {
-        size: await cache.size(),
-        hitRatio: await cache.getHitRatio(),
-        metrics: await cache.getMetrics()
-      },
-      instanceStatesCache: {
-        size: await stateCache.size(),
-        hitRatio: await stateCache.getHitRatio(),
-        metrics: await stateCache.getMetrics()
-      },
-      instanceStatesSize: this.instanceStates.size,
-      cachedInstanceIds: await cache.keys()
-    };
-  }
-
-  /**
-   * Invalidate cache for specific instance
-   */
-  async invalidateInstanceCache(instanceId: string): Promise<void> {
-    const cache = await this.instanceCache;
-    const stateCache = await this.instanceStateCache;
-    await cache.delete(instanceId);
-    await stateCache.delete(instanceId);
-    logger.debug('Instance cache invalidated', { instanceId });
-  }
-
-  /**
-   * Handle 404 errors from Novita API by removing instance from cache
-   * This ensures we don't keep stale data for instances that no longer exist
-   */
-  async handleInstanceNotFound(instanceId: string, novitaInstanceId?: string): Promise<void> {
-    logger.info('Handling instance not found, removing from cache', {
-      instanceId,
-      novitaInstanceId
-    });
-
+  private async persistInstanceStatesToRedis(states: InstanceState[]): Promise<void> {
     try {
-      // Remove from all caches and local state
-      await this.removeInstanceState(instanceId);
+      const cacheManager = serviceRegistry.getCacheManager();
+      if (!cacheManager) {
+        logger.debug('No cache manager available, skipping Redis persistence');
+        return;
+      }
 
-      // Also clear any merged instances cache that might contain this instance
-      const mergedCache = await this.mergedInstancesCache;
-      await mergedCache.clear(); // Clear all merged cache since we can't selectively remove
-
-      logger.info('Successfully removed instance from cache after 404', {
-        instanceId,
-        novitaInstanceId
+      const instanceStatesCache = await cacheManager.getCache<InstanceState>('instance-states-persistent', {
+        maxSize: 10000,
+        defaultTtl: 24 * 60 * 60 * 1000, // 24 hours for persistent states
+        cleanupIntervalMs: 60 * 60 * 1000 // Cleanup every hour
       });
+
+      const persistPromises = states.map(async (state) => {
+        try {
+          await instanceStatesCache.set(state.id, state, 24 * 60 * 60 * 1000); // 24 hours TTL
+        } catch (error) {
+          logger.warn('Failed to persist instance state to Redis', {
+            instanceId: state.id,
+            error: (error as Error).message
+          });
+        }
+      });
+
+      await Promise.allSettled(persistPromises);
+
+      logger.debug('Persisted instance states to Redis', { count: states.length });
     } catch (error) {
-      logger.error('Failed to remove instance from cache after 404', {
-        instanceId,
-        novitaInstanceId,
+      logger.error('Failed to persist instance states to Redis', {
         error: (error as Error).message
       });
     }
   }
 
   /**
-   * Preload instance into cache
+   * Persist a single instance state to Redis
    */
-  async preloadInstance(instanceId: string): Promise<void> {
+  private async persistInstanceStateToRedis(state: InstanceState): Promise<void> {
     try {
-      await this.getInstanceStatus(instanceId);
-      logger.debug('Instance preloaded into cache', { instanceId });
+      const cacheManager = serviceRegistry.getCacheManager();
+      if (!cacheManager) {
+        return;
+      }
+
+      const instanceStatesCache = await cacheManager.getCache<InstanceState>('instance-states-persistent', {
+        maxSize: 10000,
+        defaultTtl: 24 * 60 * 60 * 1000, // 24 hours for persistent states
+        cleanupIntervalMs: 60 * 60 * 1000 // Cleanup every hour
+      });
+
+      await instanceStatesCache.set(state.id, state, 24 * 60 * 60 * 1000); // 24 hours TTL
     } catch (error) {
-      logger.warn('Failed to preload instance', {
-        instanceId,
+      logger.error('Failed to persist single instance state to Redis', {
+        instanceId: state.id,
         error: (error as Error).message
       });
-      throw error;
     }
-  }
-
-  /**
-   * Get all instance states (for monitoring/debugging)
-   */
-  getAllInstanceStates(): InstanceState[] {
-    return Array.from(this.instanceStates.values());
   }
 
   /**
@@ -1187,10 +1095,6 @@ export class InstanceService {
    */
   async removeInstanceState(instanceId: string): Promise<boolean> {
     const removed = this.instanceStates.delete(instanceId);
-    const cache = await this.instanceCache;
-    const stateCache = await this.instanceStateCache;
-    await cache.delete(instanceId);
-    await stateCache.delete(instanceId);
 
     if (removed) {
       logger.info('Instance state removed', { instanceId });
@@ -1513,128 +1417,6 @@ export class InstanceService {
       return Array.from(this.instanceStates.values());
     }
   }
-
-  /**
-   * Load instance states from Redis
-   */
-  private async loadInstanceStatesFromRedis(): Promise<InstanceState[]> {
-    try {
-      const cacheManager = serviceRegistry.getCacheManager();
-      if (!cacheManager) {
-        logger.debug('No cache manager available, skipping Redis load');
-        return [];
-      }
-
-      const instanceStatesCache = await cacheManager.getCache<InstanceState>('instance-states-persistent', {
-        maxSize: 10000,
-        defaultTtl: 24 * 60 * 60 * 1000, // 24 hours for persistent states
-        cleanupIntervalMs: 60 * 60 * 1000 // Cleanup every hour
-      });
-
-      const keys = await instanceStatesCache.keys();
-      const states: InstanceState[] = [];
-
-      for (const key of keys) {
-        const state = await instanceStatesCache.get(key);
-        if (state) {
-          // Convert timestamp strings back to Date objects, handling null/undefined values
-          state.timestamps.created = state.timestamps.created ? new Date(state.timestamps.created) : new Date();
-          if (state.timestamps.started) {
-            state.timestamps.started = new Date(state.timestamps.started);
-          }
-          if (state.timestamps.ready) {
-            state.timestamps.ready = new Date(state.timestamps.ready);
-          }
-          if (state.timestamps.failed) {
-            state.timestamps.failed = new Date(state.timestamps.failed);
-          }
-          if (state.timestamps.stopping) {
-            state.timestamps.stopping = new Date(state.timestamps.stopping);
-          }
-          if (state.timestamps.stopped) {
-            state.timestamps.stopped = new Date(state.timestamps.stopped);
-          }
-          if (state.timestamps.lastUsed) {
-            state.timestamps.lastUsed = new Date(state.timestamps.lastUsed);
-          }
-
-          states.push(state);
-        }
-      }
-
-      return states;
-    } catch (error) {
-      logger.error('Failed to load instance states from Redis', {
-        error: (error as Error).message
-      });
-      return [];
-    }
-  }
-
-  /**
-   * Persist instance states to Redis
-   */
-  private async persistInstanceStatesToRedis(states: InstanceState[]): Promise<void> {
-    try {
-      const cacheManager = serviceRegistry.getCacheManager();
-      if (!cacheManager) {
-        logger.debug('No cache manager available, skipping Redis persistence');
-        return;
-      }
-
-      const instanceStatesCache = await cacheManager.getCache<InstanceState>('instance-states-persistent', {
-        maxSize: 10000,
-        defaultTtl: 24 * 60 * 60 * 1000, // 24 hours for persistent states
-        cleanupIntervalMs: 60 * 60 * 1000 // Cleanup every hour
-      });
-
-      const persistPromises = states.map(async (state) => {
-        try {
-          await instanceStatesCache.set(state.id, state, 24 * 60 * 60 * 1000); // 24 hours TTL
-        } catch (error) {
-          logger.warn('Failed to persist instance state to Redis', {
-            instanceId: state.id,
-            error: (error as Error).message
-          });
-        }
-      });
-
-      await Promise.allSettled(persistPromises);
-
-      logger.debug('Persisted instance states to Redis', { count: states.length });
-    } catch (error) {
-      logger.error('Failed to persist instance states to Redis', {
-        error: (error as Error).message
-      });
-    }
-  }
-
-  /**
-   * Persist a single instance state to Redis
-   */
-  private async persistInstanceStateToRedis(state: InstanceState): Promise<void> {
-    try {
-      const cacheManager = serviceRegistry.getCacheManager();
-      if (!cacheManager) {
-        return;
-      }
-
-      const instanceStatesCache = await cacheManager.getCache<InstanceState>('instance-states-persistent', {
-        maxSize: 10000,
-        defaultTtl: 24 * 60 * 60 * 1000, // 24 hours for persistent states
-        cleanupIntervalMs: 60 * 60 * 1000 // Cleanup every hour
-      });
-
-      await instanceStatesCache.set(state.id, state, 24 * 60 * 60 * 1000); // 24 hours TTL
-    } catch (error) {
-      logger.error('Failed to persist single instance state to Redis', {
-        instanceId: state.id,
-        error: (error as Error).message
-      });
-    }
-  }
-
-
 
   /**
    * Update last used time by instance name (useful for external integrations)
@@ -2090,9 +1872,8 @@ export class InstanceService {
       results: []
     };
 
-    // Update state cache
-    const stateCache = await this.instanceStateCache;
-    await stateCache.set(instanceId, instanceState);
+    // Update state in Redis
+    await this.persistInstanceStateToRedis(instanceState);
 
     logger.debug('Health check initialized', {
       instanceId,
@@ -2122,9 +1903,8 @@ export class InstanceService {
       instanceState.healthCheck.results = instanceState.healthCheck.results.slice(-10);
     }
 
-    // Update state cache
-    const stateCache = await this.instanceStateCache;
-    await stateCache.set(instanceId, instanceState);
+    // Update state in Redis
+    await this.persistInstanceStateToRedis(instanceState);
 
     logger.debug('Health check progress updated', {
       instanceId,

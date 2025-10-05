@@ -17,7 +17,6 @@ const mockNovitaApiService = novitaApiService as jest.Mocked<typeof novitaApiSer
 describe('InstanceService - Comprehensive Listing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    instanceService.clearCache();
   });
 
   describe('listInstancesComprehensive', () => {
@@ -250,37 +249,6 @@ describe('InstanceService - Comprehensive Listing', () => {
       const localInstance = result.instances[0];
       expect(localInstance.source).toBe('local');
       expect(localInstance.id).toBe(localInstanceId);
-    });
-
-    it('should use cache for repeated requests', async () => {
-      const novitaInstance: InstanceResponse = {
-        id: 'novita-cache-test',
-        name: 'cache-test-instance',
-        status: InstanceStatus.RUNNING,
-        productId: 'product-5',
-        region: 'CN-HK-01',
-        gpuNum: 1,
-        rootfsSize: 50,
-        billingMode: 'spot',
-        createdAt: '2024-01-01T00:00:00Z'
-      };
-
-      mockNovitaApiService.listInstances.mockResolvedValue({
-        instances: [novitaInstance],
-        total: 1,
-        page: 1,
-        pageSize: 10
-      });
-
-      // First call
-      const result1 = await instanceService.listInstancesComprehensive();
-      expect(mockNovitaApiService.listInstances).toHaveBeenCalledTimes(1);
-
-      // Second call should use cache
-      const result2 = await instanceService.listInstancesComprehensive();
-      expect(mockNovitaApiService.listInstances).toHaveBeenCalledTimes(1); // Still 1, not 2
-
-      expect(result1.instances).toEqual(result2.instances);
     });
 
     it('should include performance metrics', async () => {
