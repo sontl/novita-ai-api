@@ -45,21 +45,13 @@ async function runIntegrationTest() {
       throw new Error(`Failed to import type definitions: ${(error as Error).message}`);
     }
 
-    // Test 4: Cache initialization
-    console.log('\n4. Testing cache initialization...');
-    const cacheStats = instanceService.getCacheStats();
-    if (!cacheStats.instanceDetailsCache || !cacheStats.instanceStatesCache) {
-      throw new Error('Cache systems not properly initialized');
-    }
-    console.log('   ✅ Cache systems initialized');
-
-    // Test 5: Basic local listing (should work without external dependencies)
-    console.log('\n5. Testing local instance listing...');
+    // Test 4: Basic local listing (should work without external dependencies)
+    console.log('\n4. Testing local instance listing...');
     const localResult = await instanceService.listInstances();
     console.log(`   ✅ Local listing returned ${localResult.total} instances`);
 
-    // Test 6: Error handling for comprehensive listing (without real API)
-    console.log('\n6. Testing comprehensive listing error handling...');
+    // Test 5: Error handling for comprehensive listing (without real API)
+    console.log('\n5. Testing comprehensive listing error handling...');
     try {
       // This should gracefully handle API failures and return local data
       const comprehensiveResult = await instanceService.listInstancesComprehensive({

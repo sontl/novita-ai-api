@@ -80,7 +80,6 @@ router.get('/', async (req: Request, res: Response) => {
         version: process.env.npm_package_version || '1.0.0',
         nodeVersion: process.version,
         platform: process.platform,
-        cacheStats: instanceService.getCacheStats(),
         jobQueueStats: jobQueueService ? await jobQueueService.getStats() : {}
       };
     }
@@ -230,8 +229,12 @@ async function checkJobQueueHealth(): Promise<boolean> {
  */
 async function checkCacheHealth(): Promise<boolean> {
   try {
-    // Check if instance service cache is accessible
-    const stats = await instanceService.getCacheStats();
+    // Check if cache manager is responsive
+    const cacheManager = serviceRegistry.getCacheManager();
+    if (!cacheManager) {
+      return false;
+    }
+    const stats = await cacheManager.getAllStats();
     return typeof stats === 'object' && stats !== null;
   } catch (error) {
     logger.debug('Cache health check failed', {
@@ -325,19 +328,23 @@ async function checkJobQueueHealthDetailed(): Promise<any> {
  */
 async function checkCacheHealthDetailed(): Promise<any> {
   try {
-    const instanceStats = await instanceService.getCacheStats();
+    const cacheManager = serviceRegistry.getCacheManager();
+    if (!cacheManager) {
+      return {
+        status: 'down',
+        error: 'Cache manager not available',
+        lastChecked: new Date().toISOString()
+      };
+    }
+
+    const allStats = await cacheManager.getAllStats();
 
     return {
       status: 'up',
-      instanceCache: {
-        size: instanceStats.instanceDetailsCache?.size || 0,
-        hitRatio: Math.round((instanceStats.instanceDetailsCache?.hitRatio || 0) * 100)
-      },
-      instanceStatesCache: {
-        size: instanceStats.instanceStatesCache?.size || 0,
-        hitRatio: Math.round((instanceStats.instanceStatesCache?.hitRatio || 0) * 100)
-      },
-      totalStates: instanceStats.instanceStatesSize || 0,
+      cacheCount: cacheManager.getCacheNames().length,
+      totalEntries: Object.values(allStats).reduce((sum, cacheStats) => {
+        return sum + Object.keys(cacheStats.entries || {}).length;
+      }, 0),
       lastChecked: new Date().toISOString()
     };
   } catch (error) {
