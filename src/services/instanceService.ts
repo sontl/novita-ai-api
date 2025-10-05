@@ -385,26 +385,6 @@ export class InstanceService {
     try {
       const startTime = Date.now();
 
-      // Check cache first
-      const cacheKey = `comprehensive_${JSON.stringify(options || {})}`;
-      const mergedCache = await this.mergedInstancesCache;
-      const cachedResult = await mergedCache.get(cacheKey);
-      if (cachedResult) {
-        logger.debug('Returning cached comprehensive instance list', { count: cachedResult.length });
-        return {
-          instances: cachedResult,
-          total: cachedResult.length,
-          sources: this.calculateSourceCounts(cachedResult),
-          performance: {
-            totalRequestTime: 0, // Cache hit
-            novitaApiTime: 0,
-            localDataTime: 0,
-            mergeProcessingTime: 0,
-            cacheHitRatio: await mergedCache.getHitRatio()
-          }
-        };
-      }
-
       // Fetch from both sources in parallel
       const localStartTime = Date.now();
       const localInstancesPromise = this.getLocalInstances();
@@ -434,8 +414,6 @@ export class InstanceService {
       }
 
       // Cache the result
-      await mergedCache.set(cacheKey, mergedInstances);
-
       const totalRequestTime = Date.now() - startTime;
 
       logger.info('Listed instances comprehensively', {
@@ -454,7 +432,7 @@ export class InstanceService {
           novitaApiTime,
           localDataTime,
           mergeProcessingTime,
-          cacheHitRatio: await mergedCache.getHitRatio()
+          cacheHitRatio: 0
         }
       };
     } catch (error) {
