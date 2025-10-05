@@ -17,7 +17,8 @@ services:
       # Core Configuration
       - NODE_ENV=${NODE_ENV:-development}
       - PORT=3003
-      - LOG_LEVEL=${LOG_LEVEL:-debug}
+      - LOG_LEVEL=debug
+      - DOCKER_CONTAINER=true
       
       # Novita.ai API Configuration (Required)
       - NOVITA_API_KEY=${NOVITA_API_KEY:?NOVITA_API_KEY is required}

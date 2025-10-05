@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import { createRequestLogger, AxiomLogContext } from '../utils/axiomLogger';
 
 /**
@@ -15,15 +14,21 @@ export interface RequestWithLogging extends Request {
 /**
  * Middleware to add Axiom-optimized logging to all requests
  */
+// Simple UUID generator to avoid ES module issues
+function generateRequestId(): string {
+  return Math.random().toString(36).substring(2) + Date.now().toString(36);
+}
+
 export const axiomLoggingMiddleware = (
   req: Request,
   res: Response,
   next: NextFunction
 ): void => {
   const requestWithLogging = req as RequestWithLogging;
+
   // Generate unique identifiers
-  requestWithLogging.requestId = uuidv4();
-  requestWithLogging.correlationId = requestWithLogging.headers['x-correlation-id'] as string || uuidv4();
+  requestWithLogging.requestId = generateRequestId();
+  requestWithLogging.correlationId = requestWithLogging.headers['x-correlation-id'] as string || generateRequestId();
   requestWithLogging.startTime = Date.now();
 
   // Create request-specific logger
@@ -75,20 +80,8 @@ export const axiomLoggingMiddleware = (
     return originalEnd.call(this, chunk, encoding, cb);
   };
 
-  // Handle errors in the request pipeline
-  const originalNext = next;
-  const wrappedNext = (error?: any) => {
-    if (error) {
-      requestWithLogging.logger.error('Request processing error', {
-        httpMethod: requestWithLogging.method,
-        httpUrl: requestWithLogging.originalUrl || requestWithLogging.url,
-        tags: ['http', 'error']
-      }, error);
-    }
-    originalNext(error);
-  };
-
-  wrappedNext();
+  // Continue to next middleware
+  next();
 };
 
 /**
@@ -124,5 +117,8 @@ export const axiomErrorMiddleware = (
     });
   }
 
-  next(error);
+  // Only call next if headers haven't been sent
+  if (!res.headersSent) {
+    next(error);
+  }
 };

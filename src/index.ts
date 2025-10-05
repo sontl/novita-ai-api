@@ -2,10 +2,32 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
-import { config, getConfigSummary } from './config/config';
-import { createAxiomSafeLogger } from './utils/axiomSafeLogger';
 
-const logger = createAxiomSafeLogger('app');
+// Add early console logging to catch startup issues
+console.log('🚀 Starting Novita GPU Instance API...');
+console.log('📊 Environment:', process.env.NODE_ENV);
+console.log('🔧 Log Level:', process.env.LOG_LEVEL);
+console.log('🐳 Running in Docker:', !!process.env.DOCKER_CONTAINER);
+
+try {
+  console.log('📋 Loading configuration...');
+  var { config, getConfigSummary } = require('./config/config');
+  console.log('✅ Configuration loaded successfully');
+} catch (error) {
+  console.error('❌ Failed to load configuration:', error);
+  process.exit(1);
+}
+
+let logger: any;
+try {
+  console.log('📝 Initializing logger...');
+  var { createAxiomSafeLogger } = require('./utils/axiomSafeLogger');
+  logger = createAxiomSafeLogger('app');
+  console.log('✅ Logger initialized');
+} catch (error) {
+  console.error('❌ Failed to initialize logger:', error);
+  process.exit(1);
+}
 import { axiomLogger } from './utils/axiomLogger';
 import { getAxiomStatus } from './config/axiomConfig';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
@@ -135,6 +157,12 @@ app.use(errorHandler);
 // Only start server if not in test environment
 if (config.nodeEnv !== 'test') {
   let jobWorkerService: JobWorkerService;
+
+  console.log('🔧 Starting service initialization...');
+  logger.debug('About to initialize services', {
+    nodeEnv: config.nodeEnv,
+    redisConfigured: !!(config.redis?.url && config.redis?.host && config.redis?.password)
+  });
 
   // Initialize Redis-backed services
   initializeServices(config)

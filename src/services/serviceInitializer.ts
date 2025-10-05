@@ -36,6 +36,8 @@ export interface ServiceInitializationResult {
  * Initialize Redis client with connection validation
  */
 async function initializeRedisClient(config: Config): Promise<IRedisClient | undefined> {
+  const startTime = Date.now();
+  
   try {
     logger.info('Initializing Redis client', {
       host: config.redis.host,
@@ -53,18 +55,7 @@ async function initializeRedisClient(config: Config): Promise<IRedisClient | und
       throw new Error('Redis URL, host, and password are required');
     }
 
-    // Create Redis connection manager
-    const connectionManager = new RedisConnectionManager({
-      url: config.redis.url,
-      host: config.redis.host,
-      port: config.redis.port,
-      username: config.redis.username,
-      password: config.redis.password,
-      connectionTimeoutMs: config.redis.connectionTimeoutMs,
-      commandTimeoutMs: config.redis.commandTimeoutMs,
-      retryAttempts: config.redis.retryAttempts,
-      retryDelayMs: config.redis.retryDelayMs,
-    });
+    logger.debug('Creating Redis client with serializer...');
 
     // Create Redis client with serializer
     const redisClient = new RedisClient({
@@ -79,21 +70,52 @@ async function initializeRedisClient(config: Config): Promise<IRedisClient | und
       retryDelayMs: config.redis.retryDelayMs,
     }, new RedisSerializer());
 
-    // Test Redis connection
-    await redisClient.connect();
-    const pingResult = await redisClient.ping();
+    logger.debug('Attempting Redis connection...');
 
+    // Add timeout wrapper for the entire connection process
+    const connectionTimeout = config.redis.connectionTimeoutMs + 5000; // Add 5s buffer
+    const connectionPromise = redisClient.connect();
+    
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Redis connection timeout after ${connectionTimeout}ms`));
+      }, connectionTimeout);
+    });
+
+    // Race between connection and timeout
+    await Promise.race([connectionPromise, timeoutPromise]);
+    
+    logger.debug('Redis connection established, testing with ping...');
+
+    // Test Redis connection with timeout
+    const pingTimeout = config.redis.commandTimeoutMs + 2000; // Add 2s buffer
+    const pingPromise = redisClient.ping();
+    
+    const pingTimeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Redis ping timeout after ${pingTimeout}ms`));
+      }, pingTimeout);
+    });
+
+    const pingResult = await Promise.race([pingPromise, pingTimeoutPromise]);
+
+    const duration = Date.now() - startTime;
     logger.info('Redis client initialized successfully', {
       pingResult,
-      keyPrefix: config.redis.keyPrefix
+      keyPrefix: config.redis.keyPrefix,
+      initializationDurationMs: duration
     });
 
     return redisClient;
   } catch (error) {
+    const duration = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     logger.error('Redis initialization failed, no fallback configured', {
-      error: errorMessage
+      error: errorMessage,
+      initializationDurationMs: duration,
+      host: config.redis.host,
+      port: config.redis.port
     });
     throw new Error(`Redis initialization failed: ${errorMessage}`);
   }
@@ -181,6 +203,8 @@ async function validateRedisConnection(redisClient: IRedisClient): Promise<boole
  * Initialize all Redis-backed services based on configuration
  */
 export async function initializeServices(config: Config): Promise<ServiceInitializationResult> {
+  const startTime = Date.now();
+  
   logger.info('Starting service initialization', {
     redisEnabled: !!(config.redis.url && config.redis.host && config.redis.password),
     fallbackEnabled: config.instanceListing.enableFallbackToLocal // Use correct property
@@ -192,15 +216,33 @@ export async function initializeServices(config: Config): Promise<ServiceInitial
   // Initialize Redis client if configured
   if (config.redis.url && config.redis.host && config.redis.password) {
     try {
-      redisClient = await initializeRedisClient(config);
+      logger.debug('Initializing Redis client...');
+      
+      // Add timeout for Redis initialization (30 seconds)
+      const initTimeout = 30000;
+      const initPromise = initializeRedisClient(config);
+      
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Service initialization timeout after ${initTimeout}ms`));
+        }, initTimeout);
+      });
+
+      redisClient = await Promise.race([initPromise, timeoutPromise]);
 
       if (redisClient) {
+        logger.debug('Validating Redis connection...');
         redisHealthy = await validateRedisConnection(redisClient);
         serviceRegistry.registerRedisClient(redisClient);
+        logger.debug('Redis client registered in service registry');
       }
     } catch (error) {
+      const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Failed to initialize Redis client', { error: errorMessage });
+      logger.error('Failed to initialize Redis client', { 
+        error: errorMessage,
+        initializationDurationMs: duration
+      });
       throw error;
     }
   } else {
