@@ -534,6 +534,28 @@ export class InstanceService {
 
     // Process Novita instances
     novitaInstances.forEach(novitaInstance => {
+      // Check if productName is null or empty, if so, delete the instance from cache
+      if (!novitaInstance.productName || novitaInstance.productName.trim() === '') {
+        logger.info('Removing instance from cache due to null or empty productName', {
+          instanceId: novitaInstance.id,
+          productName: novitaInstance.productName
+        });
+        // Remove the instance from our local state if it exists
+        const localState = Array.from(this.instanceStates.values())
+          .find(state => state.novitaInstanceId === novitaInstance.id);
+        if (localState) {
+          this.removeInstanceState(localState.id).catch(error => {
+            logger.warn('Failed to remove instance state for instance with null/empty productName', {
+              instanceId: localState.id,
+              novitaInstanceId: novitaInstance.id,
+              error: (error as Error).message
+            });
+          });
+        }
+        // Skip processing this instance
+        return;
+      }
+
       const localMatch = this.findLocalInstanceMatch(novitaInstance, localInstances);
 
       if (localMatch) {
