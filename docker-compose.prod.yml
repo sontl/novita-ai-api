@@ -64,4 +64,4 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: /var/log/novita-gpu-api
+      device: ./logs
