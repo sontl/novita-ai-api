@@ -46,9 +46,10 @@ async function demonstrateRegionFallback() {
   // Example 3: With custom region configuration
   console.log('3. With custom region priority:');
   const customRegions: RegionConfig[] = [
-    { id: 'as-in-1', name: 'AS-IN-01', priority: 1 },      // Try India first
-    { id: 'cn-hongkong-1', name: 'OC-AU-01', priority: 2 }, // Then Hong Kong
-    { id: 'as-sgp-2', name: 'AS-SGP-02', priority: 3 }     // Finally Singapore
+    { id: 'oc-au-01', name: 'OC-AU-01', priority: 1 }, 
+    { id: 'as-in-1', name: 'AS-IN-01', priority: 2 },      // Try India first
+    { id: 'cn-hongkong-1', name: 'CN-HK-01', priority: 3 }, // Then Hong Kong
+    { id: 'as-sgp-2', name: 'AS-SGP-02', priority: 4 }     // Finally Singapore
   ];
   
   try {

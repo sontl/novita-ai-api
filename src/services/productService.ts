@@ -14,8 +14,9 @@ export class ProductService {
 
   // Default region configuration with fallback priorities
   private readonly defaultRegions: RegionConfig[] = [
+     { id: 'oc-au-01', name: 'OC-AU-01', priority: 1 },
     { id: 'as-sgp-2', name: 'AS-SGP-02', priority: 1 },
-    { id: 'cn-hongkong-1', name: 'OC-AU-01', priority: 2 },
+    { id: 'cn-hongkong-1', name: 'CN-HK-01', priority: 2 },
     { id: 'as-in-1', name: 'AS-IN-01', priority: 3 }
   ];
 

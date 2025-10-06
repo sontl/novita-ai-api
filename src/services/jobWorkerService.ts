@@ -119,7 +119,7 @@ export class JobWorkerService {
         productId: optimalProduct.id,
         gpuNum: payload.gpuNum,
         rootfsSize: payload.rootfsSize,
-        clusterId: regionUsed === 'OC-AU-01' ? 'cn-hongkong-1' : regionUsed.toLowerCase(),
+        clusterId: regionUsed === 'CN-HK-01' ? 'cn-hongkong-1' : regionUsed.toLowerCase(),
         imageUrl: templateConfig.imageUrl,
         kind: 'gpu', // Default to GPU instances
         billingMode: 'spot', // Default to spot pricing for cost optimization
