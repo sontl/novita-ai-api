@@ -875,7 +875,7 @@ export class InstanceMigrationService {
           productName,
           region: instance.region
         });
-        const product = await novitaApiService.getOptimalProduct(productName, instance.region || 'CN-HK-01');
+        const product = await novitaApiService.getOptimalProduct(productName, instance.region || 'OC-AU-01');
         productId = product.id;
       }
 

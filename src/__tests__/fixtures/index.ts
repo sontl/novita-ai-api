@@ -20,7 +20,7 @@ export const mockProducts: Product[] = [
   {
     id: 'prod-rtx4090-hk',
     name: 'RTX 4090 24GB',
-    region: 'CN-HK-01',
+    region: 'OC-AU-01',
     spotPrice: 0.45,
     onDemandPrice: 0.90,
     gpuType: 'RTX 4090',
@@ -40,7 +40,7 @@ export const mockProducts: Product[] = [
   {
     id: 'prod-a100-hk',
     name: 'A100 80GB',
-    region: 'CN-HK-01',
+    region: 'OC-AU-01',
     spotPrice: 1.20,
     onDemandPrice: 2.40,
     gpuType: 'A100',
@@ -50,7 +50,7 @@ export const mockProducts: Product[] = [
   {
     id: 'prod-h100-hk',
     name: 'H100 80GB',
-    region: 'CN-HK-01',
+    region: 'OC-AU-01',
     spotPrice: 2.50,
     onDemandPrice: 5.00,
     gpuType: 'H100',
@@ -116,7 +116,7 @@ export const mockInstanceResponses: InstanceResponse[] = [
     name: 'test-instance-1',
     status: InstanceStatus.CREATING,
     productId: 'prod-rtx4090-hk',
-    region: 'CN-HK-01',
+    region: 'OC-AU-01',
     createdAt: '2024-01-01T00:00:00Z',
     gpuNum: 1,
     rootfsSize: 60,
@@ -127,7 +127,7 @@ export const mockInstanceResponses: InstanceResponse[] = [
     name: 'test-instance-2',
     status: InstanceStatus.RUNNING,
     productId: 'prod-a100-hk',
-    region: 'CN-HK-01',
+    region: 'OC-AU-01',
     createdAt: '2024-01-01T00:00:00Z',
     startedAt: '2024-01-01T00:01:00Z',
     gpuNum: 2,
@@ -144,7 +144,7 @@ export const mockInstanceResponses: InstanceResponse[] = [
     name: 'failed-instance',
     status: InstanceStatus.FAILED,
     productId: 'prod-h100-hk',
-    region: 'CN-HK-01',
+    region: 'OC-AU-01',
     createdAt: '2024-01-01T00:00:00Z',
     gpuNum: 1,
     rootfsSize: 60,
@@ -162,7 +162,7 @@ export const mockCreateRequests: CreateInstanceRequest[] = [
     templateId: 'template-cuda-dev',
     gpuNum: 1,
     rootfsSize: 60,
-    region: 'CN-HK-01',
+    region: 'OC-AU-01',
     webhookUrl: 'https://example.com/webhook'
   },
   {
@@ -171,7 +171,7 @@ export const mockCreateRequests: CreateInstanceRequest[] = [
     templateId: 'template-pytorch',
     gpuNum: 2,
     rootfsSize: 200,
-    region: 'CN-HK-01'
+    region: 'OC-AU-01'
   },
   {
     name: 'tensorflow-experiment',
@@ -198,7 +198,7 @@ export const mockJobs: Job[] = [
       templateId: 'template-cuda-dev',
       gpuNum: 1,
       rootfsSize: 60,
-      region: 'CN-HK-01'
+      region: 'OC-AU-01'
     },
     status: JobStatus.PENDING,
     attempts: 0,
@@ -324,7 +324,7 @@ export const mockConfig = {
     secret: 'webhook-secret-123'
   },
   defaults: {
-    region: 'CN-HK-01',
+    region: 'OC-AU-01',
     pollInterval: 30,
     maxRetryAttempts: 3,
     requestTimeout: 30000,
@@ -368,7 +368,7 @@ export class TestDataGenerator {
       templateId: 'template-cuda-dev',
       gpuNum: 1,
       rootfsSize: 60,
-      region: 'CN-HK-01',
+      region: 'OC-AU-01',
       ...overrides
     };
   }
@@ -382,7 +382,7 @@ export class TestDataGenerator {
       name: `test-instance-${Date.now()}`,
       status: InstanceStatus.CREATING,
       productId: 'prod-rtx4090-hk',
-      region: 'CN-HK-01',
+      region: 'OC-AU-01',
       createdAt: new Date().toISOString(),
       gpuNum: 1,
       rootfsSize: 60,

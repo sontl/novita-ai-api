@@ -54,10 +54,10 @@ export const createInstanceSchema = Joi.object<CreateInstanceRequest>({
     }),
 
   region: Joi.string()
-    .valid('CN-HK-01', 'US-WEST-01', 'EU-WEST-01', 'AS-SGP-02')
-    .default('CN-HK-01')
+    .valid('CN-HK-01', 'US-WEST-01', 'EU-WEST-01', 'AS-SGP-02', 'OC-AU-01')
+    .default('OC-AU-01')
     .messages({
-      'any.only': 'Region must be one of: CN-HK-01, US-WEST-01, EU-WEST-01, AS-SGP-02'
+      'any.only': 'Region must be one of: CN-HK-01, US-WEST-01, EU-WEST-01, AS-SGP-02, OC-AU-01'
     }),
 
   webhookUrl: Joi.string()
