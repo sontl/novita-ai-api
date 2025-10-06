@@ -44,7 +44,7 @@ export class InstanceService {
   // Track active startup operations to prevent duplicates
   private activeStartupOperations: Map<string, StartupOperation> = new Map();
 
-  private readonly defaultRegion = 'CN-HK-01';
+  private readonly defaultRegion = 'OC-AU-01';
 
   /**
    * Create a new GPU instance with automated lifecycle management

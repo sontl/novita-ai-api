@@ -321,7 +321,7 @@ class ConfigLoader {
       
       // Default Settings
       DEFAULT_REGION: Joi.string()
-        .default('CN-HK-01')
+        .default('OC-AU-01')
         .description('Default region for instance creation'),
       
       INSTANCE_POLL_INTERVAL: Joi.number()
@@ -763,7 +763,7 @@ function createTestConfig(): Config {
     },
     webhook: {},
     defaults: {
-      region: 'CN-HK-01',
+      region: 'OC-AU-01',
       pollInterval: 30,
       maxRetryAttempts: 3,
       requestTimeout: 30000,

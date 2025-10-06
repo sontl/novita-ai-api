@@ -27,7 +27,7 @@ export async function demonstrateHttpClient() {
     logger.info('3. Fetching GPU products...');
     const products = await novitaApiService.getProducts({
       productName: 'RTX 4090',
-      region: 'CN-HK-01'
+      region: 'OC-AU-01'
     });
     logger.info(`Found ${products.length} products`);
 
@@ -36,7 +36,7 @@ export async function demonstrateHttpClient() {
       logger.info('4. Finding optimal product...');
       const optimalProduct = await novitaApiService.getOptimalProduct(
         'RTX 4090 24GB',
-        'CN-HK-01'
+        'OC-AU-01'
       );
       logger.info('Optimal product:', {
         id: optimalProduct.id,
@@ -104,7 +104,7 @@ export async function demonstrateDirectClientUsage() {
 
     // Make a direct GET request
     const response = await novitaClient.get('/v1/products', {
-      params: { region: 'CN-HK-01' }
+      params: { region: 'OC-AU-01' }
     });
 
     logger.info('Direct client response:', {
