@@ -298,7 +298,7 @@ export const testConstants = {
   VALID_NOVITA_INSTANCE_ID: 'novita-inst-123456',
   VALID_PRODUCT_ID: 'prod-rtx4090-hk',
   VALID_TEMPLATE_ID: 'template-cuda-dev',
-  VALID_REGION: 'OC-AU-01',
+  VALID_REGION: 'CN-HK-01',
   VALID_WEBHOOK_URL: 'https://example.com/webhook',
   TEST_API_KEY: 'test-api-key-12345',
   TEST_TIMEOUT: 5000,

@@ -12,7 +12,7 @@ async function demonstrateProductService() {
     console.log('=== ProductService Example ===\n');
 
     // Example 1: Get optimal product for RTX 4090 in default region
-    console.log('1. Getting optimal RTX 4090 product in default region (OC-AU-01):');
+    console.log('1. Getting optimal RTX 4090 product in default region (CN-HK-01):');
     const optimalProduct = await productService.getOptimalProduct('RTX 4090 24GB');
     console.log(`   Selected: ${optimalProduct.name} (${optimalProduct.id})`);
     console.log(`   Region: ${optimalProduct.region}`);

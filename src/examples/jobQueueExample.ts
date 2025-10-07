@@ -28,7 +28,7 @@ async function demonstrateJobQueue(): Promise<void> {
       templateId: 'template-123',
       gpuNum: 2,
       rootfsSize: 100,
-      region: 'OC-AU-01',
+      region: 'CN-HK-01',
       webhookUrl: 'https://example.com/webhook'
     };
 
