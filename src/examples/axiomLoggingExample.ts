@@ -40,7 +40,7 @@ export function basicLoggingExample(): void {
     feature: 'instance_management',
     metadata: {
       instanceType: 'gpu-large',
-      region: 'OC-AU-01'
+      region: 'CN-HK-01'
     },
     tags: ['instance', 'creation', 'business']
   });

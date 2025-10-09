@@ -65,7 +65,7 @@ export class NovitaApiService {
       const products: Product[] = filteredProducts.map((rawProduct: any) => ({
         id: rawProduct.id,
         name: rawProduct.name,
-        region: filters?.region || 'OC-AU-01', // Use filter region or default
+        region: filters?.region || 'CN-HK-01', // Use filter region or default
         spotPrice: parseFloat(rawProduct.spotPrice || rawProduct.price || '0'),
         onDemandPrice: parseFloat(rawProduct.price || '0'),
         gpuType: this.extractGpuType(rawProduct.name),

@@ -150,7 +150,7 @@ class RedisMigrationUtility {
         'instance-2': { status: 'stopped', lastUpdated: new Date().toISOString() }
       },
       productCache: {
-        'product-1': { id: 'product-1', name: 'GPU-A100', region: 'OC-AU-01' }
+        'product-1': { id: 'product-1', name: 'GPU-A100', region: 'CN-HK-01' }
       }
     };
 
