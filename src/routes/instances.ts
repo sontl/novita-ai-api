@@ -139,7 +139,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response): Promise<void> 
   //   if (!config.instanceListing.enableComprehensiveListing) {
   //     contextLogger.warn('Comprehensive listing requested but disabled in configuration');
   //     // Fallback to local listing
-      
+
   //   } else {
   //     // Use comprehensive listing with Novita.ai integration
   //     result = await instanceService.listInstancesComprehensive({
@@ -300,27 +300,58 @@ router.post('/:instanceId/start', asyncHandler(async (req: Request, res: Respons
       instanceId: instanceIdValidation.value,
       error: (error as Error).message,
       errorType: (error as Error).name,
+      errorCode: (error as any).code,
+      errorReason: (error as any).reason,
       duration,
       requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
     });
-
+    contextLogger.debug('Error details', { error });
     // Handle insufficient resource errors specifically
     if (error instanceof Error) {
+      const { StartupFailedError } = await import('../utils/errorHandler');
       const { NovitaApiClientError } = await import('../types/api');
 
+      // Check if this is a startup failure that might be due to insufficient resources
+      let shouldDeleteInstance = false;
+      let errorToCheck = error;
+
+      // If it's a StartupFailedError, check the underlying cause
+      if (error.name === 'StartupFailedError') {
+        const startupError = error as any;
+        // Check if the reason indicates resource issues
+        if (startupError.reason && (
+          startupError.reason.includes('INSUFFICIENT_RESOURCE') ||
+          startupError.reason.includes('insufficient') ||
+          startupError.reason.includes('Bad request') ||
+          startupError.reason.includes('BAD_REQUEST')
+        )) {
+          shouldDeleteInstance = true;
+        }
+      }
+
+      // Also check direct error codes and messages
       if ((error as any).code === 'INSUFFICIENT_RESOURCE' ||
-        error.message.includes('INSUFFICIENT_RESOURCE')) {
-        contextLogger.info('Insufficient resources detected, deleting instance', {
+        (error as any).code === 'BAD_REQUEST' ||
+        error.message.includes('INSUFFICIENT_RESOURCE') ||
+        error.message.includes('Bad request') ||
+        error.message.includes('start instance error')) {
+        shouldDeleteInstance = true;
+      }
+
+      if (shouldDeleteInstance) {
+        contextLogger.info('Resource/startup error detected, deleting instance', {
           instanceId: instanceIdValidation.value,
           error: error.message,
-          errorCode: (error as any).code
+          errorCode: (error as any).code,
+          errorName: error.name,
+          reason: (error as any).reason
         });
 
-        // Delete/terminate the instance due to insufficient resources
+        // Delete/terminate the instance due to resource issues
         try {
           await deleteInstanceDueToInsufficientResources(instanceIdValidation.value, contextLogger);
         } catch (deleteError) {
-          contextLogger.warn('Failed to delete instance after insufficient resources', {
+          contextLogger.warn('Failed to delete instance after resource error', {
             instanceId: instanceIdValidation.value,
             deleteError: (deleteError as Error).message
           });
@@ -407,27 +438,58 @@ router.post('/start', asyncHandler(async (req: Request, res: Response): Promise<
       instanceName: bodyValidation.value.instanceName,
       error: (error as Error).message,
       errorType: (error as Error).name,
+      errorCode: (error as any).code,
+      errorReason: (error as any).reason,
       duration,
       requestBody: { ...req.body, webhookUrl: req.body.webhookUrl ? '[REDACTED]' : undefined }
     });
 
     // Handle insufficient resource errors specifically
     if (error instanceof Error) {
+      const { StartupFailedError } = await import('../utils/errorHandler');
       const { NovitaApiClientError } = await import('../types/api');
 
+      // Check if this is a startup failure that might be due to insufficient resources
+      let shouldDeleteInstance = false;
+      let errorToCheck = error;
+
+      // If it's a StartupFailedError, check the underlying cause
+      if (error.name === 'StartupFailedError') {
+        const startupError = error as any;
+        // Check if the reason indicates resource issues
+        if (startupError.reason && (
+          startupError.reason.includes('INSUFFICIENT_RESOURCE') ||
+          startupError.reason.includes('insufficient') ||
+          startupError.reason.includes('Bad request') ||
+          startupError.reason.includes('BAD_REQUEST')
+        )) {
+          shouldDeleteInstance = true;
+        }
+      }
+
+      // Also check direct error codes and messages
       if ((error as any).code === 'INSUFFICIENT_RESOURCE' ||
-        error.message.includes('INSUFFICIENT_RESOURCE')) {
-        contextLoggerWithName.info('Insufficient resources detected, deleting instance', {
+        (error as any).code === 'BAD_REQUEST' ||
+        error.message.includes('INSUFFICIENT_RESOURCE') ||
+        error.message.includes('Bad request') ||
+        error.message.includes('start instance error')) {
+        shouldDeleteInstance = true;
+      }
+
+      if (shouldDeleteInstance) {
+        contextLoggerWithName.info('Resource/startup error detected, deleting instance', {
           instanceName: bodyValidation.value.instanceName,
           error: error.message,
-          errorCode: (error as any).code
+          errorCode: (error as any).code,
+          errorName: error.name,
+          reason: (error as any).reason
         });
 
-        // Delete/terminate the instance due to insufficient resources (by name)
+        // Delete/terminate the instance due to resource issues (by name)
         try {
           await deleteInstanceByNameDueToInsufficientResources(bodyValidation.value.instanceName, contextLoggerWithName);
         } catch (deleteError) {
-          contextLoggerWithName.warn('Failed to delete instance after insufficient resources', {
+          contextLoggerWithName.warn('Failed to delete instance after resource error', {
             instanceName: bodyValidation.value.instanceName,
             deleteError: (deleteError as Error).message
           });
@@ -1424,25 +1486,25 @@ router.post('/stop-all', asyncHandler(async (req: Request, res: Response): Promi
 }));
 
 /**
- * Helper function to delete/terminate an instance due to insufficient resources
+ * Helper function to delete/terminate an instance due to startup/resource errors
  */
 async function deleteInstanceDueToInsufficientResources(instanceId: string, contextLogger: any): Promise<void> {
   try {
-    contextLogger.info('Deleting instance due to insufficient resources', {
+    contextLogger.info('Deleting instance due to startup/resource error', {
       instanceId,
-      reason: 'INSUFFICIENT_RESOURCE'
+      reason: 'STARTUP_RESOURCE_ERROR'
     });
 
     // Use the instance service to delete the instance
     const result = await instanceService.deleteInstance(instanceId, {}, 'id');
 
-    contextLogger.info('Instance deleted successfully due to insufficient resources', {
+    contextLogger.info('Instance deleted successfully due to startup/resource error', {
       instanceId,
       operationId: result.operationId,
       status: result.status
     });
   } catch (error) {
-    contextLogger.error('Failed to delete instance due to insufficient resources', {
+    contextLogger.error('Failed to delete instance due to startup/resource error', {
       instanceId,
       error: (error as Error).message
     });
@@ -1451,26 +1513,26 @@ async function deleteInstanceDueToInsufficientResources(instanceId: string, cont
 }
 
 /**
- * Helper function to delete/terminate an instance by name due to insufficient resources
+ * Helper function to delete/terminate an instance by name due to startup/resource errors
  */
 async function deleteInstanceByNameDueToInsufficientResources(instanceName: string, contextLogger: any): Promise<void> {
   try {
-    contextLogger.info('Deleting instance by name due to insufficient resources', {
+    contextLogger.info('Deleting instance by name due to startup/resource error', {
       instanceName,
-      reason: 'INSUFFICIENT_RESOURCE'
+      reason: 'STARTUP_RESOURCE_ERROR'
     });
 
     // Use the instance service to delete the instance by name
     const result = await instanceService.deleteInstance(instanceName, {}, 'name');
 
-    contextLogger.info('Instance deleted successfully by name due to insufficient resources', {
+    contextLogger.info('Instance deleted successfully by name due to startup/resource error', {
       instanceName,
       instanceId: result.instanceId,
       operationId: result.operationId,
       status: result.status
     });
   } catch (error) {
-    contextLogger.error('Failed to delete instance by name due to insufficient resources', {
+    contextLogger.error('Failed to delete instance by name due to startup/resource error', {
       instanceName,
       error: (error as Error).message
     });
