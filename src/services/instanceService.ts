@@ -39,12 +39,160 @@ import { ICacheService } from './redisCacheManager';
 import { log } from 'console';
 
 export class InstanceService {
-  private instanceStates: Map<string, InstanceState> = new Map();
-
-  // Track active startup operations to prevent duplicates
-  private activeStartupOperations: Map<string, StartupOperation> = new Map();
-
   private readonly defaultRegion = 'CN-HK-01';
+  private readonly instanceStatesCacheKey = 'instance-states-persistent';
+  private readonly startupOperationsCacheKey = 'startup-operations';
+
+  /**
+   * Get instance state from Redis
+   */
+  private async getInstanceStateFromRedis(instanceId: string): Promise<InstanceState | undefined> {
+    try {
+      const cacheManager = serviceRegistry.getCacheManager();
+      if (!cacheManager) {
+        logger.debug('No cache manager available');
+        return undefined;
+      }
+
+      const instanceStatesCache = await cacheManager.getCache<InstanceState>(this.instanceStatesCacheKey, {
+        maxSize: 10000,
+        defaultTtl: 24 * 60 * 60 * 1000,
+        cleanupIntervalMs: 60 * 60 * 1000
+      });
+
+      const state = await instanceStatesCache.get(instanceId);
+      if (state) {
+        // Convert timestamp strings back to Date objects
+        this.convertTimestampsToDate(state);
+      }
+      return state;
+    } catch (error) {
+      logger.error('Failed to get instance state from Redis', {
+        instanceId,
+        error: (error as Error).message
+      });
+      return undefined;
+    }
+  }
+
+  /**
+   * Get startup operation from Redis
+   */
+  private async getStartupOperationFromRedis(instanceId: string): Promise<StartupOperation | undefined> {
+    try {
+      const cacheManager = serviceRegistry.getCacheManager();
+      if (!cacheManager) {
+        return undefined;
+      }
+
+      const startupOperationsCache = await cacheManager.getCache<StartupOperation>(this.startupOperationsCacheKey, {
+        maxSize: 1000,
+        defaultTtl: 60 * 60 * 1000, // 1 hour TTL for startup operations
+        cleanupIntervalMs: 10 * 60 * 1000 // Cleanup every 10 minutes
+      });
+
+      const operation = await startupOperationsCache.get(instanceId);
+      if (operation) {
+        // Convert timestamp strings back to Date objects
+        operation.startedAt = new Date(operation.startedAt);
+        if (operation.phases) {
+          Object.keys(operation.phases).forEach(phase => {
+            const phaseKey = phase as keyof StartupOperation['phases'];
+            const phaseValue = operation.phases[phaseKey];
+            if (phaseValue) {
+              operation.phases[phaseKey] = new Date(phaseValue as unknown as string);
+            }
+          });
+        }
+      }
+      return operation;
+    } catch (error) {
+      logger.error('Failed to get startup operation from Redis', {
+        instanceId,
+        error: (error as Error).message
+      });
+      return undefined;
+    }
+  }
+
+  /**
+   * Store startup operation in Redis
+   */
+  private async persistStartupOperationToRedis(operation: StartupOperation): Promise<void> {
+    try {
+      const cacheManager = serviceRegistry.getCacheManager();
+      if (!cacheManager) {
+        return;
+      }
+
+      const startupOperationsCache = await cacheManager.getCache<StartupOperation>(this.startupOperationsCacheKey, {
+        maxSize: 1000,
+        defaultTtl: 60 * 60 * 1000, // 1 hour TTL for startup operations
+        cleanupIntervalMs: 10 * 60 * 1000 // Cleanup every 10 minutes
+      });
+
+      await startupOperationsCache.set(operation.instanceId, operation, 60 * 60 * 1000); // 1 hour TTL
+    } catch (error) {
+      logger.error('Failed to persist startup operation to Redis', {
+        instanceId: operation.instanceId,
+        operationId: operation.operationId,
+        error: (error as Error).message
+      });
+    }
+  }
+
+  /**
+   * Remove startup operation from Redis
+   */
+  private async removeStartupOperationFromRedis(instanceId: string): Promise<void> {
+    try {
+      const cacheManager = serviceRegistry.getCacheManager();
+      if (!cacheManager) {
+        return;
+      }
+
+      const startupOperationsCache = await cacheManager.getCache<StartupOperation>(this.startupOperationsCacheKey, {
+        maxSize: 1000,
+        defaultTtl: 60 * 60 * 1000,
+        cleanupIntervalMs: 10 * 60 * 1000
+      });
+
+      await startupOperationsCache.delete(instanceId);
+    } catch (error) {
+      logger.error('Failed to remove startup operation from Redis', {
+        instanceId,
+        error: (error as Error).message
+      });
+    }
+  }
+
+  /**
+   * Convert timestamp strings back to Date objects
+   */
+  private convertTimestampsToDate(state: InstanceState): void {
+    state.timestamps.created = state.timestamps.created ? new Date(state.timestamps.created) : new Date();
+    if (state.timestamps.started) {
+      state.timestamps.started = new Date(state.timestamps.started);
+    }
+    if (state.timestamps.ready) {
+      state.timestamps.ready = new Date(state.timestamps.ready);
+    }
+    if (state.timestamps.failed) {
+      state.timestamps.failed = new Date(state.timestamps.failed);
+    }
+    if (state.timestamps.stopping) {
+      state.timestamps.stopping = new Date(state.timestamps.stopping);
+    }
+    if (state.timestamps.stopped) {
+      state.timestamps.stopped = new Date(state.timestamps.stopped);
+    }
+    if (state.timestamps.lastUsed) {
+      state.timestamps.lastUsed = new Date(state.timestamps.lastUsed);
+    }
+    if (state.timestamps.terminated) {
+      state.timestamps.terminated = new Date(state.timestamps.terminated);
+    }
+  }
 
   /**
    * Create a new GPU instance with automated lifecycle management
@@ -100,8 +248,8 @@ export class InstanceService {
         ...(request.webhookUrl && { webhookUrl: request.webhookUrl })
       };
 
-      // Store instance state
-      this.instanceStates.set(instanceId, instanceState);
+      // Store instance state in Redis
+      await this.persistInstanceStateToRedis(instanceState);
 
       // Queue instance creation job
       const jobPayload: CreateInstanceJobPayload = {
@@ -156,31 +304,10 @@ export class InstanceService {
    */
   async getInstanceStatus(instanceId: string): Promise<InstanceDetails> {
     try {
-      // Get instance state
-      let instanceState = this.instanceStates.get(instanceId);
+      // Get instance state from Redis
+      let instanceState = await this.getInstanceStateFromRedis(instanceId);
 
-      // If no local state and in-memory map is empty, try to restore from Redis
-      if (!instanceState && this.instanceStates.size === 0) {
-        logger.debug('In-memory instance states empty, attempting to restore from Redis');
-        try {
-          const redisStates = await this.loadInstanceStatesFromRedis();
-          logger.info('Restored instance states from Redis', { count: redisStates.length });
-          
-          // Populate in-memory map
-          redisStates.forEach(state => {
-            this.instanceStates.set(state.id, state);
-          });
-          
-          // Try to get the state again
-          instanceState = this.instanceStates.get(instanceId);
-        } catch (redisError) {
-          logger.warn('Failed to restore instance states from Redis', { 
-            error: (redisError as Error).message 
-          });
-        }
-      }
-
-      // If no local state, try to fetch directly from Novita API (for Novita-only instances)
+      // If no state in Redis, try to fetch directly from Novita API (for Novita-only instances)
       if (!instanceState) {
         try {
           logger.debug('No local state found, trying to fetch from Novita API', { instanceId });
@@ -274,14 +401,16 @@ export class InstanceService {
     try {
       const instances: InstanceDetails[] = [];
 
-      // Get all instance states
-      for (const [instanceId, instanceState] of this.instanceStates.entries()) {
+      // Get all instance states from Redis
+      const allInstanceStates = await this.loadInstanceStatesFromRedis();
+
+      for (const instanceState of allInstanceStates) {
         try {
-          const instanceDetails = await this.getInstanceStatus(instanceId);
+          const instanceDetails = await this.getInstanceStatus(instanceState.id);
           instances.push(instanceDetails);
         } catch (error) {
           logger.warn('Failed to get status for instance in list', {
-            instanceId,
+            instanceId: instanceState.id,
             error: (error as Error).message
           });
           // Include instance with error state
@@ -339,7 +468,7 @@ export class InstanceService {
 
       // Merge and reconcile data
       const mergeStartTime = Date.now();
-      const mergedInstances = this.mergeInstanceData(localInstances, novitaInstances, options?.includeNovitaOnly);
+      const mergedInstances = await this.mergeInstanceData(localInstances, novitaInstances, options?.includeNovitaOnly);
       const mergeProcessingTime = Date.now() - mergeStartTime;
 
       // Optionally sync local state with Novita data
@@ -379,7 +508,7 @@ export class InstanceService {
    * Update instance state (used by job workers)
    */
   async updateInstanceState(instanceId: string, updates: Partial<InstanceState>): Promise<void> {
-    const instanceState = this.instanceStates.get(instanceId);
+    const instanceState = await this.getInstanceStateFromRedis(instanceId);
     if (!instanceState) {
       throw new Error(`Instance state not found: ${instanceId}`);
     }
@@ -392,13 +521,8 @@ export class InstanceService {
     // Merge updates
     Object.assign(instanceState, updates);
 
-    // Persist to Redis asynchronously (don't block the operation)
-    this.persistInstanceStateToRedis(instanceState).catch(error => {
-      logger.warn('Failed to persist instance state to Redis', {
-        instanceId,
-        error: (error as Error).message
-      });
-    });
+    // Persist to Redis
+    await this.persistInstanceStateToRedis(instanceState);
 
     logger.debug('Instance state updated', {
       instanceId,
@@ -411,18 +535,18 @@ export class InstanceService {
   /**
    * Get instance state (for job workers)
    */
-  getInstanceState(instanceId: string): InstanceState | undefined {
-    return this.instanceStates.get(instanceId);
+  async getInstanceState(instanceId: string): Promise<InstanceState | undefined> {
+    return await this.getInstanceStateFromRedis(instanceId);
   }
 
   /**
    * Merge local and Novita instance data with conflict resolution
    */
-  private mergeInstanceData(
+  private async mergeInstanceData(
     localInstances: InstanceDetails[],
     novitaInstances: InstanceResponse[],
     includeNovitaOnly: boolean = true
-  ): EnhancedInstanceDetails[] {
+  ): Promise<EnhancedInstanceDetails[]> {
     const mergedMap = new Map<string, EnhancedInstanceDetails>();
 
     // Add local instances first
@@ -437,16 +561,16 @@ export class InstanceService {
     });
 
     // Process Novita instances
-    novitaInstances.forEach(novitaInstance => {
+    for (const novitaInstance of novitaInstances) {
       // Check if productName is null or empty, if so, delete the instance from cache
       if (!novitaInstance.productName || novitaInstance.productName.trim() === '') {
         logger.info('Removing instance from cache due to null or empty productName', {
           instanceId: novitaInstance.id,
           productName: novitaInstance.productName
         });
-        // Remove the instance from our local state if it exists
-        const localState = Array.from(this.instanceStates.values())
-          .find(state => state.novitaInstanceId === novitaInstance.id);
+        // Remove the instance from Redis if it exists
+        const allStates = await this.loadInstanceStatesFromRedis();
+        const localState = allStates.find(state => state.novitaInstanceId === novitaInstance.id);
         if (localState) {
           this.removeInstanceState(localState.id).catch(error => {
             logger.warn('Failed to remove instance state for instance with null/empty productName', {
@@ -457,10 +581,10 @@ export class InstanceService {
           });
         }
         // Skip processing this instance
-        return;
+        continue;
       }
 
-      const localMatch = this.findLocalInstanceMatch(novitaInstance, localInstances);
+      const localMatch = await this.findLocalInstanceMatch(novitaInstance, localInstances);
 
       if (localMatch) {
         // Merge data for matched instances
@@ -472,7 +596,7 @@ export class InstanceService {
         const novitaOnly = this.transformNovitaToEnhanced(novitaInstance);
         mergedMap.set(novitaInstance.id, novitaOnly);
       }
-    });
+    }
 
     // Convert to array and sort
     const mergedInstances = Array.from(mergedMap.values());
@@ -484,13 +608,13 @@ export class InstanceService {
   /**
    * Find local instance that matches Novita instance
    */
-  private findLocalInstanceMatch(
+  private async findLocalInstanceMatch(
     novitaInstance: InstanceResponse,
     localInstances: InstanceDetails[]
-  ): InstanceDetails | null {
-    // Try to match by Novita instance ID stored in local state
-    const localState = Array.from(this.instanceStates.values());
-    const stateMatch = localState.find(state => state.novitaInstanceId === novitaInstance.id);
+  ): Promise<InstanceDetails | null> {
+    // Try to match by Novita instance ID stored in Redis
+    const allStates = await this.loadInstanceStatesFromRedis();
+    const stateMatch = allStates.find(state => state.novitaInstanceId === novitaInstance.id);
 
     if (stateMatch) {
       return localInstances.find(local => local.id === stateMatch.id) || null;
@@ -614,10 +738,12 @@ export class InstanceService {
     let removedCount = 0;
     let markedObsoleteCount = 0;
 
+    // Get all states from Redis for comparison
+    const allStates = await this.loadInstanceStatesFromRedis();
+
     // Update existing instances with current Novita data
     const updatePromises = novitaInstances.map(async (novitaInstance) => {
-      const localState = Array.from(this.instanceStates.values())
-        .find(state => state.novitaInstanceId === novitaInstance.id);
+      const localState = allStates.find(state => state.novitaInstanceId === novitaInstance.id);
 
       if (localState && localState.status !== novitaInstance.status) {
         await this.updateInstanceState(localState.id, {
@@ -638,7 +764,7 @@ export class InstanceService {
     });
 
     // Handle obsolete instances (exist locally but not in Novita)
-    const obsoletePromises = Array.from(this.instanceStates.values())
+    const obsoletePromises = allStates
       .filter(localState =>
         localState.novitaInstanceId &&
         !novitaInstanceMap.has(localState.novitaInstanceId)
@@ -722,7 +848,7 @@ export class InstanceService {
         removed: removedCount,
         markedObsolete: markedObsoleteCount,
         totalNovitaInstances: novitaInstances.length,
-        totalLocalInstances: this.instanceStates.size
+        totalLocalInstances: allStates.length
       });
     }
   }
@@ -763,14 +889,15 @@ export class InstanceService {
    */
   private async getLocalInstances(): Promise<InstanceDetails[]> {
     const instances: InstanceDetails[] = [];
+    const allStates = await this.loadInstanceStatesFromRedis();
 
-    for (const [instanceId, instanceState] of this.instanceStates.entries()) {
+    for (const instanceState of allStates) {
       try {
         const instanceDetails = this.mapInstanceStateToDetails(instanceState);
         instances.push(instanceDetails);
       } catch (error) {
         logger.warn('Failed to process local instance state', {
-          instanceId,
+          instanceId: instanceState.id,
           error: (error as Error).message
         });
       }
@@ -1094,13 +1221,33 @@ export class InstanceService {
    * Remove instance state (cleanup)
    */
   async removeInstanceState(instanceId: string): Promise<boolean> {
-    const removed = this.instanceStates.delete(instanceId);
+    try {
+      const cacheManager = serviceRegistry.getCacheManager();
+      if (!cacheManager) {
+        logger.warn('No cache manager available for removing instance state');
+        return false;
+      }
 
-    if (removed) {
-      logger.info('Instance state removed', { instanceId });
+      const instanceStatesCache = await cacheManager.getCache<InstanceState>(this.instanceStatesCacheKey, {
+        maxSize: 10000,
+        defaultTtl: 24 * 60 * 60 * 1000,
+        cleanupIntervalMs: 60 * 60 * 1000
+      });
+
+      const removed = await instanceStatesCache.delete(instanceId);
+
+      if (removed) {
+        logger.info('Instance state removed', { instanceId });
+      }
+
+      return removed;
+    } catch (error) {
+      logger.error('Failed to remove instance state', {
+        instanceId,
+        error: (error as Error).message
+      });
+      return false;
     }
-
-    return removed;
   }
 
   /**
@@ -1109,7 +1256,7 @@ export class InstanceService {
   async updateLastUsedTime(instanceId: string, lastUsedAt?: Date): Promise<{ instanceId: string; lastUsedAt: string; message: string }> {
     try {
       // Get instance state
-      const instanceState = this.instanceStates.get(instanceId);
+      const instanceState = await this.getInstanceStateFromRedis(instanceId);
       if (!instanceState) {
         throw new NovitaApiClientError(
           `Instance not found: ${instanceId}`,
@@ -1156,7 +1303,7 @@ export class InstanceService {
   async clearLastUsedTime(instanceId: string): Promise<{ instanceId: string; message: string }> {
     try {
       // Get instance state
-      const instanceState = this.instanceStates.get(instanceId);
+      const instanceState = await this.getInstanceStateFromRedis(instanceId);
       if (!instanceState) {
         throw new NovitaApiClientError(
           `Instance not found: ${instanceId}`,
@@ -1168,7 +1315,7 @@ export class InstanceService {
       // Update instance state by removing last used time
       const updatedTimestamps = { ...instanceState.timestamps };
       delete updatedTimestamps.lastUsed;
-      
+
       await this.updateInstanceState(instanceId, {
         timestamps: updatedTimestamps
       });
@@ -1208,7 +1355,6 @@ export class InstanceService {
 
       logger.info('Synced instance states for auto-stop evaluation', {
         totalInstances: allInstanceStates.length,
-        inMemoryInstances: this.instanceStates.size,
         thresholdMinutes: inactivityThresholdMinutes
       });
 
@@ -1311,9 +1457,9 @@ export class InstanceService {
         thresholdMinutes: inactivityThresholdMinutes
       });
 
-      // Fallback to in-memory instances only
-      logger.warn('Falling back to in-memory instance states only');
-      return this.getInstancesEligibleForAutoStopFallback(inactivityThresholdMinutes);
+      // Fallback to Redis instances only
+      logger.warn('Falling back to Redis instance states only');
+      return await this.getInstancesEligibleForAutoStopFallback(inactivityThresholdMinutes);
     }
   }
 
@@ -1333,16 +1479,7 @@ export class InstanceService {
         allInstanceStates.set(state.id, state);
       });
 
-      // Step 2: Add in-memory states (these might be newer or not yet persisted)
-      for (const [instanceId, instanceState] of this.instanceStates.entries()) {
-        const existingState = allInstanceStates.get(instanceId);
-
-        // Use in-memory state if it's newer or doesn't exist in Redis
-        if (!existingState ||
-          instanceState.timestamps.created.getTime() > existingState.timestamps.created.getTime()) {
-          allInstanceStates.set(instanceId, instanceState);
-        }
-      }
+      // Step 2: Redis states are already loaded, no need for in-memory states
 
       // Step 3: Sync with Novita API to get current status of instances
       try {
@@ -1399,13 +1536,6 @@ export class InstanceService {
       const statesToPersist = Array.from(allInstanceStates.values());
       await this.persistInstanceStatesToRedis(statesToPersist);
 
-      // Step 5: Update in-memory states with synced data
-      for (const state of statesToPersist) {
-        // Validate and fix timestamps before storing in memory
-        this.validateAndFixTimestamps(state);
-        this.instanceStates.set(state.id, state);
-      }
-
       return statesToPersist;
 
     } catch (error) {
@@ -1413,8 +1543,8 @@ export class InstanceService {
         error: (error as Error).message
       });
 
-      // Return in-memory states as fallback
-      return Array.from(this.instanceStates.values());
+      // Return empty array as fallback
+      return [];
     }
   }
 
@@ -1423,22 +1553,15 @@ export class InstanceService {
    */
   async updateLastUsedTimeByName(instanceName: string, lastUsedTime?: Date): Promise<{ instanceId: string; lastUsedAt: string; message: string }> {
     try {
-      // First try to find in memory
-      for (const [instanceId, instanceState] of this.instanceStates.entries()) {
+      // First try to find in Redis
+      const allStates = await this.loadInstanceStatesFromRedis();
+      for (const instanceState of allStates) {
         if (instanceState.name === instanceName) {
-          return await this.updateLastUsedTime(instanceId, lastUsedTime);
+          return await this.updateLastUsedTime(instanceState.id, lastUsedTime);
         }
       }
 
-      // If not found in memory, try Redis
-      const redisStates = await this.loadInstanceStatesFromRedis();
-      const matchingState = redisStates.find(state => state.name === instanceName);
-
-      if (matchingState) {
-        // Load the state into memory first
-        this.instanceStates.set(matchingState.id, matchingState);
-        return await this.updateLastUsedTime(matchingState.id, lastUsedTime);
-      }
+      // If not found, instance doesn't exist
 
       throw new NovitaApiClientError(
         `Instance not found by name: ${instanceName}`,
@@ -1593,26 +1716,34 @@ export class InstanceService {
   }
 
   /**
-   * Fallback method using only in-memory instance states
+   * Fallback method using Redis instance states
    */
-  private getInstancesEligibleForAutoStopFallback(inactivityThresholdMinutes: number): InstanceState[] {
+  private async getInstancesEligibleForAutoStopFallback(inactivityThresholdMinutes: number): Promise<InstanceState[]> {
     const thresholdMs = inactivityThresholdMinutes * 60 * 1000;
     const now = Date.now();
     const eligibleInstances: InstanceState[] = [];
 
-    for (const [instanceId, instanceState] of this.instanceStates.entries()) {
-      if (instanceState.status !== InstanceStatus.RUNNING) {
-        continue;
+    try {
+      const allStates = await this.loadInstanceStatesFromRedis();
+
+      for (const instanceState of allStates) {
+        if (instanceState.status !== InstanceStatus.RUNNING) {
+          continue;
+        }
+
+        // Validate and fix timestamps before processing
+        this.validateAndFixTimestamps(instanceState);
+
+        const lastUsedTime = instanceState.timestamps.lastUsed;
+
+        if (!lastUsedTime || (now - lastUsedTime.getTime() > thresholdMs)) {
+          eligibleInstances.push(instanceState);
+        }
       }
-
-      // Validate and fix timestamps before processing
-      this.validateAndFixTimestamps(instanceState);
-
-      const lastUsedTime = instanceState.timestamps.lastUsed;
-
-      if (!lastUsedTime || (now - lastUsedTime.getTime() > thresholdMs)) {
-        eligibleInstances.push(instanceState);
-      }
+    } catch (error) {
+      logger.error('Failed to get fallback instances for auto-stop', {
+        error: (error as Error).message
+      });
     }
 
     return eligibleInstances;
@@ -1626,11 +1757,12 @@ export class InstanceService {
     try {
       logger.debug('Searching for instance by name', { name });
 
-      // First, search in local instance states
-      for (const [instanceId, instanceState] of this.instanceStates.entries()) {
+      // First, search in Redis instance states
+      const allStates = await this.loadInstanceStatesFromRedis();
+      for (const instanceState of allStates) {
         if (instanceState.name === name) {
-          logger.debug('Found instance in local state', { instanceId, name });
-          return await this.getInstanceStatus(instanceId);
+          logger.debug('Found instance in Redis state', { instanceId: instanceState.id, name });
+          return await this.getInstanceStatus(instanceState.id);
         }
       }
 
@@ -1692,8 +1824,8 @@ export class InstanceService {
     }
 
     // Check if startup operation is already in progress
-    if (this.isStartupInProgress(instanceId)) {
-      const existingOperation = this.getStartupOperation(instanceId);
+    if (await this.isStartupInProgress(instanceId)) {
+      const existingOperation = await this.getStartupOperation(instanceId);
       const { StartupOperationInProgressError } = await import('../utils/errorHandler');
       throw new StartupOperationInProgressError(
         instanceId,
@@ -1709,8 +1841,8 @@ export class InstanceService {
    * Check if a startup operation is currently in progress for an instance
    * Requirements: 6.1
    */
-  isStartupInProgress(instanceId: string): boolean {
-    const operation = this.activeStartupOperations.get(instanceId);
+  async isStartupInProgress(instanceId: string): Promise<boolean> {
+    const operation = await this.getStartupOperationFromRedis(instanceId);
 
     if (!operation) {
       return false;
@@ -1733,7 +1865,7 @@ export class InstanceService {
    * Create and track a startup operation
    * Requirements: 6.1
    */
-  createStartupOperation(instanceId: string, novitaInstanceId: string): StartupOperation {
+  async createStartupOperation(instanceId: string, novitaInstanceId: string): Promise<StartupOperation> {
     const operationId = this.generateOperationId();
     const now = new Date();
 
@@ -1748,7 +1880,7 @@ export class InstanceService {
       }
     };
 
-    this.activeStartupOperations.set(instanceId, operation);
+    await this.persistStartupOperationToRedis(operation);
 
     logger.info('Startup operation created', {
       operationId,
@@ -1763,13 +1895,13 @@ export class InstanceService {
    * Update startup operation status and phases
    * Requirements: 6.1
    */
-  updateStartupOperation(
+  async updateStartupOperation(
     instanceId: string,
     status: StartupOperation['status'],
     phase?: keyof StartupOperation['phases'],
     error?: string
-  ): void {
-    const operation = this.activeStartupOperations.get(instanceId);
+  ): Promise<void> {
+    const operation = await this.getStartupOperationFromRedis(instanceId);
 
     if (!operation) {
       logger.warn('Attempted to update non-existent startup operation', { instanceId });
@@ -1788,7 +1920,7 @@ export class InstanceService {
 
     // Remove operation if completed or failed
     if (status === 'completed' || status === 'failed') {
-      this.activeStartupOperations.delete(instanceId);
+      await this.removeStartupOperationFromRedis(instanceId);
       logger.info('Startup operation completed', {
         operationId: operation.operationId,
         instanceId,
@@ -1796,6 +1928,7 @@ export class InstanceService {
         error
       });
     } else {
+      await this.persistStartupOperationToRedis(operation);
       logger.debug('Startup operation updated', {
         operationId: operation.operationId,
         instanceId,
@@ -1809,8 +1942,8 @@ export class InstanceService {
    * Get active startup operation for an instance
    * Requirements: 6.1
    */
-  getStartupOperation(instanceId: string): StartupOperation | undefined {
-    return this.activeStartupOperations.get(instanceId);
+  async getStartupOperation(instanceId: string): Promise<StartupOperation | undefined> {
+    return await this.getStartupOperationFromRedis(instanceId);
   }
 
   /**
@@ -1861,7 +1994,7 @@ export class InstanceService {
    * Initialize health check for an instance
    */
   async initializeHealthCheck(instanceId: string, config: HealthCheckConfig): Promise<void> {
-    const instanceState = this.instanceStates.get(instanceId);
+    const instanceState = await this.getInstanceStateFromRedis(instanceId);
     if (!instanceState) {
       throw new Error(`Instance state not found: ${instanceId}`);
     }
@@ -1890,7 +2023,7 @@ export class InstanceService {
    * Update health check progress and results
    */
   async updateHealthCheckProgress(instanceId: string, result: HealthCheckResult): Promise<void> {
-    const instanceState = this.instanceStates.get(instanceId);
+    const instanceState = await this.getInstanceStateFromRedis(instanceId);
     if (!instanceState || !instanceState.healthCheck) {
       throw new Error(`Instance state or health check not found: ${instanceId}`);
     }
@@ -1918,15 +2051,15 @@ export class InstanceService {
   /**
    * Get health check status for an instance
    */
-  getHealthCheckStatus(instanceId: string): {
+  async getHealthCheckStatus(instanceId: string): Promise<{
     status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'not_configured';
     config?: HealthCheckConfig;
     latestResult?: HealthCheckResult;
     startedAt?: Date;
     completedAt?: Date;
     duration?: number;
-  } {
-    const instanceState = this.instanceStates.get(instanceId);
+  }> {
+    const instanceState = await this.getInstanceStateFromRedis(instanceId);
     if (!instanceState) {
       throw new Error(`Instance state not found: ${instanceId}`);
     }
@@ -1969,8 +2102,8 @@ export class InstanceService {
   /**
    * Get detailed health check history for an instance
    */
-  getHealthCheckHistory(instanceId: string): HealthCheckResult[] {
-    const instanceState = this.instanceStates.get(instanceId);
+  async getHealthCheckHistory(instanceId: string): Promise<HealthCheckResult[]> {
+    const instanceState = await this.getInstanceStateFromRedis(instanceId);
     if (!instanceState || !instanceState.healthCheck) {
       return [];
     }
@@ -1981,8 +2114,8 @@ export class InstanceService {
   /**
    * Check if instance is ready (has completed health checks successfully)
    */
-  isInstanceReady(instanceId: string): boolean {
-    const instanceState = this.instanceStates.get(instanceId);
+  async isInstanceReady(instanceId: string): Promise<boolean> {
+    const instanceState = await this.getInstanceStateFromRedis(instanceId);
     if (!instanceState) {
       return false;
     }
@@ -1993,8 +2126,8 @@ export class InstanceService {
   /**
    * Check if instance is in health checking phase
    */
-  isInstanceHealthChecking(instanceId: string): boolean {
-    const instanceState = this.instanceStates.get(instanceId);
+  async isInstanceHealthChecking(instanceId: string): Promise<boolean> {
+    const instanceState = await this.getInstanceStateFromRedis(instanceId);
     if (!instanceState) {
       return false;
     }
@@ -2005,27 +2138,42 @@ export class InstanceService {
   /**
    * Get instances by status (useful for monitoring)
    */
-  getInstancesByStatus(status: InstanceStatus): InstanceState[] {
-    return Array.from(this.instanceStates.values())
-      .filter(instance => instance.status === status);
+  async getInstancesByStatus(status: InstanceStatus): Promise<InstanceState[]> {
+    try {
+      const allStates = await this.loadInstanceStatesFromRedis();
+      return allStates.filter(instance => instance.status === status);
+    } catch (error) {
+      logger.error('Failed to get instances by status', {
+        status,
+        error: (error as Error).message
+      });
+      return [];
+    }
   }
 
   /**
    * Get instances that are currently health checking
    */
-  getHealthCheckingInstances(): InstanceState[] {
-    return this.getInstancesByStatus(InstanceStatus.HEALTH_CHECKING);
+  async getHealthCheckingInstances(): Promise<InstanceState[]> {
+    return await this.getInstancesByStatus(InstanceStatus.HEALTH_CHECKING);
   }
 
   /**
    * Get instances that have failed health checks
    */
-  getFailedHealthCheckInstances(): InstanceState[] {
-    return Array.from(this.instanceStates.values())
-      .filter(instance =>
+  async getFailedHealthCheckInstances(): Promise<InstanceState[]> {
+    try {
+      const allStates = await this.loadInstanceStatesFromRedis();
+      return allStates.filter(instance =>
         instance.healthCheck?.status === 'failed' ||
         (instance.status === InstanceStatus.FAILED && instance.healthCheck)
       );
+    } catch (error) {
+      logger.error('Failed to get failed health check instances', {
+        error: (error as Error).message
+      });
+      return [];
+    }
   }
 
   /**
@@ -2128,7 +2276,7 @@ export class InstanceService {
       await this.validateInstanceStartable(instanceDetails);
 
       // Get the instance state to access novitaInstanceId
-      let instanceState = this.instanceStates.get(instanceDetails.id);
+      let instanceState = await this.getInstanceStateFromRedis(instanceDetails.id);
       let novitaInstanceId: string;
 
       if (!instanceState) {
@@ -2148,7 +2296,7 @@ export class InstanceService {
       }
 
       // Create startup operation for tracking
-      const operation = this.createStartupOperation(instanceDetails.id, novitaInstanceId);
+      const operation = await this.createStartupOperation(instanceDetails.id, novitaInstanceId);
 
       try {
         // Call Novita.ai API to start the instance
@@ -2164,14 +2312,14 @@ export class InstanceService {
         );
 
         // Update startup operation phase
-        this.updateStartupOperation(instanceDetails.id, 'monitoring', 'instanceStarting');
+        await this.updateStartupOperation(instanceDetails.id, 'monitoring', 'instanceStarting');
 
         // Clear lastUsed time and update instance status to starting (only for locally managed instances)
         if (instanceState) {
           // Clear the lastUsed time to ensure fresh start
           const updatedTimestamps = { ...instanceState.timestamps };
           delete updatedTimestamps.lastUsed;
-          
+
           await this.updateInstanceState(instanceDetails.id, {
             status: InstanceStatus.STARTING,
             timestamps: updatedTimestamps
@@ -2265,7 +2413,7 @@ export class InstanceService {
         });
 
         // Update startup operation with detailed error information
-        this.updateStartupOperation(
+        await this.updateStartupOperation(
           instanceDetails.id,
           'failed',
           undefined,
@@ -2345,7 +2493,7 @@ export class InstanceService {
         instanceDetails = await this.getInstanceStatus(identifier);
       }
 
-      const instanceState = this.instanceStates.get(instanceDetails.id);
+      const instanceState = await this.getInstanceStateFromRedis(instanceDetails.id);
       if (!instanceState) {
         throw new InstanceNotFoundError(instanceDetails.id);
       }
@@ -2487,7 +2635,7 @@ export class InstanceService {
         instanceDetails = await this.getInstanceStatus(identifier);
       }
 
-      const instanceState = this.instanceStates.get(instanceDetails.id);
+      const instanceState = await this.getInstanceStateFromRedis(instanceDetails.id);
       if (!instanceState) {
         throw new InstanceNotFoundError(instanceDetails.id);
       }

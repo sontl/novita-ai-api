@@ -163,7 +163,7 @@ describe('Health Check Workflow Integration Tests', () => {
       );
 
       // Verify instance state transitions
-      const finalState = instanceService.getInstanceState('test-instance-123');
+      const finalState = await instanceService.getInstanceState('test-instance-123');
       expect(finalState?.status).toBe(InstanceStatus.READY);
       expect(finalState?.healthCheck?.status).toBe('completed');
       expect(finalState?.healthCheck?.results).toHaveLength(2); // May be called twice due to workflow logic
@@ -316,7 +316,7 @@ describe('Health Check Workflow Integration Tests', () => {
       expect(mockedHealthCheckerService.performHealthChecks).toHaveBeenCalledTimes(2);
 
       // Verify final state is ready
-      const finalState = instanceService.getInstanceState('test-instance-progressive');
+      const finalState = await instanceService.getInstanceState('test-instance-progressive');
       expect(finalState?.status).toBe(InstanceStatus.READY);
       expect(finalState?.healthCheck?.results).toHaveLength(2);
     });
@@ -398,7 +398,7 @@ describe('Health Check Workflow Integration Tests', () => {
       );
 
       // Verify only one endpoint was checked (the target port)
-      const finalState = instanceService.getInstanceState('test-instance-target-port');
+      const finalState = await instanceService.getInstanceState('test-instance-target-port');
       expect(finalState?.healthCheck?.results?.[0]?.endpoints).toHaveLength(1);
       expect(finalState?.healthCheck?.results?.[0]?.endpoints?.[0]?.port).toBe(8080);
     });
@@ -467,7 +467,7 @@ describe('Health Check Workflow Integration Tests', () => {
       );
 
       // Verify no endpoints were checked due to target port filtering
-      const finalState = instanceService.getInstanceState('test-instance-missing-port');
+      const finalState = await instanceService.getInstanceState('test-instance-missing-port');
       expect(finalState?.healthCheck?.results?.[0]?.endpoints).toHaveLength(0);
       expect(finalState?.healthCheck?.results?.[0]?.overallStatus).toBe('unhealthy');
     });
@@ -542,7 +542,7 @@ describe('Health Check Workflow Integration Tests', () => {
       );
 
       // Verify instance state contains custom configuration
-      const finalState = instanceService.getInstanceState('test-instance-custom-config');
+      const finalState = await instanceService.getInstanceState('test-instance-custom-config');
       expect(finalState?.healthCheck?.config).toEqual(customConfig);
     });
 
@@ -614,7 +614,7 @@ describe('Health Check Workflow Integration Tests', () => {
       );
 
       // Verify instance state contains default configuration
-      const finalState = instanceService.getInstanceState('test-instance-default-config');
+      const finalState = await instanceService.getInstanceState('test-instance-default-config');
       expect(finalState?.healthCheck?.config).toEqual(expectedDefaultConfig);
     });
 
@@ -688,7 +688,7 @@ describe('Health Check Workflow Integration Tests', () => {
       expect(mockedWebhookClient.sendHealthCheckNotification).toHaveBeenCalled();
 
       // Verify instance state reflects timeout handling
-      const finalState = instanceService.getInstanceState('test-instance-timeout');
+      const finalState = await instanceService.getInstanceState('test-instance-timeout');
       // The instance may be in various states depending on timeout handling
       expect(finalState?.status).toBeDefined();
     });
@@ -878,7 +878,7 @@ describe('Health Check Workflow Integration Tests', () => {
       );
 
       // Verify instance state contains error details
-      const currentState = instanceService.getInstanceState('test-instance-webhook-failure');
+      const currentState = await instanceService.getInstanceState('test-instance-webhook-failure');
       expect(currentState?.status).toBe(InstanceStatus.HEALTH_CHECKING);
       expect(currentState?.healthCheck?.results?.[0]?.overallStatus).toBe('unhealthy');
       expect(currentState?.healthCheck?.results?.[0]?.endpoints?.[0]?.error).toBe('Connection timeout after 5000ms');
@@ -948,7 +948,7 @@ describe('Health Check Workflow Integration Tests', () => {
       await expect((jobWorker as any).handleMonitorInstance(mockJob)).resolves.not.toThrow();
 
       // Verify health checks still completed successfully
-      const finalState = instanceService.getInstanceState('test-instance-webhook-error');
+      const finalState = await instanceService.getInstanceState('test-instance-webhook-error');
       expect(finalState?.status).toBe(InstanceStatus.READY);
       expect(finalState?.healthCheck?.status).toBe('completed');
 
@@ -1019,7 +1019,7 @@ describe('Health Check Workflow Integration Tests', () => {
       expect(mockedWebhookClient.sendHealthCheckNotification).not.toHaveBeenCalled();
 
       // Verify health checks still completed successfully
-      const finalState = instanceService.getInstanceState('test-instance-no-webhook');
+      const finalState = await instanceService.getInstanceState('test-instance-no-webhook');
       expect(finalState?.status).toBe(InstanceStatus.READY);
       expect(finalState?.healthCheck?.status).toBe('completed');
     });
@@ -1069,7 +1069,7 @@ describe('Health Check Workflow Integration Tests', () => {
       expect(mockedHealthCheckerService.performHealthChecks).not.toHaveBeenCalled();
 
       // Verify instance transitions directly to ready (no health checks needed)
-      const finalState = instanceService.getInstanceState('test-instance-no-ports');
+      const finalState = await instanceService.getInstanceState('test-instance-no-ports');
       expect(finalState?.status).toBe(InstanceStatus.READY);
 
       // Verify appropriate webhook notifications were sent
@@ -1146,7 +1146,7 @@ describe('Health Check Workflow Integration Tests', () => {
       );
 
       // Verify instance state reflects the error handling
-      const finalState = instanceService.getInstanceState('test-instance-health-error');
+      const finalState = await instanceService.getInstanceState('test-instance-health-error');
       // The instance may still be in health_checking state if error handling is async
       expect([InstanceStatus.HEALTH_CHECKING, InstanceStatus.FAILED]).toContain(finalState?.status);
     });

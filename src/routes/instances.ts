@@ -25,9 +25,11 @@ router.post('/', asyncHandler(async (req: Request, res: Response): Promise<void>
   const contextLogger = createContextLogger(context);
 
   contextLogger.info('Instance creation request received');
+  contextLogger.debug('Request body', { body: req.body });
 
   // Validate request body
   const validation = validateCreateInstance(req.body);
+  contextLogger.debug('Request body validation result', { validation });
   if (validation.error) {
     contextLogger.warn('Instance creation validation failed');
 
