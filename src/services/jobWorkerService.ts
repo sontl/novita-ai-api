@@ -77,7 +77,7 @@ export class JobWorkerService {
 
     try {
       // Get instance state to update it throughout the process
-      const instanceState = instanceService.getInstanceState(payload.instanceId);
+      const instanceState = await instanceService.getInstanceState(payload.instanceId);
       if (!instanceState) {
         throw new Error(`Instance state not found: ${payload.instanceId}`);
       }
@@ -246,7 +246,7 @@ export class JobWorkerService {
     } catch (error) {
       // Update instance state to failed
       try {
-        const currentState = instanceService.getInstanceState(payload.instanceId);
+        const currentState = await instanceService.getInstanceState(payload.instanceId);
         await instanceService.updateInstanceState(payload.instanceId, {
           status: InstanceStatus.FAILED,
           lastError: error instanceof Error ? error.message : 'Unknown error',
@@ -545,9 +545,9 @@ export class JobWorkerService {
 
       if (novitaInstance.status === InstanceStatus.RUNNING) {
         // Update startup operation phase
-        const startupOperation = instanceService.getStartupOperation(payload.instanceId);
+        const startupOperation = await instanceService.getStartupOperation(payload.instanceId);
         if (startupOperation) {
-          instanceService.updateStartupOperation(
+          await await instanceService.updateStartupOperation(
             payload.instanceId,
             'monitoring',
             'instanceRunning'
@@ -644,7 +644,7 @@ export class JobWorkerService {
       const suggestion = getStartupErrorSuggestion(error as Error);
       const errorContext = createStartupErrorContext(
         payload.instanceId,
-        instanceService.getStartupOperation(payload.instanceId)?.operationId,
+        (await instanceService.getStartupOperation(payload.instanceId))?.operationId,
         'monitoring',
         elapsedTime
       );
@@ -790,7 +790,7 @@ export class JobWorkerService {
    * Handle health check phase during startup monitoring
    */
   private async handleStartupHealthCheckPhase(payload: StartInstanceJobPayload, novitaInstance: any): Promise<void> {
-    const currentState = instanceService.getInstanceState(payload.instanceId);
+    const currentState = await instanceService.getInstanceState(payload.instanceId);
 
     // Check if we're already in health checking phase
     const isAlreadyHealthChecking = currentState?.status === InstanceStatus.HEALTH_CHECKING;
@@ -814,9 +814,9 @@ export class JobWorkerService {
       });
 
       // Update startup operation phase
-      const startupOperation = instanceService.getStartupOperation(payload.instanceId);
+      const startupOperation = await instanceService.getStartupOperation(payload.instanceId);
       if (startupOperation) {
-        instanceService.updateStartupOperation(
+        await await instanceService.updateStartupOperation(
           payload.instanceId,
           'health_checking',
           'healthCheckStarted'
@@ -896,7 +896,7 @@ export class JobWorkerService {
         );
 
         // Update instance state with health check results
-        const updatedState = instanceService.getInstanceState(payload.instanceId);
+        const updatedState = await instanceService.getInstanceState(payload.instanceId);
         const existingResults = updatedState?.healthCheck?.results || [];
 
         await instanceService.updateInstanceState(payload.instanceId, {
@@ -1114,7 +1114,7 @@ export class JobWorkerService {
     });
 
     // Update instance state to ready
-    const currentState = instanceService.getInstanceState(payload.instanceId);
+    const currentState = await instanceService.getInstanceState(payload.instanceId);
     await instanceService.updateInstanceState(payload.instanceId, {
       status: InstanceStatus.READY,
       timestamps: {
@@ -1135,9 +1135,9 @@ export class JobWorkerService {
     });
 
     // Update startup operation to completed
-    const startupOperation = instanceService.getStartupOperation(payload.instanceId);
+    const startupOperation = await instanceService.getStartupOperation(payload.instanceId);
     if (startupOperation) {
-      instanceService.updateStartupOperation(
+      await instanceService.updateStartupOperation(
         payload.instanceId,
         'completed',
         'ready'
@@ -1204,7 +1204,7 @@ export class JobWorkerService {
     });
 
     // Update instance state to failed
-    const currentState = instanceService.getInstanceState(payload.instanceId);
+    const currentState = await instanceService.getInstanceState(payload.instanceId);
     await instanceService.updateInstanceState(payload.instanceId, {
       status: InstanceStatus.FAILED,
       lastError: timeoutError,
@@ -1217,9 +1217,9 @@ export class JobWorkerService {
     });
 
     // Update startup operation to failed
-    const startupOperation = instanceService.getStartupOperation(payload.instanceId);
+    const startupOperation = await instanceService.getStartupOperation(payload.instanceId);
     if (startupOperation) {
-      instanceService.updateStartupOperation(
+      await instanceService.updateStartupOperation(
         payload.instanceId,
         'failed',
         undefined,
@@ -1286,7 +1286,7 @@ export class JobWorkerService {
     });
 
     // Update instance state to failed
-    const currentState = instanceService.getInstanceState(payload.instanceId);
+    const currentState = await instanceService.getInstanceState(payload.instanceId);
     await instanceService.updateInstanceState(payload.instanceId, {
       status: InstanceStatus.FAILED,
       lastError: error.message,
@@ -1299,9 +1299,9 @@ export class JobWorkerService {
     });
 
     // Update startup operation to failed
-    const startupOperation = instanceService.getStartupOperation(payload.instanceId);
+    const startupOperation = await instanceService.getStartupOperation(payload.instanceId);
     if (startupOperation) {
-      instanceService.updateStartupOperation(
+      await instanceService.updateStartupOperation(
         payload.instanceId,
         'failed',
         undefined,
@@ -1363,7 +1363,7 @@ export class JobWorkerService {
     });
 
     // Update instance state to failed
-    const currentState = instanceService.getInstanceState(payload.instanceId);
+    const currentState = await instanceService.getInstanceState(payload.instanceId);
     await instanceService.updateInstanceState(payload.instanceId, {
       status: InstanceStatus.FAILED,
       lastError: timeoutError,
@@ -1383,9 +1383,9 @@ export class JobWorkerService {
     });
 
     // Update startup operation to failed
-    const startupOperation = instanceService.getStartupOperation(payload.instanceId);
+    const startupOperation = await instanceService.getStartupOperation(payload.instanceId);
     if (startupOperation) {
-      instanceService.updateStartupOperation(
+      await instanceService.updateStartupOperation(
         payload.instanceId,
         'failed',
         undefined,
@@ -1466,7 +1466,7 @@ export class JobWorkerService {
     });
 
     // Update instance state to failed
-    const currentState = instanceService.getInstanceState(payload.instanceId);
+    const currentState = await instanceService.getInstanceState(payload.instanceId);
     await instanceService.updateInstanceState(payload.instanceId, {
       status: InstanceStatus.FAILED,
       lastError: timeoutError,
@@ -1509,7 +1509,7 @@ export class JobWorkerService {
     });
 
     // Update instance state to failed
-    const currentState = instanceService.getInstanceState(payload.instanceId);
+    const currentState = await instanceService.getInstanceState(payload.instanceId);
     await instanceService.updateInstanceState(payload.instanceId, {
       status: InstanceStatus.FAILED,
       lastError: error.message,
@@ -1544,7 +1544,7 @@ export class JobWorkerService {
    * Handle health check phase after instance reaches running status
    */
   private async handleHealthCheckPhase(payload: MonitorInstanceJobPayload, novitaInstance: any): Promise<void> {
-    const currentState = instanceService.getInstanceState(payload.instanceId);
+    const currentState = await instanceService.getInstanceState(payload.instanceId);
 
     // Check if we're already in health checking phase
     const isAlreadyHealthChecking = currentState?.status === InstanceStatus.HEALTH_CHECKING;
@@ -1635,7 +1635,7 @@ export class JobWorkerService {
         );
 
         // Update instance state with health check results
-        const updatedState = instanceService.getInstanceState(payload.instanceId);
+        const updatedState = await instanceService.getInstanceState(payload.instanceId);
         const existingResults = updatedState?.healthCheck?.results || [];
 
         await instanceService.updateInstanceState(payload.instanceId, {
@@ -1862,7 +1862,7 @@ export class JobWorkerService {
     });
 
     // Update instance state to ready
-    const currentState = instanceService.getInstanceState(payload.instanceId);
+    const currentState = await instanceService.getInstanceState(payload.instanceId);
     await instanceService.updateInstanceState(payload.instanceId, {
       status: InstanceStatus.READY,
       timestamps: {
@@ -1916,7 +1916,7 @@ export class JobWorkerService {
    * Handle health check timeout with comprehensive error handling
    */
   private async handleHealthCheckTimeout(payload: MonitorInstanceJobPayload): Promise<void> {
-    const currentState = instanceService.getInstanceState(payload.instanceId);
+    const currentState = await instanceService.getInstanceState(payload.instanceId);
     const healthCheckStartTime = currentState?.healthCheck?.startedAt || new Date();
     const elapsedTime = Date.now() - healthCheckStartTime.getTime();
     const maxWaitTime = payload.healthCheckConfig?.maxWaitTimeMs || 300000;

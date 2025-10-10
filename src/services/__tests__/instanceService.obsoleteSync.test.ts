@@ -71,7 +71,7 @@ describe('InstanceService - Obsolete Instance Sync', () => {
       });
 
       // Verify instance was marked as terminated
-      const instanceState = instanceService.getInstanceState(localInstanceId);
+      const instanceState = await instanceService.getInstanceState(localInstanceId);
       expect(instanceState?.status).toBe(InstanceStatus.TERMINATED);
       expect(instanceState?.timestamps.terminated).toBeDefined();
     });
@@ -114,7 +114,7 @@ t('should remove obsolete instances when removeObsoleteInstances is true', async
       });
 
       // Verify instance was removed
-      const instanceState = instanceService.getInstanceState(localInstanceId);
+      const instanceState = await instanceService.getInstanceState(localInstanceId);
       expect(instanceState).toBeUndefined();
     });
 
@@ -152,7 +152,7 @@ t('should remove obsolete instances when removeObsoleteInstances is true', async
       });
 
       // Verify instance status was updated
-      const instanceState = instanceService.getInstanceState(localInstanceId);
+      const instanceState = await instanceService.getInstanceState(localInstanceId);
       expect(instanceState?.status).toBe(InstanceStatus.RUNNING);
     });
 
@@ -199,8 +199,8 @@ t('should remove obsolete instances when removeObsoleteInstances is true', async
       });
 
       // Verify results
-      const keepState = instanceService.getInstanceState(keepInstanceId);
-      const removeState = instanceService.getInstanceState(removeInstanceId);
+      const keepState = await instanceService.getInstanceState(keepInstanceId);
+      const removeState = await instanceService.getInstanceState(removeInstanceId);
 
       expect(keepState?.status).toBe(InstanceStatus.RUNNING);
       expect(removeState?.status).toBe(InstanceStatus.TERMINATED);
@@ -244,7 +244,7 @@ t('should remove obsolete instances when removeObsoleteInstances is true', async
       });
 
       // Verify old terminated instance was removed
-      const instanceState = instanceService.getInstanceState(oldInstanceId);
+      const instanceState = await instanceService.getInstanceState(oldInstanceId);
       expect(instanceState).toBeUndefined();
     });
   });
