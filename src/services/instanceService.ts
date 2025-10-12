@@ -1387,17 +1387,17 @@ export class InstanceService {
           // Handle invalid dates by setting lastUsed to now and updating the state
           if (!lastUsedTime || isNaN(lastUsedTime.getTime())) {
             const currentTime = new Date();
-            const lastUsedTime20MinutesFromNow = new Date(currentTime.getTime() + 20 * 60 * 1000);
+            const lastUsedTime150MinutesFromNow = new Date(currentTime.getTime() + 150 * 60 * 1000);
 
-            logger.warn('Instance has invalid timestamp, setting lastUsed to current time plus 20 minutes', {
+            logger.warn('Instance has invalid timestamp, setting lastUsed to current time plus 150 minutes', {
               instanceId: instanceState.id
             });
 
-            // Update the instance state with current time plus 20 minutes as lastUsed
+            // Update the instance state with current time plus 150 minutes as lastUsed
             await this.updateInstanceState(instanceState.id, {
               timestamps: {
                 ...instanceState.timestamps,
-                lastUsed: lastUsedTime20MinutesFromNow,
+                lastUsed: lastUsedTime150MinutesFromNow,
                 // Ensure created timestamp is valid
                 created: instanceState.timestamps.created && !isNaN(instanceState.timestamps.created.getTime())
                   ? instanceState.timestamps.created
@@ -1405,8 +1405,8 @@ export class InstanceService {
               }
             });
 
-            // Set lastUsedTime to current time plus 20 minutes so it won't be eligible for auto-stop this round
-            lastUsedTime = lastUsedTime20MinutesFromNow;
+            // Set lastUsedTime to current time plus 150 minutes so it won't be eligible for auto-stop this round
+            lastUsedTime = lastUsedTime150MinutesFromNow;
           }
 
           if (!lastUsedTime) {
