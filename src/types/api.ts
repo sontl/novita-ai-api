@@ -255,6 +255,20 @@ export interface Product {
   gpuType: string;
   gpuMemory: number;
   availability: 'available' | 'limited' | 'unavailable';
+  // Additional properties from actual API response
+  cpuPerGpu: number;
+  memoryPerGpu: number;
+  diskPerGpu: number;
+  availableDeploy: boolean;
+  prices: any[];
+  price: string;
+  minRootFS: number;
+  maxRootFS: number;
+  minLocalStorage: number;
+  maxLocalStorage: number;
+  regions: string[];
+  monthlyPrice: any[];
+  billingMethods: string[];
 }
 
 export interface ProductsResponse {
