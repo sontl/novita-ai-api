@@ -1344,7 +1344,7 @@ export class InstanceService {
    * Get instances that are eligible for auto-stop (running and inactive for over threshold)
    * Enhanced version that syncs with Redis and Novita API for data consistency
    */
-  async getInstancesEligibleForAutoStop(inactivityThresholdMinutes: number = 6): Promise<InstanceState[]> {
+  async getInstancesEligibleForAutoStop(inactivityThresholdMinutes: number = 10): Promise<InstanceState[]> {
     const thresholdMs = inactivityThresholdMinutes * 60 * 1000;
     const now = Date.now();
     const eligibleInstances: InstanceState[] = [];
@@ -1387,7 +1387,7 @@ export class InstanceService {
           // Handle invalid dates by setting lastUsed to now and updating the state
           if (!lastUsedTime || isNaN(lastUsedTime.getTime())) {
             const currentTime = new Date();
-            const lastUsedTime150MinutesFromNow = new Date(currentTime.getTime() + 150 * 60 * 1000);
+            const lastUsedTime180MinutesFromNow = new Date(currentTime.getTime() + 180 * 60 * 1000);
 
             logger.warn('Instance has invalid timestamp, setting lastUsed to current time plus 150 minutes', {
               instanceId: instanceState.id
@@ -1397,7 +1397,7 @@ export class InstanceService {
             await this.updateInstanceState(instanceState.id, {
               timestamps: {
                 ...instanceState.timestamps,
-                lastUsed: lastUsedTime150MinutesFromNow,
+                lastUsed: lastUsedTime180MinutesFromNow,
                 // Ensure created timestamp is valid
                 created: instanceState.timestamps.created && !isNaN(instanceState.timestamps.created.getTime())
                   ? instanceState.timestamps.created
@@ -1406,7 +1406,7 @@ export class InstanceService {
             });
 
             // Set lastUsedTime to current time plus 150 minutes so it won't be eligible for auto-stop this round
-            lastUsedTime = lastUsedTime150MinutesFromNow;
+            lastUsedTime = lastUsedTime180MinutesFromNow;
           }
 
           if (!lastUsedTime) {

@@ -259,20 +259,26 @@ export class ProductService {
 
   /**
    * Sort products by spot price in ascending order (cheapest first)
+   * With multi-level sorting for tie-breaking
    */
   private sortProductsBySpotPrice(products: Product[]): Product[] {
     return products.sort((a, b) => {
-      // Primary sort: spot price ascending
+      // Primary sort: spot price ascending (cheapest first)
       if (a.spotPrice !== b.spotPrice) {
         return a.spotPrice - b.spotPrice;
       }
 
-      // Secondary sort: on-demand price ascending (for tie-breaking)
-      if (a.onDemandPrice !== b.onDemandPrice) {
-        return a.onDemandPrice - b.onDemandPrice;
+      // Secondary sort: memory per GPU descending (higher is better)
+      if (a.memoryPerGpu !== b.memoryPerGpu) {
+        return b.memoryPerGpu - a.memoryPerGpu;
       }
 
-      // Tertiary sort: product ID for consistent ordering
+      // Tertiary sort: CPU per GPU descending (higher is better)
+      if (a.cpuPerGpu !== b.cpuPerGpu) {
+        return b.cpuPerGpu - a.cpuPerGpu;
+      }
+
+      // Quaternary sort: product ID for consistent ordering
       return a.id.localeCompare(b.id);
     });
   }
