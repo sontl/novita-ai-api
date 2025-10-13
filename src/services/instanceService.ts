@@ -1443,11 +1443,19 @@ export class InstanceService {
         }
       }
 
-      logger.info('Found instances eligible for auto-stop', {
-        totalRunningInstances: allInstanceStates.filter(state => state.status === InstanceStatus.RUNNING).length,
-        eligibleCount: eligibleInstances.length,
-        thresholdMinutes: inactivityThresholdMinutes
-      });
+      if (eligibleInstances.length > 0) {
+        logger.info('Found instances eligible for auto-stop', {
+          totalRunningInstances: allInstanceStates.filter(state => state.status === InstanceStatus.RUNNING).length,
+          eligibleCount: eligibleInstances.length,
+          thresholdMinutes: inactivityThresholdMinutes
+        });
+      } else {
+        logger.info('No instances eligible for auto-stop', {
+          totalRunningInstances: allInstanceStates.filter(state => state.status === InstanceStatus.RUNNING).length,
+          eligibleCount: 0,
+          thresholdMinutes: inactivityThresholdMinutes
+        });
+      }
 
       return eligibleInstances;
 

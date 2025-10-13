@@ -186,39 +186,39 @@ if (config.nodeEnv !== 'test') {
       logger.info('Job worker service started');
 
       // Initialize and start migration scheduler
-      const migrationScheduler = createMigrationScheduler(config, jobQueueService);
-      serviceRegistry.registerMigrationScheduler(migrationScheduler);
-      migrationScheduler.start();
-      logger.info('Migration scheduler initialized', {
-        enabled: config.migration.enabled,
-        intervalMs: config.migration.scheduleIntervalMs
-      });
+      // const migrationScheduler = createMigrationScheduler(config, jobQueueService);
+      // serviceRegistry.registerMigrationScheduler(migrationScheduler);
+      // migrationScheduler.start();
+      // logger.info('Migration scheduler initialized', {
+      //   enabled: config.migration.enabled,
+      //   intervalMs: config.migration.scheduleIntervalMs
+      // });
 
-      // Initialize and start failed migration scheduler
-      const failedMigrationScheduler = createFailedMigrationScheduler(config, jobQueueService);
-      serviceRegistry.registerFailedMigrationScheduler(failedMigrationScheduler);
+      // // Initialize and start failed migration scheduler
+      // const failedMigrationScheduler = createFailedMigrationScheduler(config, jobQueueService);
+      // serviceRegistry.registerFailedMigrationScheduler(failedMigrationScheduler);
 
-      // Log detailed configuration before starting
-      logger.info('Failed migration scheduler configuration', {
-        enabled: config.migration.enabled,
-        intervalMs: config.migration.scheduleIntervalMs * 2,
-        dryRunMode: config.migration.dryRunMode,
-        jobTimeoutMs: config.migration.jobTimeoutMs,
-        logLevel: config.migration.logLevel,
-        nodeEnv: config.nodeEnv,
-        isDevelopment: config.nodeEnv === 'development'
-      });
+      // // Log detailed configuration before starting
+      // logger.info('Failed migration scheduler configuration', {
+      //   enabled: config.migration.enabled,
+      //   intervalMs: config.migration.scheduleIntervalMs * 2,
+      //   dryRunMode: config.migration.dryRunMode,
+      //   jobTimeoutMs: config.migration.jobTimeoutMs,
+      //   logLevel: config.migration.logLevel,
+      //   nodeEnv: config.nodeEnv,
+      //   isDevelopment: config.nodeEnv === 'development'
+      // });
 
-      failedMigrationScheduler.start();
+      // failedMigrationScheduler.start();
 
-      // Check status after start
-      const schedulerStatus = failedMigrationScheduler.getStatus();
-      logger.info('Failed migration scheduler status after start', {
-        isRunning: schedulerStatus.isRunning,
-        isEnabled: schedulerStatus.isEnabled,
-        nextExecution: schedulerStatus.nextExecution,
-        uptime: schedulerStatus.uptime
-      });
+      // // Check status after start
+      // const schedulerStatus = failedMigrationScheduler.getStatus();
+      // logger.info('Failed migration scheduler status after start', {
+      //   isRunning: schedulerStatus.isRunning,
+      //   isEnabled: schedulerStatus.isEnabled,
+      //   nextExecution: schedulerStatus.nextExecution,
+      //   uptime: schedulerStatus.uptime
+      // });
 
       // In development, log a reminder about the scheduler
       if (config.nodeEnv === 'development') {

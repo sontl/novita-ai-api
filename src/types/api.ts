@@ -250,14 +250,14 @@ export interface Product {
   id: string;
   name: string;
   region: string;
-  spotPrice: number;
-  onDemandPrice: number;
+  spotPrice: number; // Parsed to number in transformation layer
+  onDemandPrice: number; // Parsed to number in transformation layer
   gpuType: string;
   gpuMemory: number;
   availability: 'available' | 'limited' | 'unavailable';
   // Additional properties from actual API response
-  cpuPerGpu: number;
-  memoryPerGpu: number;
+  cpuPerGpu: number; // Parsed to number in transformation layer
+  memoryPerGpu: number; // Parsed to number in transformation layer
   diskPerGpu: number;
   availableDeploy: boolean;
   prices: any[];

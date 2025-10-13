@@ -70,7 +70,21 @@ export class NovitaApiService {
         onDemandPrice: parseFloat(rawProduct.price || '0'),
         gpuType: this.extractGpuType(rawProduct.name),
         gpuMemory: rawProduct.memoryPerGpu || 24, // Default to 24GB if not specified
-        availability: rawProduct.availableDeploy ? 'available' : 'unavailable'
+        availability: rawProduct.availableDeploy ? 'available' : 'unavailable',
+        // Additional required properties from Product interface
+        cpuPerGpu: parseFloat(rawProduct.cpuPerGpu || '0'),
+        memoryPerGpu: parseFloat(rawProduct.memoryPerGpu || '24'),
+        diskPerGpu: rawProduct.diskPerGpu || 0,
+        availableDeploy: rawProduct.availableDeploy || false,
+        prices: rawProduct.prices || [],
+        price: rawProduct.price || '0',
+        minRootFS: rawProduct.minRootFS || 0,
+        maxRootFS: rawProduct.maxRootFS || 0,
+        minLocalStorage: rawProduct.minLocalStorage || 0,
+        maxLocalStorage: rawProduct.maxLocalStorage || 0,
+        regions: rawProduct.regions || [],
+        monthlyPrice: rawProduct.monthlyPrice || [],
+        billingMethods: rawProduct.billingMethods || ['spot']
       }));
 
       logger.info('Products fetched and transformed', {

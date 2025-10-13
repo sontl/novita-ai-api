@@ -35,37 +35,56 @@ describe('ProductService Multi-Region Fallback', () => {
     service = new ProductService();
   });
 
+  const createMockProduct = (overrides: Partial<Product>): Product => ({
+    id: 'prod-default',
+    name: 'RTX 4090 24GB',
+    region: 'CN-HK-01',
+    spotPrice: 0.6,
+    onDemandPrice: 1.1,
+    gpuType: 'RTX 4090',
+    gpuMemory: 24,
+    availability: 'available',
+    cpuPerGpu: 8,
+    memoryPerGpu: 32,
+    diskPerGpu: 100,
+    availableDeploy: true,
+    prices: [],
+    price: '0.6',
+    minRootFS: 10,
+    maxRootFS: 500,
+    minLocalStorage: 0,
+    maxLocalStorage: 1000,
+    regions: ['CN-HK-01'],
+    monthlyPrice: [],
+    billingMethods: ['spot', 'onDemand'],
+    ...overrides
+  });
+
   const mockProducts: Product[] = [
-    {
+    createMockProduct({
       id: 'prod-sgp-1',
-      name: 'RTX 4090 24GB',
       region: 'AS-SGP-02',
       spotPrice: 0.8,
       onDemandPrice: 1.2,
-      gpuType: 'RTX 4090',
-      gpuMemory: 24,
-      availability: 'available'
-    },
-    {
+      price: '0.8',
+      regions: ['AS-SGP-02']
+    }),
+    createMockProduct({
       id: 'prod-hk-1',
-      name: 'RTX 4090 24GB',
       region: 'CN-HK-01',
       spotPrice: 0.6,
       onDemandPrice: 1.0,
-      gpuType: 'RTX 4090',
-      gpuMemory: 24,
-      availability: 'available'
-    },
-    {
+      price: '0.6',
+      regions: ['CN-HK-01']
+    }),
+    createMockProduct({
       id: 'prod-in-1',
-      name: 'RTX 4090 24GB',
       region: 'AS-IN-01',
       spotPrice: 0.5,
       onDemandPrice: 0.9,
-      gpuType: 'RTX 4090',
-      gpuMemory: 24,
-      availability: 'available'
-    }
+      price: '0.5',
+      regions: ['AS-IN-01']
+    })
   ];
 
   describe('getOptimalProductWithFallback', () => {

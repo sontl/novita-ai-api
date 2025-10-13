@@ -39,28 +39,45 @@ describe('NovitaApiService', () => {
     jest.clearAllMocks();
   });
 
+  const createMockProduct = (overrides: Partial<Product>): Product => ({
+    id: 'prod-default',
+    name: 'RTX 4090 24GB',
+    region: 'CN-HK-01',
+    spotPrice: 0.6,
+    onDemandPrice: 1.1,
+    gpuType: 'RTX 4090',
+    gpuMemory: 24,
+    availability: 'available',
+    cpuPerGpu: 8,
+    memoryPerGpu: 32,
+    diskPerGpu: 100,
+    availableDeploy: true,
+    prices: [],
+    price: '0.6',
+    minRootFS: 10,
+    maxRootFS: 500,
+    minLocalStorage: 0,
+    maxLocalStorage: 1000,
+    regions: ['CN-HK-01'],
+    monthlyPrice: [],
+    billingMethods: ['spot', 'onDemand'],
+    ...overrides
+  });
+
   describe('getProducts', () => {
     const mockProducts: Product[] = [
-      {
+      createMockProduct({
         id: 'prod-1',
-        name: 'RTX 4090 24GB',
-        region: 'CN-HK-01',
         spotPrice: 0.5,
         onDemandPrice: 1.0,
-        gpuType: 'RTX 4090',
-        gpuMemory: 24,
-        availability: 'available'
-      },
-      {
+        price: '0.5'
+      }),
+      createMockProduct({
         id: 'prod-2',
-        name: 'RTX 4090 24GB',
-        region: 'CN-HK-01',
         spotPrice: 0.6,
         onDemandPrice: 1.1,
-        gpuType: 'RTX 4090',
-        gpuMemory: 24,
-        availability: 'available'
-      }
+        price: '0.6'
+      })
     ];
 
     it('should fetch products successfully', async () => {
@@ -166,26 +183,18 @@ describe('NovitaApiService', () => {
 
   describe('getOptimalProduct', () => {
     const mockProducts: Product[] = [
-      {
+      createMockProduct({
         id: 'prod-1',
-        name: 'RTX 4090 24GB',
-        region: 'CN-HK-01',
         spotPrice: 0.6,
         onDemandPrice: 1.1,
-        gpuType: 'RTX 4090',
-        gpuMemory: 24,
-        availability: 'available'
-      },
-      {
+        price: '0.6'
+      }),
+      createMockProduct({
         id: 'prod-2',
-        name: 'RTX 4090 24GB',
-        region: 'CN-HK-01',
         spotPrice: 0.5,
         onDemandPrice: 1.0,
-        gpuType: 'RTX 4090',
-        gpuMemory: 24,
-        availability: 'available'
-      }
+        price: '0.5'
+      })
     ];
 
     it('should return the product with lowest spot price', async () => {
