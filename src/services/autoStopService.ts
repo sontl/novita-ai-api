@@ -27,7 +27,7 @@ export class AutoStopService {
 
     this.isSchedulerRunning = true;
     this.scheduleNextCheck();
-    
+
     logger.info('Auto-stop scheduler started', {
       checkIntervalMinutes: this.checkIntervalMs / (60 * 1000),
       defaultInactivityThresholdMinutes: this.defaultInactivityThresholdMinutes
@@ -120,13 +120,22 @@ export class AutoStopService {
     try {
       // Get all instances eligible for auto-stop
       const eligibleInstances = await instanceService.getInstancesEligibleForAutoStop(inactivityThreshold);
-      
-      logger.info('Found instances eligible for auto-stop', {
-        operation: 'auto_stop_check',
-        jobId: payload.jobId,
-        eligibleCount: eligibleInstances.length,
-        inactivityThresholdMinutes: inactivityThreshold
-      });
+
+      if (eligibleInstances.length > 0) {
+        logger.info('Found instances eligible for auto-stop', {
+          operation: 'auto_stop_check',
+          jobId: payload.jobId,
+          eligibleCount: eligibleInstances.length,
+          inactivityThresholdMinutes: inactivityThreshold
+        });
+      } else {
+        logger.info('No instances eligible for auto-stop', {
+          operation: 'auto_stop_check',
+          jobId: payload.jobId,
+          eligibleCount: 0,
+          inactivityThresholdMinutes: inactivityThreshold
+        });
+      }
 
       let stopped = 0;
       let errors = 0;
@@ -134,13 +143,13 @@ export class AutoStopService {
       // Process each eligible instance
       for (const instanceState of eligibleInstances) {
         try {
-          const lastUsedTime = instanceState.timestamps.lastUsed || 
-                              instanceState.timestamps.started || 
-                              instanceState.timestamps.created ||
-                              instanceState.timestamps.ready;
-          
-          const inactiveMinutes = lastUsedTime ? 
-            Math.floor((Date.now() - lastUsedTime.getTime()) / (60 * 1000)) : 
+          const lastUsedTime = instanceState.timestamps.lastUsed ||
+            instanceState.timestamps.started ||
+            instanceState.timestamps.created ||
+            instanceState.timestamps.ready;
+
+          const inactiveMinutes = lastUsedTime ?
+            Math.floor((Date.now() - lastUsedTime.getTime()) / (60 * 1000)) :
             'unknown';
 
           logger.info('Processing instance for auto-stop', {
@@ -164,11 +173,11 @@ export class AutoStopService {
           } else {
             // Clear lastUsed time before stopping the instance
             await instanceService.clearLastUsedTime(instanceState.id);
-            
+
             // Actually stop the instance
             await instanceService.stopInstance(instanceState.id, {}, 'id');
             stopped++;
-            
+
             logger.info('Instance auto-stopped due to inactivity', {
               operation: 'auto_stop_check',
               instanceId: instanceState.id,
@@ -203,8 +212,8 @@ export class AutoStopService {
         jobId: payload.jobId,
         ...result,
         dryRun,
-        successRate: eligibleInstances.length > 0 ? 
-          ((stopped / eligibleInstances.length) * 100).toFixed(2) + '%' : 
+        successRate: eligibleInstances.length > 0 ?
+          ((stopped / eligibleInstances.length) * 100).toFixed(2) + '%' :
           '100%'
       });
 

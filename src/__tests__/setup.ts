@@ -4,12 +4,19 @@
  * Global test setup, mocks, and utilities used across all test files.
  */
 
-import { config } from '../config/config';
+import { config, loadConfig } from '../config/config';
 
 // Set test environment variables
 process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'error';
 process.env.NOVITA_API_KEY = 'test-api-key';
+
+// Load configuration for tests
+try {
+  loadConfig();
+} catch (error) {
+  // Configuration might already be loaded, ignore the error
+}
 
 // Global test timeout
 jest.setTimeout(10000);
@@ -104,6 +111,26 @@ expect.extend({
       };
     }
   },
+});
+
+// Mock cache implementation for tests
+export const createMockCache = () => ({
+  get: jest.fn().mockResolvedValue(undefined),
+  set: jest.fn().mockResolvedValue(undefined),
+  delete: jest.fn().mockResolvedValue(true),
+  clear: jest.fn().mockResolvedValue(undefined),
+  keys: jest.fn().mockResolvedValue([]),
+  size: jest.fn().mockResolvedValue(0),
+  cleanupExpired: jest.fn().mockResolvedValue(0),
+  getMetrics: jest.fn().mockReturnValue({ hits: 0, misses: 0, sets: 0, deletes: 0, evictions: 0, totalSize: 0 }),
+  getHitRatio: jest.fn().mockReturnValue(0),
+});
+
+export const createMockCacheManager = () => ({
+  getCache: jest.fn().mockImplementation(() => Promise.resolve(createMockCache())),
+  getAllStats: jest.fn().mockResolvedValue({}),
+  getCacheNames: jest.fn().mockReturnValue([]),
+  destroyAll: jest.fn().mockResolvedValue(undefined),
 });
 
 // Mock implementations for external services

@@ -80,8 +80,8 @@ describe('NovitaApiService - Comprehensive Listing', () => {
         memory: '32GB',
         gpuNum: '2',
         portMappings: [
-          { port: 8080, type: 'http' },
-          { port: 22, type: 'ssh' }
+          { port: 8080, endpoint: 'http://example.com:8080', type: 'http' },
+          { port: 22, endpoint: 'ssh://example.com:22', type: 'ssh' }
         ],
         productId: 'product-123',
         productName: 'RTX 4090',
