@@ -16,12 +16,12 @@ export class ProductService {
   private readonly defaultRegions: RegionConfig[] = [
     { id: 'as-sgp-2', name: 'AS-SGP-02', priority: 1 },
     { id: 'cn-hongkong-1', name: 'CN-HK-01', priority: 2 },
-    { id: 'as-in-1', name: 'AS-IN-01', priority: 3 },
+    { id: 'as-in-1', name: 'AS-IN-01', priority: 8 },
     { id: 'us-ca-6', name: 'US-CA-06', priority: 4 },
     { id: 'us-west-1', name: 'US-WEST-01', priority: 5 },
     { id: 'eu-de-1', name: 'EU-DE-01', priority: 6 },
     { id: 'eu-west-1', name: 'EU-WEST-01', priority: 7 },
-    { id: 'oc-au-1', name: 'OC-AU-01', priority: 8 }
+    { id: 'oc-au-1', name: 'OC-AU-01', priority: 3 }
   ];
 
   /**

@@ -2900,11 +2900,8 @@ export class InstanceService {
       'CN-HK-01': 'cn-hongkong-1',
       'AS-SGP-02': 'as-sgp-2',
       'AS-IN-01': 'as-in-1',
-      'US-CA-06': 'us-ca-06',
-      'US-WEST-01': 'us-west-01',
-      'EU-DE-01': 'eu-de-01',
-      'EU-WEST-01': 'eu-west-01',
-      'OC-AU-01': 'oc-au-01'
+      'US-CA-06': 'us-ca-6',
+      'OC-AU-01': 'oc-au-1'
     };
 
     return regionToClusterMap[regionCode] || regionCode.toLowerCase();
