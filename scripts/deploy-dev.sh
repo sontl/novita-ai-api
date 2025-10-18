@@ -5,6 +5,12 @@ set -e
 
 echo "🚀 Starting development deployment..."
 
+# Check if curl is available
+if ! command -v curl &> /dev/null; then
+    echo "❌ Error: curl is required but not installed. Please install curl first."
+    exit 1
+fi
+
 # Check if .env file exists, create from example if not
 if [ ! -f .env ]; then
     echo "📝 Creating .env file from example..."
@@ -24,7 +30,7 @@ docker-compose up -d
 
 # Wait for service to be ready
 echo "⏳ Waiting for service to be ready..."
-timeout=30
+timeout=60
 counter=0
 
 while [ $counter -lt $timeout ]; do
@@ -40,8 +46,12 @@ done
 
 if [ $counter -ge $timeout ]; then
     echo "❌ Service failed to start within $timeout seconds"
-    echo "📋 Checking logs..."
+    echo "📋 Checking container status..."
+    docker-compose ps
+    echo "📋 Checking recent logs..."
     docker-compose logs --tail=20
+    echo "🔍 Testing direct health endpoint..."
+    curl -v http://localhost:3003/health || echo "Health endpoint not responding"
     exit 1
 fi
 
