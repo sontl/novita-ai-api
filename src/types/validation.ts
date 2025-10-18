@@ -65,6 +65,13 @@ export const createInstanceSchema = Joi.object<CreateInstanceRequest>({
     .optional()
     .messages({
       'string.uri': 'Webhook URL must be a valid HTTP or HTTPS URL'
+    }),
+
+  billingMode: Joi.string()
+    .valid('spot', 'onDemand')
+    .default('spot')
+    .messages({
+      'any.only': 'Billing mode must be either "spot" or "onDemand"'
     })
 });
 

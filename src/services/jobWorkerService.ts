@@ -91,7 +91,8 @@ export class JobWorkerService {
       jobId: job.id,
       instanceId: payload.instanceId,
       productName: payload.productName,
-      templateId: payload.templateId
+      templateId: payload.templateId,
+      billingMode: payload.billingMode || 'spot'
     });
 
     try {
@@ -141,7 +142,7 @@ export class JobWorkerService {
         clusterId: this.mapRegionToClusterId(regionUsed),
         imageUrl: templateConfig.imageUrl,
         kind: 'gpu', // Default to GPU instances
-        billingMode: 'spot', // Default to spot pricing for cost optimization
+        billingMode: payload.billingMode || 'spot', // Use provided billing mode or default to spot
         ...(templateConfig.ports && templateConfig.ports.length > 0 && {
           ports: templateConfig.ports.map(p => `${p.port}/${p.type}`).join(',')
         }),

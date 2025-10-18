@@ -29,7 +29,8 @@ async function demonstrateJobQueue(): Promise<void> {
       gpuNum: 2,
       rootfsSize: 100,
       region: 'CN-HK-01',
-      webhookUrl: 'https://example.com/webhook'
+      webhookUrl: 'https://example.com/webhook',
+      billingMode: 'spot' // Use spot pricing for cost optimization
     };
 
     const createJobId = await jobQueue.addJob(
