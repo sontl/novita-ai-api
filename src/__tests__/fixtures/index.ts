@@ -25,7 +25,20 @@ export const mockProducts: Product[] = [
     onDemandPrice: 0.90,
     gpuType: 'RTX 4090',
     gpuMemory: 24,
-    availability: 'available'
+    availability: 'available',
+    cpuPerGpu: 0,
+    memoryPerGpu: 0,
+    diskPerGpu: 0,
+    availableDeploy: false,
+    prices: [],
+    price: '',
+    minRootFS: 0,
+    maxRootFS: 0,
+    minLocalStorage: 0,
+    maxLocalStorage: 0,
+    regions: [],
+    monthlyPrice: [],
+    billingMethods: []
   },
   {
     id: 'prod-rtx4090-sg',
@@ -35,7 +48,20 @@ export const mockProducts: Product[] = [
     onDemandPrice: 0.95,
     gpuType: 'RTX 4090',
     gpuMemory: 24,
-    availability: 'available'
+    availability: 'available',
+    cpuPerGpu: 0,
+    memoryPerGpu: 0,
+    diskPerGpu: 0,
+    availableDeploy: false,
+    prices: [],
+    price: '',
+    minRootFS: 0,
+    maxRootFS: 0,
+    minLocalStorage: 0,
+    maxLocalStorage: 0,
+    regions: [],
+    monthlyPrice: [],
+    billingMethods: []
   },
   {
     id: 'prod-a100-hk',
@@ -45,7 +71,20 @@ export const mockProducts: Product[] = [
     onDemandPrice: 2.40,
     gpuType: 'A100',
     gpuMemory: 80,
-    availability: 'limited'
+    availability: 'limited',
+    cpuPerGpu: 0,
+    memoryPerGpu: 0,
+    diskPerGpu: 0,
+    availableDeploy: false,
+    prices: [],
+    price: '',
+    minRootFS: 0,
+    maxRootFS: 0,
+    minLocalStorage: 0,
+    maxLocalStorage: 0,
+    regions: [],
+    monthlyPrice: [],
+    billingMethods: []
   },
   {
     id: 'prod-h100-hk',
@@ -55,7 +94,20 @@ export const mockProducts: Product[] = [
     onDemandPrice: 5.00,
     gpuType: 'H100',
     gpuMemory: 80,
-    availability: 'available'
+    availability: 'available',
+    cpuPerGpu: 0,
+    memoryPerGpu: 0,
+    diskPerGpu: 0,
+    availableDeploy: false,
+    prices: [],
+    price: '',
+    minRootFS: 0,
+    maxRootFS: 0,
+    minLocalStorage: 0,
+    maxLocalStorage: 0,
+    regions: [],
+    monthlyPrice: [],
+    billingMethods: []
   }
 ];
 
