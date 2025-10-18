@@ -50,6 +50,25 @@ export class JobWorkerService {
   }
 
   /**
+   * Map region code to cluster ID for Novita.ai API
+   */
+  private mapRegionToClusterId(regionCode: string): string {
+    // Map region codes to their corresponding cluster IDs
+    const regionToClusterMap: Record<string, string> = {
+      'CN-HK-01': 'cn-hongkong-1',
+      'AS-SGP-02': 'as-sgp-2',
+      'AS-IN-01': 'as-in-1',
+      'US-CA-06': 'us-ca-06',
+      'US-WEST-01': 'us-west-01',
+      'EU-DE-01': 'eu-de-01',
+      'EU-WEST-01': 'eu-west-01',
+      'OC-AU-01': 'oc-au-01'
+    };
+
+    return regionToClusterMap[regionCode] || regionCode.toLowerCase();
+  }
+
+  /**
    * Register all job handlers with the queue service
    */
   private registerHandlers(): void {
@@ -119,7 +138,7 @@ export class JobWorkerService {
         productId: optimalProduct.id,
         gpuNum: payload.gpuNum,
         rootfsSize: payload.rootfsSize,
-        clusterId: regionUsed === 'CN-HK-01' ? 'cn-hongkong-1' : regionUsed.toLowerCase(),
+        clusterId: this.mapRegionToClusterId(regionUsed),
         imageUrl: templateConfig.imageUrl,
         kind: 'gpu', // Default to GPU instances
         billingMode: 'spot', // Default to spot pricing for cost optimization

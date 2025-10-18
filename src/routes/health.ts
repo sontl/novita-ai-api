@@ -191,7 +191,7 @@ async function checkNovitaApiHealth(): Promise<boolean> {
     });
 
     await Promise.race([
-      novitaApiService.getProducts({ productName: 'test', region: 'CN-HK-01' }),
+      novitaApiService.getProducts({ productName: 'RTX 4090' }), // Remove region filter for health check
       timeoutPromise
     ]);
 
@@ -267,7 +267,7 @@ async function checkNovitaApiHealthDetailed(): Promise<any> {
     });
 
     await Promise.race([
-      novitaApiService.getProducts({ productName: 'test', region: 'CN-HK-01' }),
+      novitaApiService.getProducts({ productName: 'RTX 4090' }), // Remove region filter for health check
       timeoutPromise
     ]);
 

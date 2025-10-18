@@ -165,6 +165,110 @@ describe('NovitaApiService', () => {
       );
     });
 
+    it('should filter products by region with old format (region codes only)', async () => {
+      const mockApiProducts = [
+        {
+          id: '1',
+          name: 'RTX 4090 24GB',
+          regions: ['US-CA-06', 'CN-HK-01'],
+          availableDeploy: true,
+          spotPrice: '0.5'
+        },
+        {
+          id: '2',
+          name: 'RTX 4090 24GB',
+          regions: ['EU-DE-01', 'US-NY-01'],
+          availableDeploy: true,
+          spotPrice: '0.6'
+        }
+      ];
+
+      mockedNovitaClient.get.mockResolvedValue({
+        data: {
+          data: mockApiProducts
+        },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      const result = await novitaApiService.getProducts({
+        region: 'US-CA-06'
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.id).toBe('1');
+      expect(result[0]!.region).toBe('US-CA-06');
+    });
+
+    it('should filter products by region with new format (region codes with descriptions)', async () => {
+      const mockApiProducts = [
+        {
+          id: '1',
+          name: 'RTX 4090 24GB',
+          regions: ['US-CA-06 (California)', 'CN-HK-01 (Hong Kong)'],
+          availableDeploy: true,
+          spotPrice: '0.5'
+        },
+        {
+          id: '2',
+          name: 'RTX 4090 24GB',
+          regions: ['EU-DE-01 (Germany)', 'US-NY-01 (New York)'],
+          availableDeploy: true,
+          spotPrice: '0.6'
+        }
+      ];
+
+      mockedNovitaClient.get.mockResolvedValue({
+        data: {
+          data: mockApiProducts
+        },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      const result = await novitaApiService.getProducts({
+        region: 'US-CA-06'
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.id).toBe('1');
+      expect(result[0]!.region).toBe('US-CA-06'); // Should extract just the region code
+    });
+
+    it('should handle mixed region formats', async () => {
+      const mockApiProducts = [
+        {
+          id: '1',
+          name: 'RTX 4090 24GB',
+          regions: ['US-CA-06', 'CN-HK-01 (Hong Kong)'], // Mixed formats
+          availableDeploy: true,
+          spotPrice: '0.5'
+        }
+      ];
+
+      mockedNovitaClient.get.mockResolvedValue({
+        data: {
+          data: mockApiProducts
+        },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {}
+      } as any);
+
+      const result = await novitaApiService.getProducts({
+        region: 'CN-HK-01'
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.id).toBe('1');
+      expect(result[0]!.region).toBe('CN-HK-01');
+    });
+
     it('should handle API errors', async () => {
       // Mock an axios error for the actual API
       const axiosError = {
