@@ -43,9 +43,13 @@ router.post('/', asyncHandler(async (req: Request, res: Response): Promise<void>
   const result = await instanceService.createInstance(validation.value);
   const duration = Date.now() - startTime;
 
-  contextLogger.info('Instance creation initiated successfully', {
+  contextLogger.info('Instance creation completed successfully', {
     instanceId: result.instanceId,
+    novitaInstanceId: result.novitaInstanceId,
     status: result.status,
+    productId: result.productId,
+    region: result.region,
+    spotPrice: result.spotPrice,
     duration
   });
 

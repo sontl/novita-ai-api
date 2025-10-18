@@ -20,8 +20,12 @@ export interface CreateInstanceRequest {
 
 export interface CreateInstanceResponse {
   instanceId: string;
+  novitaInstanceId?: string;
   status: 'creating' | 'starting' | 'running' | 'failed';
   message: string;
+  productId?: string;
+  region?: string;
+  spotPrice?: number;
   estimatedReadyTime?: string;
 }
 
