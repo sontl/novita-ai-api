@@ -195,13 +195,12 @@ export class InstanceService {
   }
 
   /**
-   * Create a new GPU instance with automated lifecycle management
+   * Create a new GPU instance with direct Novita API call (no job queue)
    */
   async createInstance(request: CreateInstanceRequest): Promise<CreateInstanceResponse> {
-    try {
-      // Generate unique instance ID
-      const instanceId = this.generateInstanceId();
+    const instanceId = this.generateInstanceId();
 
+    try {
       // Validate request parameters
       this.validateCreateInstanceRequest(request);
 
@@ -211,7 +210,7 @@ export class InstanceService {
       const region = request.region || this.defaultRegion;
       const billingMode = request.billingMode || 'spot';
 
-      logger.info('Starting instance creation workflow', {
+      logger.info('Starting direct instance creation workflow', {
         instanceId,
         name: request.name,
         productName: request.productName,
@@ -222,13 +221,24 @@ export class InstanceService {
         billingMode
       });
 
-      // Get optimal product and template configuration in parallel
-      const [optimalProduct, templateConfig] = await Promise.all([
-        productService.getOptimalProduct(request.productName, region),
-        templateService.getTemplateConfiguration(request.templateId)
-      ]);
+      // Step 1: Get optimal product with region fallback
+      const { product: optimalProduct, regionUsed } = await productService.getOptimalProductWithFallback(
+        request.productName,
+        region
+      );
 
-      // Create instance state
+      logger.info('Optimal product selected with region fallback', {
+        instanceId,
+        productId: optimalProduct.id,
+        regionUsed,
+        spotPrice: optimalProduct.spotPrice,
+        requestedRegion: region
+      });
+
+      // Step 2: Get template configuration
+      const templateConfig = await templateService.getTemplateConfiguration(request.templateId);
+
+      // Step 3: Create instance state (before API call)
       const instanceState: InstanceState = {
         id: instanceId,
         name: request.name,
@@ -238,7 +248,7 @@ export class InstanceService {
         configuration: {
           gpuNum,
           rootfsSize,
-          region,
+          region: regionUsed,
           imageUrl: templateConfig.imageUrl,
           ...(templateConfig.imageAuth && { imageAuth: templateConfig.imageAuth }),
           ports: templateConfig.ports,
@@ -250,54 +260,187 @@ export class InstanceService {
         ...(request.webhookUrl && { webhookUrl: request.webhookUrl })
       };
 
-      // Store instance state in Redis
+      // Store initial instance state in Redis
       await this.persistInstanceStateToRedis(instanceState);
 
-      // Queue instance creation job
-      const jobPayload: CreateInstanceJobPayload = {
-        instanceId,
+      // Step 4: Prepare Novita API request
+      const createRequest: NovitaCreateInstanceRequest = {
         name: request.name,
-        productName: request.productName,
-        templateId: request.templateId,
+        productId: optimalProduct.id,
         gpuNum,
         rootfsSize,
-        region,
-        billingMode
+        clusterId: this.mapRegionToClusterId(regionUsed),
+        imageUrl: templateConfig.imageUrl,
+        kind: 'gpu',
+        billingMode,
+        ...(templateConfig.ports && templateConfig.ports.length > 0 && {
+          ports: templateConfig.ports.map(p => `${p.port}/${p.type}`).join(',')
+        }),
+        ...(templateConfig.envs && templateConfig.envs.length > 0 && { envs: templateConfig.envs })
       };
 
-      if (request.webhookUrl) {
-        jobPayload.webhookUrl = request.webhookUrl;
+      // Step 5: Handle image authentication if required
+      if (templateConfig.imageAuth) {
+        logger.debug('Fetching registry authentication credentials', {
+          instanceId,
+          imageAuthId: templateConfig.imageAuth
+        });
+
+        try {
+          const registryAuth = await novitaApiService.getRegistryAuth(templateConfig.imageAuth);
+          createRequest.imageAuth = `${registryAuth.username}:${registryAuth.password}`;
+
+          logger.info('Registry authentication credentials configured', {
+            instanceId,
+            imageAuthId: templateConfig.imageAuth,
+            username: registryAuth.username
+          });
+        } catch (authError) {
+          logger.error('Failed to fetch registry authentication credentials', {
+            instanceId,
+            imageAuthId: templateConfig.imageAuth,
+            error: authError instanceof Error ? authError.message : 'Unknown error'
+          });
+
+          // Update instance state to failed and cleanup
+          await this.updateInstanceState(instanceId, {
+            status: InstanceStatus.FAILED,
+            lastError: `Authentication failed: ${authError instanceof Error ? authError.message : 'Unknown error'}`,
+            timestamps: {
+              ...instanceState.timestamps,
+              failed: new Date()
+            }
+          });
+
+          throw authError;
+        }
       }
 
-      const jobQueueService = serviceRegistry.getJobQueueService();
-      if (!jobQueueService) {
-        throw new Error('Job queue service not available');
-      }
-
-      await jobQueueService.addJob(
-        JobTypeEnum.CREATE_INSTANCE,
-        jobPayload,
-        JobPriority.HIGH
-      );
-
-      logger.info('Instance creation job queued', {
+      logger.info('Creating Novita.ai instance directly', {
         instanceId,
         productId: optimalProduct.id,
-        templateId: request.templateId
+        spotPrice: optimalProduct.spotPrice,
+        regionUsed,
+        requestedRegion: region
       });
+
+      // Step 6: Create instance via Novita.ai API (direct call)
+      const novitaInstance = await novitaApiService.createInstance(createRequest);
+
+      // Step 7: Update instance state with Novita instance ID and status
+      await this.updateInstanceState(instanceId, {
+        novitaInstanceId: novitaInstance.id,
+        status: novitaInstance.status,
+        timestamps: {
+          ...instanceState.timestamps,
+          ...(novitaInstance.status === InstanceStatus.RUNNING && { started: new Date() })
+        }
+      });
+
+      logger.info('Novita.ai instance created successfully', {
+        instanceId,
+        novitaInstanceId: novitaInstance.id,
+        status: novitaInstance.status,
+        productId: optimalProduct.id,
+        regionUsed
+      });
+
+      // Step 8: Send creation webhook notification if configured
+      if (request.webhookUrl) {
+        try {
+          // Use the generic webhook notification with creation status
+          const webhookPayload = webhookClient.createNotificationPayload(
+            instanceId,
+            'running', // Use a valid status
+            {
+              novitaInstanceId: novitaInstance.id,
+              data: {
+                productId: optimalProduct.id,
+                region: regionUsed,
+                createdAt: instanceState.timestamps.created.toISOString(),
+                event: 'instance_created'
+              }
+            }
+          );
+
+          await webhookClient.sendWebhook({
+            url: request.webhookUrl,
+            payload: webhookPayload
+          });
+
+          logger.info('Creation webhook notification sent', {
+            instanceId,
+            novitaInstanceId: novitaInstance.id
+          });
+        } catch (webhookError) {
+          logger.warn('Failed to send creation webhook notification', {
+            instanceId,
+            novitaInstanceId: novitaInstance.id,
+            error: webhookError instanceof Error ? webhookError.message : 'Unknown error'
+          });
+          // Don't fail the creation due to webhook errors
+        }
+      }
 
       return {
         instanceId,
-        status: 'creating',
-        message: 'Instance creation initiated successfully',
+        novitaInstanceId: novitaInstance.id,
+        status: novitaInstance.status as 'creating' | 'starting' | 'running' | 'failed',
+        message: 'Instance created successfully',
+        productId: optimalProduct.id,
+        region: regionUsed,
+        spotPrice: optimalProduct.spotPrice,
         estimatedReadyTime: this.calculateEstimatedReadyTime()
       };
 
     } catch (error) {
-      logger.error('Failed to create instance', {
+      logger.error('Failed to create instance directly', {
+        instanceId,
         error: (error as Error).message,
-        request
+        request: {
+          name: request.name,
+          productName: request.productName,
+          templateId: request.templateId,
+          region: request.region
+        }
       });
+
+      // Update instance state to failed if it exists
+      try {
+        const existingState = await this.getInstanceStateFromRedis(instanceId);
+        if (existingState) {
+          await this.updateInstanceState(instanceId, {
+            status: InstanceStatus.FAILED,
+            lastError: error instanceof Error ? error.message : 'Unknown error',
+            timestamps: {
+              ...existingState.timestamps,
+              failed: new Date()
+            }
+          });
+        }
+      } catch (updateError) {
+        logger.error('Failed to update instance state to failed', {
+          instanceId,
+          error: updateError instanceof Error ? updateError.message : 'Unknown error'
+        });
+      }
+
+      // Send failure webhook if configured
+      if (request.webhookUrl) {
+        try {
+          await webhookClient.sendFailureNotification(
+            request.webhookUrl,
+            instanceId,
+            error instanceof Error ? error.message : 'Unknown error'
+          );
+        } catch (webhookError) {
+          logger.warn('Failed to send creation failure webhook notification', {
+            instanceId,
+            error: webhookError instanceof Error ? webhookError.message : 'Unknown error'
+          });
+        }
+      }
+
       throw error;
     }
   }
@@ -2746,6 +2889,25 @@ export class InstanceService {
    */
   private generateOperationId(): string {
     return `startup_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  }
+
+  /**
+   * Map region code to cluster ID for Novita.ai API
+   */
+  private mapRegionToClusterId(regionCode: string): string {
+    // Map region codes to their corresponding cluster IDs
+    const regionToClusterMap: Record<string, string> = {
+      'CN-HK-01': 'cn-hongkong-1',
+      'AS-SGP-02': 'as-sgp-2',
+      'AS-IN-01': 'as-in-1',
+      'US-CA-06': 'us-ca-06',
+      'US-WEST-01': 'us-west-01',
+      'EU-DE-01': 'eu-de-01',
+      'EU-WEST-01': 'eu-west-01',
+      'OC-AU-01': 'oc-au-01'
+    };
+
+    return regionToClusterMap[regionCode] || regionCode.toLowerCase();
   }
 }
 

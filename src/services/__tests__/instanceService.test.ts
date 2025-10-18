@@ -89,7 +89,7 @@ describe('InstanceService', () => {
   let service: InstanceService;
 
   const mockProduct: Product = {
-    id: 'prod_123',
+    id: 'product_123',
     name: 'RTX 4090 24GB',
     region: 'CN-HK-01',
     spotPrice: 0.5,
@@ -114,7 +114,7 @@ describe('InstanceService', () => {
   };
 
   const mockTemplateConfig = {
-    imageUrl: mockTemplate.imageUrl,
+    imageUrl: 'test-image:latest',
     imageAuth: mockTemplate.imageAuth as string,
     ports: mockTemplate.ports,
     envs: mockTemplate.envs
@@ -150,9 +150,25 @@ describe('InstanceService', () => {
     
     // Setup default mock implementations
     mockProductService.getOptimalProduct.mockResolvedValue(mockProduct);
+    mockProductService.getOptimalProductWithFallback.mockResolvedValue({
+      product: mockProduct,
+      regionUsed: 'CN-HK-01'
+    });
     mockTemplateService.getTemplateConfiguration.mockResolvedValue(mockTemplateConfig);
     mockJobQueueService.addJob.mockResolvedValue('job_123');
     mockNovitaApiService.getInstance.mockResolvedValue(mockNovitaInstance);
+    mockNovitaApiService.createInstance.mockResolvedValue({
+      id: 'novita_123',
+      name: 'test-instance',
+      status: InstanceStatus.CREATING,
+      productId: 'product_123',
+      region: 'CN-HK-01',
+      gpuNum: 1,
+      rootfsSize: 60,
+      billingMode: 'spot',
+      createdAt: new Date().toISOString(),
+      portMappings: []
+    });
     mockNovitaApiService.listInstances.mockResolvedValue({ 
       instances: [], 
       total: 0, 
@@ -191,27 +207,32 @@ describe('InstanceService', () => {
 
       expect(result).toMatchObject({
         status: 'creating',
-        message: 'Instance creation initiated successfully'
+        message: 'Instance created successfully'
       });
       expect(result.instanceId).toMatch(/^inst_\d+_[a-z0-9]+$/);
+      expect(result.novitaInstanceId).toBe('novita_123');
+      expect(result.productId).toBe('product_123');
+      expect(result.region).toBe('CN-HK-01');
+      expect(result.spotPrice).toBe(0.5);
       expect(result.estimatedReadyTime).toBeDefined();
 
-      // Verify service calls
-      expect(mockProductService.getOptimalProduct).toHaveBeenCalledWith('RTX 4090 24GB', 'CN-HK-01');
+      // Verify service calls - now calls Novita API directly instead of job queue
+      expect(mockProductService.getOptimalProductWithFallback).toHaveBeenCalledWith('RTX 4090 24GB', 'CN-HK-01');
       expect(mockTemplateService.getTemplateConfiguration).toHaveBeenCalledWith('template_123');
-      expect(mockJobQueueService.addJob).toHaveBeenCalledWith(
-        JobType.CREATE_INSTANCE,
+      expect(mockNovitaApiService.createInstance).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'test-instance',
-          productName: 'RTX 4090 24GB',
-          templateId: 'template_123',
+          productId: 'product_123',
           gpuNum: 1,
           rootfsSize: 60,
-          region: 'CN-HK-01',
-          webhookUrl: 'https://example.com/webhook'
-        }),
-        JobPriority.HIGH
+          clusterId: 'cn-hongkong-1',
+          imageUrl: 'test-image:latest',
+          kind: 'gpu',
+          billingMode: 'spot'
+        })
       );
+      // Job queue should NOT be called for instance creation anymore
+      expect(mockJobQueueService.addJob).not.toHaveBeenCalled();
     });
 
     it('should create instance with default values', async () => {
