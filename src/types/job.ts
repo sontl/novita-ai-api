@@ -50,6 +50,7 @@ export interface CreateInstanceJobPayload {
   rootfsSize: number;
   region: string;
   webhookUrl?: string;
+  billingMode?: 'spot' | 'onDemand';
 }
 
 export interface MonitorInstanceJobPayload {

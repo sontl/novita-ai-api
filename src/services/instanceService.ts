@@ -209,6 +209,7 @@ export class InstanceService {
       const gpuNum = request.gpuNum || 1;
       const rootfsSize = request.rootfsSize || 60;
       const region = request.region || this.defaultRegion;
+      const billingMode = request.billingMode || 'spot';
 
       logger.info('Starting instance creation workflow', {
         instanceId,
@@ -217,7 +218,8 @@ export class InstanceService {
         templateId: request.templateId,
         gpuNum,
         rootfsSize,
-        region
+        region,
+        billingMode
       });
 
       // Get optimal product and template configuration in parallel
@@ -259,7 +261,8 @@ export class InstanceService {
         templateId: request.templateId,
         gpuNum,
         rootfsSize,
-        region
+        region,
+        billingMode
       };
 
       if (request.webhookUrl) {
@@ -984,6 +987,14 @@ export class InstanceService {
         'Webhook URL must be a valid HTTP/HTTPS URL',
         400,
         'INVALID_WEBHOOK_URL'
+      );
+    }
+
+    if (request.billingMode !== undefined && !['spot', 'onDemand'].includes(request.billingMode)) {
+      throw new NovitaApiClientError(
+        'Billing mode must be either "spot" or "onDemand"',
+        400,
+        'INVALID_BILLING_MODE'
       );
     }
   }

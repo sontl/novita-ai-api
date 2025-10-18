@@ -56,36 +56,60 @@ export class NovitaApiService {
 
       // Filter products by region if specified
       const filteredProducts = filters?.region
-        ? rawProducts.filter((product: any) =>
-          product.regions && product.regions.includes(filters.region)
-        )
+        ? rawProducts.filter((product: any) => {
+          if (!product.regions || !Array.isArray(product.regions)) {
+            return false;
+          }
+          
+          // Handle both old format ("US-CA-06") and new format ("US-CA-06 (California)")
+          return product.regions.some((region: string) => {
+            // Extract region code from formats like "US-CA-06 (California)" or just "US-CA-06"
+            const regionCode = region.split(' ')[0]; // Get the part before the first space
+            return regionCode === filters.region || region === filters.region;
+          });
+        })
         : rawProducts;
 
       // Transform API response to match our Product interface
-      const products: Product[] = filteredProducts.map((rawProduct: any) => ({
-        id: rawProduct.id,
-        name: rawProduct.name,
-        region: filters?.region || 'CN-HK-01', // Use filter region or default
-        spotPrice: parseFloat(rawProduct.spotPrice || rawProduct.price || '0'),
-        onDemandPrice: parseFloat(rawProduct.price || '0'),
-        gpuType: this.extractGpuType(rawProduct.name),
-        gpuMemory: rawProduct.memoryPerGpu || 24, // Default to 24GB if not specified
-        availability: rawProduct.availableDeploy ? 'available' : 'unavailable',
-        // Additional required properties from Product interface
-        cpuPerGpu: parseFloat(rawProduct.cpuPerGpu || '0'),
-        memoryPerGpu: parseFloat(rawProduct.memoryPerGpu || '24'),
-        diskPerGpu: rawProduct.diskPerGpu || 0,
-        availableDeploy: rawProduct.availableDeploy || false,
-        prices: rawProduct.prices || [],
-        price: rawProduct.price || '0',
-        minRootFS: rawProduct.minRootFS || 0,
-        maxRootFS: rawProduct.maxRootFS || 0,
-        minLocalStorage: rawProduct.minLocalStorage || 0,
-        maxLocalStorage: rawProduct.maxLocalStorage || 0,
-        regions: rawProduct.regions || [],
-        monthlyPrice: rawProduct.monthlyPrice || [],
-        billingMethods: rawProduct.billingMethods || ['spot']
-      }));
+      const products: Product[] = filteredProducts.map((rawProduct: any) => {
+        // Extract the actual region code from the regions array if filtering by region
+        let productRegion = filters?.region || 'CN-HK-01';
+        if (filters?.region && rawProduct.regions && Array.isArray(rawProduct.regions)) {
+          // Find the matching region in the regions array and extract the code
+          const matchingRegion = rawProduct.regions.find((region: string) => {
+            const regionCode = region.split(' ')[0];
+            return regionCode === filters.region || region === filters.region;
+          });
+          if (matchingRegion) {
+            productRegion = matchingRegion.split(' ')[0]; // Extract just the region code
+          }
+        }
+        
+        return {
+          id: rawProduct.id,
+          name: rawProduct.name,
+          region: productRegion,
+          spotPrice: parseFloat(rawProduct.spotPrice || rawProduct.price || '0'),
+          onDemandPrice: parseFloat(rawProduct.price || '0'),
+          gpuType: this.extractGpuType(rawProduct.name),
+          gpuMemory: rawProduct.memoryPerGpu || 24, // Default to 24GB if not specified
+          availability: rawProduct.availableDeploy ? 'available' : 'unavailable',
+          // Additional required properties from Product interface
+          cpuPerGpu: parseFloat(rawProduct.cpuPerGpu || '0'),
+          memoryPerGpu: parseFloat(rawProduct.memoryPerGpu || '24'),
+          diskPerGpu: rawProduct.diskPerGpu || 0,
+          availableDeploy: rawProduct.availableDeploy || false,
+          prices: rawProduct.prices || [],
+          price: rawProduct.price || '0',
+          minRootFS: rawProduct.minRootFS || 0,
+          maxRootFS: rawProduct.maxRootFS || 0,
+          minLocalStorage: rawProduct.minLocalStorage || 0,
+          maxLocalStorage: rawProduct.maxLocalStorage || 0,
+          regions: rawProduct.regions || [],
+          monthlyPrice: rawProduct.monthlyPrice || [],
+          billingMethods: rawProduct.billingMethods || ['spot']
+        };
+      });
 
       logger.info('Products fetched and transformed', {
         count: products.length,
@@ -114,11 +138,10 @@ export class NovitaApiService {
         );
       }
 
-      // Filter products: available + spot price > 0 + in specified region
+      // Filter products: available + spot price > 0 (region already filtered by getProducts)
       const validProducts = products.filter(p =>
         p.availability === 'available' &&
-        p.spotPrice > 0 &&
-        p.region === region
+        p.spotPrice > 0
       );
 
       if (validProducts.length === 0) {
