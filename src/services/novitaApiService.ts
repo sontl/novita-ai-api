@@ -60,7 +60,7 @@ export class NovitaApiService {
           if (!product.regions || !Array.isArray(product.regions)) {
             return false;
           }
-          
+
           // Handle both old format ("US-CA-06") and new format ("US-CA-06 (California)")
           return product.regions.some((region: string) => {
             // Extract region code from formats like "US-CA-06 (California)" or just "US-CA-06"
@@ -84,7 +84,7 @@ export class NovitaApiService {
             productRegion = matchingRegion.split(' ')[0]; // Extract just the region code
           }
         }
-        
+
         return {
           id: rawProduct.id,
           name: rawProduct.name,
@@ -506,10 +506,10 @@ export class NovitaApiService {
         { instanceId }
       );
 
-      // The API returns the instance data directly, not wrapped in a success/data structure
-      const instanceData = response.data;
+      // The stop API returns a minimal response: { instanceId, state }
+      const stopResponse = response.data;
 
-      if (!instanceData || !instanceData.id) {
+      if (!stopResponse || !stopResponse.instanceId) {
         throw new NovitaApiClientError(
           'Invalid response: missing instance data',
           500,
@@ -517,48 +517,15 @@ export class NovitaApiService {
         );
       }
 
-      // Transform the raw API response to match our InstanceResponse interface
-      const transformedInstance: InstanceResponse = {
-        id: instanceData.id,
-        name: instanceData.name,
-        status: instanceData.status as InstanceStatus,
-        productId: instanceData.productId,
-        region: instanceData.clusterName || instanceData.clusterId || 'Unknown',
-        gpuNum: parseInt(instanceData.gpuNum) || 1,
-        rootfsSize: instanceData.rootfsSize || 0,
-        billingMode: instanceData.billingMode || 'spot',
-        createdAt: this.convertUnixTimestampToISO(instanceData.createdAt) || new Date().toISOString(),
-        portMappings: instanceData.portMappings?.map((port: any) => ({
-          port: port.port,
-          endpoint: port.endpoint || '',
-          type: port.type
-        })) || []
-      };
-
-      // Add optional timestamp fields
-      if (instanceData.lastStartedAt) {
-        const lastStartedAt = this.convertUnixTimestampToISO(instanceData.lastStartedAt);
-        if (lastStartedAt) transformedInstance.lastStartedAt = lastStartedAt;
-      }
-      if (instanceData.lastStoppedAt) {
-        const lastStoppedAt = this.convertUnixTimestampToISO(instanceData.lastStoppedAt);
-        if (lastStoppedAt) transformedInstance.lastStoppedAt = lastStoppedAt;
-      }
-      if (instanceData.startedAt) {
-        const startedAt = this.convertUnixTimestampToISO(instanceData.startedAt);
-        if (startedAt) transformedInstance.startedAt = startedAt;
-      }
-      if (instanceData.stoppedAt) {
-        const stoppedAt = this.convertUnixTimestampToISO(instanceData.stoppedAt);
-        if (stoppedAt) transformedInstance.stoppedAt = stoppedAt;
-      }
-
-      logger.info('Instance stop initiated', {
-        instanceId: transformedInstance.id,
-        status: transformedInstance.status
+      logger.info('Instance stop initiated successfully', {
+        instanceId: stopResponse.instanceId,
+        state: stopResponse.state
       });
 
-      return transformedInstance;
+      // After stopping, fetch the full instance details to return complete data
+      const fullInstanceData = await this.getInstance(stopResponse.instanceId);
+
+      return fullInstanceData;
     } catch (error) {
       throw this.handleApiError(error, 'Failed to stop instance');
     }
