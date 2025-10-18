@@ -5,6 +5,12 @@ set -e
 
 echo "🚀 Starting production deployment..."
 
+# Check if curl is available
+if ! command -v curl &> /dev/null; then
+    echo "❌ Error: curl is required but not installed. Please install curl first."
+    exit 1
+fi
+
 # Check if .env file exists
 if [ ! -f .env ]; then
     echo "❌ Error: .env file not found. Please copy .env.example and configure it."
@@ -34,7 +40,7 @@ timeout=60
 counter=0
 
 while [ $counter -lt $timeout ]; do
-    if docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec -T novita-gpu-api curl -f http://localhost:3003/health > /dev/null 2>&1; then
+    if curl -f http://localhost:3003/health > /dev/null 2>&1; then
         echo "✅ Service is healthy and ready!"
         break
     fi
@@ -46,8 +52,12 @@ done
 
 if [ $counter -ge $timeout ]; then
     echo "❌ Service failed to become healthy within $timeout seconds"
-    echo "📋 Checking logs..."
+    echo "📋 Checking container status..."
+    docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+    echo "📋 Checking recent logs..."
     docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=20 novita-gpu-api
+    echo "🔍 Testing direct health endpoint..."
+    curl -v http://localhost:3003/health || echo "Health endpoint not responding"
     exit 1
 fi
 
