@@ -125,6 +125,8 @@ export interface AutoStopCheckJobPayload {
   config?: {
     dryRun?: boolean;
     inactivityThresholdMinutes?: number; // defaults to 20 minutes
+    startupGracePeriodMinutes?: number; // grace period for instances that are starting
+    creationGracePeriodMinutes?: number; // grace period for instances that haven't started yet
   };
 }
 

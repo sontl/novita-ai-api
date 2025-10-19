@@ -1429,11 +1429,13 @@ export class InstanceService {
         }
       });
 
-      logger.info('Instance last used time updated', {
+      logger.info('Instance last used time updated by client', {
         instanceId,
         lastUsedAt: timestamp.toISOString(),
         instanceName: instanceState.name,
-        status: instanceState.status
+        status: instanceState.status,
+        previousLastUsed: instanceState.timestamps.lastUsed?.toISOString(),
+        source: 'client_api_call'
       });
 
       return {
@@ -1498,7 +1500,11 @@ export class InstanceService {
    * Get instances that are eligible for auto-stop (running and inactive for over threshold)
    * Enhanced version that syncs with Redis and Novita API for data consistency
    */
-  async getInstancesEligibleForAutoStop(inactivityThresholdMinutes: number = 10): Promise<InstanceState[]> {
+  async getInstancesEligibleForAutoStop(
+    inactivityThresholdMinutes: number = 10,
+    startupGracePeriodMinutes: number = 45,
+    creationGracePeriodMinutes: number = 60
+  ): Promise<InstanceState[]> {
     const thresholdMs = inactivityThresholdMinutes * 60 * 1000;
     const now = Date.now();
     const eligibleInstances: InstanceState[] = [];
@@ -1515,17 +1521,20 @@ export class InstanceService {
       // Step 2: Evaluate each instance for auto-stop eligibility
       for (const instanceState of allInstanceStates) {
         try {
-          logger.debug(
-            'Evaluating instance for auto-stop eligibility',
-            {
-              instanceId: instanceState.id,
-              name: instanceState.name,
-              novitaInstanceId: instanceState.novitaInstanceId,
-              status: instanceState.status,
-              lastUsedTime: instanceState.timestamps.lastUsed?.toISOString(),
-              timestamps: instanceState.timestamps
+          logger.debug('Evaluating instance for auto-stop eligibility', {
+            instanceId: instanceState.id,
+            name: instanceState.name,
+            novitaInstanceId: instanceState.novitaInstanceId,
+            status: instanceState.status,
+            lastUsedTime: instanceState.timestamps.lastUsed?.toISOString(),
+            hasLastUsed: !!instanceState.timestamps.lastUsed,
+            timestamps: {
+              created: instanceState.timestamps.created?.toISOString(),
+              started: instanceState.timestamps.started?.toISOString(),
+              ready: instanceState.timestamps.ready?.toISOString(),
+              lastUsed: instanceState.timestamps.lastUsed?.toISOString()
             }
-          )
+          })
 
           // Only consider running instances
           if (instanceState.status !== InstanceStatus.RUNNING) {
@@ -1535,32 +1544,61 @@ export class InstanceService {
           // Validate and fix timestamps before processing
           this.validateAndFixTimestamps(instanceState);
 
-          // Check if instance has a last used time, with fallback handling for invalid dates
+          // Check if instance has a last used time
           let lastUsedTime = instanceState.timestamps.lastUsed;
 
-          // Handle invalid dates by setting lastUsed to now and updating the state
-          if (!lastUsedTime || isNaN(lastUsedTime.getTime())) {
-            const currentTime = new Date();
-            const lastUsedTime180MinutesFromNow = new Date(currentTime.getTime() + 180 * 60 * 1000);
+          // Only set a fallback lastUsed time if it's completely missing (null/undefined)
+          // Don't overwrite existing timestamps, even if they seem invalid
+          if (!lastUsedTime) {
+            // Calculate a safe fallback time that gives the instance enough time to start up
+            let fallbackTime: Date;
 
-            logger.warn('Instance has invalid timestamp, setting lastUsed to current time plus 150 minutes', {
-              instanceId: instanceState.id
+            // If instance is ready, use ready time (safest option)
+            if (instanceState.timestamps.ready) {
+              fallbackTime = instanceState.timestamps.ready;
+            }
+            // If instance is still starting, give it a grace period
+            else if (instanceState.timestamps.started) {
+              // Add a startup grace period to account for long startup times
+              const startupGracePeriodMs = startupGracePeriodMinutes * 60 * 1000;
+              fallbackTime = new Date(instanceState.timestamps.started.getTime() + startupGracePeriodMs);
+            }
+            // If only created timestamp exists, add an even longer grace period
+            else if (instanceState.timestamps.created) {
+              // Add a longer grace period for instances that haven't started yet
+              const creationGracePeriodMs = creationGracePeriodMinutes * 60 * 1000;
+              fallbackTime = new Date(instanceState.timestamps.created.getTime() + creationGracePeriodMs);
+            }
+            // Last resort: current time (should rarely happen)
+            else {
+              fallbackTime = new Date();
+            }
+
+            logger.info('Instance has no lastUsed timestamp, setting fallback with startup grace period', {
+              instanceId: instanceState.id,
+              fallbackTime: fallbackTime.toISOString(),
+              fallbackStrategy: instanceState.timestamps.ready ? 'ready_time' :
+                instanceState.timestamps.started ? `started_plus_${startupGracePeriodMinutes}min` :
+                  instanceState.timestamps.created ? `created_plus_${creationGracePeriodMinutes}min` : 'current_time',
+              availableTimestamps: {
+                started: instanceState.timestamps.started?.toISOString(),
+                ready: instanceState.timestamps.ready?.toISOString(),
+                created: instanceState.timestamps.created?.toISOString()
+              },
+              gracePeriodApplied: !instanceState.timestamps.ready,
+              startupGracePeriodMinutes,
+              creationGracePeriodMinutes
             });
 
-            // Update the instance state with current time plus 150 minutes as lastUsed
+            // Update the instance state with the fallback time
             await this.updateInstanceState(instanceState.id, {
               timestamps: {
                 ...instanceState.timestamps,
-                lastUsed: lastUsedTime180MinutesFromNow,
-                // Ensure created timestamp is valid
-                created: instanceState.timestamps.created && !isNaN(instanceState.timestamps.created.getTime())
-                  ? instanceState.timestamps.created
-                  : currentTime
+                lastUsed: fallbackTime
               }
             });
 
-            // Set lastUsedTime to current time plus 150 minutes so it won't be eligible for auto-stop this round
-            lastUsedTime = lastUsedTime180MinutesFromNow;
+            lastUsedTime = fallbackTime;
           }
 
           if (!lastUsedTime) {
@@ -1621,7 +1659,11 @@ export class InstanceService {
 
       // Fallback to Redis instances only
       logger.warn('Falling back to Redis instance states only');
-      return await this.getInstancesEligibleForAutoStopFallback(inactivityThresholdMinutes);
+      return await this.getInstancesEligibleForAutoStopFallback(
+        inactivityThresholdMinutes,
+        startupGracePeriodMinutes,
+        creationGracePeriodMinutes
+      );
     }
   }
 
@@ -1864,7 +1906,12 @@ export class InstanceService {
     if (instanceState.timestamps.lastUsed) {
       const validLastUsed = safeToDate(instanceState.timestamps.lastUsed);
       if (!validLastUsed) {
+        // Remove invalid lastUsed timestamps so they can be handled properly
+        delete instanceState.timestamps.lastUsed;
         hasInvalidTimestamp = true;
+        logger.warn('Cleared invalid lastUsed timestamp', {
+          instanceId: instanceState.id
+        });
       } else {
         instanceState.timestamps.lastUsed = validLastUsed;
       }
@@ -1880,7 +1927,11 @@ export class InstanceService {
   /**
    * Fallback method using Redis instance states
    */
-  private async getInstancesEligibleForAutoStopFallback(inactivityThresholdMinutes: number): Promise<InstanceState[]> {
+  private async getInstancesEligibleForAutoStopFallback(
+    inactivityThresholdMinutes: number,
+    startupGracePeriodMinutes: number = 45,
+    creationGracePeriodMinutes: number = 60
+  ): Promise<InstanceState[]> {
     const thresholdMs = inactivityThresholdMinutes * 60 * 1000;
     const now = Date.now();
     const eligibleInstances: InstanceState[] = [];
