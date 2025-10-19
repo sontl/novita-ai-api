@@ -14,6 +14,8 @@ import { InstanceStatus, InstanceState } from '../types/api';
 export class AutoStopService {
   private readonly defaultInactivityThresholdMinutes = 10;
   private readonly checkIntervalMs = 2 * 60 * 1000; // Check every 2 minutes
+  private readonly startupGracePeriodMinutes = 45; // Grace period for instances that are starting
+  private readonly creationGracePeriodMinutes = 60; // Grace period for instances that haven't started yet
   private isSchedulerRunning = false;
 
   /**
@@ -30,7 +32,9 @@ export class AutoStopService {
 
     logger.info('Auto-stop scheduler started', {
       checkIntervalMinutes: this.checkIntervalMs / (60 * 1000),
-      defaultInactivityThresholdMinutes: this.defaultInactivityThresholdMinutes
+      defaultInactivityThresholdMinutes: this.defaultInactivityThresholdMinutes,
+      startupGracePeriodMinutes: this.startupGracePeriodMinutes,
+      creationGracePeriodMinutes: this.creationGracePeriodMinutes
     });
   }
 
@@ -73,7 +77,9 @@ export class AutoStopService {
       jobId: `auto_stop_${Date.now()}`,
       config: {
         dryRun,
-        inactivityThresholdMinutes: this.defaultInactivityThresholdMinutes
+        inactivityThresholdMinutes: this.defaultInactivityThresholdMinutes,
+        startupGracePeriodMinutes: this.startupGracePeriodMinutes,
+        creationGracePeriodMinutes: this.creationGracePeriodMinutes
       }
     };
 
@@ -107,6 +113,8 @@ export class AutoStopService {
   }> {
     const startTime = Date.now();
     const inactivityThreshold = payload.config?.inactivityThresholdMinutes || this.defaultInactivityThresholdMinutes;
+    const startupGracePeriod = payload.config?.startupGracePeriodMinutes || this.startupGracePeriodMinutes;
+    const creationGracePeriod = payload.config?.creationGracePeriodMinutes || this.creationGracePeriodMinutes;
     const dryRun = payload.config?.dryRun || false;
 
     logger.info('Processing auto-stop check', {
@@ -114,12 +122,18 @@ export class AutoStopService {
       jobId: payload.jobId,
       scheduledAt: payload.scheduledAt,
       inactivityThresholdMinutes: inactivityThreshold,
+      startupGracePeriodMinutes: startupGracePeriod,
+      creationGracePeriodMinutes: creationGracePeriod,
       dryRun
     });
 
     try {
       // Get all instances eligible for auto-stop
-      const eligibleInstances = await instanceService.getInstancesEligibleForAutoStop(inactivityThreshold);
+      const eligibleInstances = await instanceService.getInstancesEligibleForAutoStop(
+        inactivityThreshold,
+        startupGracePeriod,
+        creationGracePeriod
+      );
 
       if (eligibleInstances.length > 0) {
         logger.info('Found instances eligible for auto-stop', {
@@ -237,12 +251,16 @@ export class AutoStopService {
     schedulerRunning: boolean;
     checkIntervalMinutes: number;
     defaultInactivityThresholdMinutes: number;
+    startupGracePeriodMinutes: number;
+    creationGracePeriodMinutes: number;
     nextCheckIn?: number;
   } {
     return {
       schedulerRunning: this.isSchedulerRunning,
       checkIntervalMinutes: this.checkIntervalMs / (60 * 1000),
-      defaultInactivityThresholdMinutes: this.defaultInactivityThresholdMinutes
+      defaultInactivityThresholdMinutes: this.defaultInactivityThresholdMinutes,
+      startupGracePeriodMinutes: this.startupGracePeriodMinutes,
+      creationGracePeriodMinutes: this.creationGracePeriodMinutes
     };
   }
 
