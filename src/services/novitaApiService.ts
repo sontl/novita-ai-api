@@ -35,14 +35,15 @@ export class NovitaApiService {
     productName?: string;
     region?: string;
     gpuType?: string;
+    billingMethod?: string;
   }): Promise<Product[]> {
     try {
       const params: Record<string, string> = {};
 
       if (filters?.productName) params.productName = filters.productName;
 
-      // Add billing method for spot pricing
-      params.billingMethod = 'spot';
+      // Add billing method (default to 'spot' if not provided)
+      params.billingMethod = filters?.billingMethod || 'spot';
 
       const response = await novitaClient.get<{ data: any[] }>(
         '/v1/products',

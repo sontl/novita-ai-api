@@ -55,6 +55,7 @@ export class ProductService {
     productName?: string;
     region?: string;
     gpuType?: string;
+    billingMethod?: string;
   }): Promise<Product[]> {
     await this.initializeCaches();
 
@@ -91,11 +92,12 @@ export class ProductService {
   /**
    * Get optimal product by name and region (lowest spot price) with caching
    */
-  async getOptimalProduct(productName: string, region?: string): Promise<Product> {
+  async getOptimalProduct(productName: string, region?: string, billingMethod?: string): Promise<Product> {
     await this.initializeCaches();
 
     const targetRegion = region || this.defaultRegion;
-    const cacheKey = `optimal:${productName}:${targetRegion}`;
+    const targetBillingMethod = billingMethod || 'spot';
+    const cacheKey = `optimal:${productName}:${targetRegion}:${targetBillingMethod}`;
 
     // Check cache first
     const cachedProduct = await this.optimalProductCache!.get(cacheKey);
@@ -103,7 +105,8 @@ export class ProductService {
       logger.debug('Returning cached optimal product', {
         cacheKey,
         productName,
-        region: targetRegion
+        region: targetRegion,
+        billingMethod: targetBillingMethod
       });
       return cachedProduct;
     }
@@ -112,12 +115,13 @@ export class ProductService {
       // Fetch products with filters
       const products = await this.getProducts({
         productName: productName,
-        region: targetRegion
+        region: targetRegion,
+        billingMethod: targetBillingMethod
       });
 
       if (products.length === 0) {
         throw new NovitaApiClientError(
-          `No products found matching name "${productName}" in region "${targetRegion}"`,
+          `No products found matching name "${productName}" in region "${targetRegion}" with billing method "${targetBillingMethod}"`,
           404,
           'PRODUCT_NOT_FOUND'
         );
@@ -128,7 +132,7 @@ export class ProductService {
 
       if (availableProducts.length === 0) {
         throw new NovitaApiClientError(
-          `No available products found for "${productName}" in region "${targetRegion}"`,
+          `No available products found for "${productName}" in region "${targetRegion}" with billing method "${targetBillingMethod}"`,
           404,
           'NO_AVAILABLE_PRODUCTS'
         );
@@ -140,7 +144,7 @@ export class ProductService {
 
       if (!optimalProduct) {
         throw new NovitaApiClientError(
-          `No optimal product found for "${productName}" in region "${targetRegion}"`,
+          `No optimal product found for "${productName}" in region "${targetRegion}" with billing method "${targetBillingMethod}"`,
           404,
           'NO_OPTIMAL_PRODUCT'
         );
@@ -154,6 +158,7 @@ export class ProductService {
         productName: optimalProduct.name,
         region: optimalProduct.region,
         spotPrice: optimalProduct.spotPrice,
+        billingMethod: targetBillingMethod,
         totalAvailable: availableProducts.length,
         cacheKey
       });
@@ -163,7 +168,8 @@ export class ProductService {
       logger.error('Failed to get optimal product', {
         error: (error as Error).message,
         productName,
-        region: targetRegion
+        region: targetRegion,
+        billingMethod: targetBillingMethod
       });
       throw error;
     }
@@ -176,7 +182,8 @@ export class ProductService {
   async getOptimalProductWithFallback(
     productName: string,
     preferredRegion?: string,
-    regions?: RegionConfig[]
+    regions?: RegionConfig[],
+    billingMethod?: string
   ): Promise<{ product: Product; regionUsed: string }> {
     const fallbackRegions = regions || this.defaultRegions;
 
@@ -196,6 +203,7 @@ export class ProductService {
     logger.debug('Starting multi-region product search', {
       productName,
       preferredRegion,
+      billingMethod: billingMethod || 'spot',
       regionOrder: sortedRegions.map(r => `${r.name} (priority: ${r.priority})`)
     });
 
@@ -208,10 +216,11 @@ export class ProductService {
         logger.debug('Trying region for optimal product', {
           productName,
           region: regionName,
-          priority: regionConfig.priority
+          priority: regionConfig.priority,
+          billingMethod: billingMethod || 'spot'
         });
 
-        const product = await this.getOptimalProduct(productName, regionName);
+        const product = await this.getOptimalProduct(productName, regionName, billingMethod);
 
         logger.info('Found optimal product in region', {
           productName,
@@ -219,6 +228,7 @@ export class ProductService {
           priority: regionConfig.priority,
           productId: product.id,
           spotPrice: product.spotPrice,
+          billingMethod: billingMethod || 'spot',
           attemptsBeforeSuccess: regionErrors.length
         });
 
@@ -250,12 +260,13 @@ export class ProductService {
     logger.error('Failed to find optimal product in any region', {
       productName,
       preferredRegion,
+      billingMethod: billingMethod || 'spot',
       attemptedRegions: regionErrors.length,
       regionErrors
     });
 
     throw new NovitaApiClientError(
-      `No optimal product found for "${productName}" in any available region. Attempted regions: ${regionErrors.map(e => `${e.region} (${e.error})`).join(', ')}`,
+      `No optimal product found for "${productName}" with billing method "${billingMethod || 'spot'}" in any available region. Attempted regions: ${regionErrors.map(e => `${e.region} (${e.error})`).join(', ')}`,
       404,
       'NO_OPTIMAL_PRODUCT_ANY_REGION',
       { regionErrors }
@@ -295,6 +306,7 @@ export class ProductService {
     productName?: string;
     region?: string;
     gpuType?: string;
+    billingMethod?: string;
   }): string {
     if (!filters) {
       return 'all';
@@ -304,6 +316,7 @@ export class ProductService {
     if (filters.productName) parts.push(`productName:${filters.productName}`);
     if (filters.region) parts.push(`region:${filters.region}`);
     if (filters.gpuType) parts.push(`gpu:${filters.gpuType}`);
+    if (filters.billingMethod) parts.push(`billing:${filters.billingMethod}`);
 
     return parts.length > 0 ? parts.join('|') : 'all';
   }
@@ -387,26 +400,43 @@ export class ProductService {
   /**
    * Invalidate cache for specific product
    */
-  async invalidateProduct(productName: string, region?: string): Promise<void> {
+  async invalidateProduct(productName: string, region?: string, billingMethod?: string): Promise<void> {
     if (!this.cacheInitialized || !this.productCache || !this.optimalProductCache) {
       return;
     }
 
     const targetRegion = region || this.defaultRegion;
-    const optimalKey = `optimal:${productName}:${targetRegion}`;
+    const targetBillingMethod = billingMethod || 'spot';
 
-    // Remove from optimal product cache
-    await this.optimalProductCache.delete(optimalKey);
+    // Remove from optimal product cache - need to handle all billing methods if not specified
+    if (billingMethod) {
+      const optimalKey = `optimal:${productName}:${targetRegion}:${targetBillingMethod}`;
+      await this.optimalProductCache.delete(optimalKey);
+    } else {
+      // If no billing method specified, clear all billing methods for this product/region
+      const optimalKeys = await this.optimalProductCache.keys();
+      for (const key of optimalKeys) {
+        if (key.startsWith(`optimal:${productName}:${targetRegion}:`)) {
+          await this.optimalProductCache.delete(key);
+        }
+      }
+    }
 
     // Remove from product cache (need to check all keys that might contain this product)
     const productKeys = await this.productCache.keys();
     for (const key of productKeys) {
-      if (key.includes(`productName:${productName}`) || key.includes(`region:${targetRegion}`)) {
+      if (key.includes(`productName:${productName}`) || 
+          key.includes(`region:${targetRegion}`) ||
+          (billingMethod && key.includes(`billing:${targetBillingMethod}`))) {
         await this.productCache.delete(key);
       }
     }
 
-    logger.debug('Invalidated product cache');
+    logger.debug('Invalidated product cache', {
+      productName,
+      region: targetRegion,
+      billingMethod: targetBillingMethod
+    });
   }
 
   /**
@@ -416,6 +446,7 @@ export class ProductService {
     productName?: string;
     region?: string;
     gpuType?: string;
+    billingMethod?: string;
   }): Promise<void> {
     try {
       await this.getProducts(filters);

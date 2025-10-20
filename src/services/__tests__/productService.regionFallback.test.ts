@@ -84,6 +84,14 @@ describe('ProductService Multi-Region Fallback', () => {
       onDemandPrice: 0.9,
       price: '0.5',
       regions: ['AS-IN-01']
+    }),
+    createMockProduct({
+      id: 'prod-au-1',
+      region: 'OC-AU-01',
+      spotPrice: 0.7,
+      onDemandPrice: 1.1,
+      price: '0.7',
+      regions: ['OC-AU-01']
     })
   ];
 
@@ -100,7 +108,8 @@ describe('ProductService Multi-Region Fallback', () => {
       expect(mockedNovitaApiService.getProducts).toHaveBeenCalledTimes(1);
       expect(mockedNovitaApiService.getProducts).toHaveBeenCalledWith({
         productName: 'RTX 4090 24GB',
-        region: 'AS-SGP-02'
+        region: 'AS-SGP-02',
+        billingMethod: 'spot'
       });
     });
 
@@ -122,12 +131,12 @@ describe('ProductService Multi-Region Fallback', () => {
       mockedNovitaApiService.getProducts
         .mockRejectedValueOnce(new NovitaApiClientError('No products found', 404, 'PRODUCT_NOT_FOUND'))
         .mockRejectedValueOnce(new NovitaApiClientError('No products found', 404, 'PRODUCT_NOT_FOUND'))
-        .mockResolvedValueOnce([mockProducts[2]!]); // AS-IN-01 products
+        .mockResolvedValueOnce([mockProducts[3]!]); // OC-AU-01 products (priority 3)
 
       const result = await service.getOptimalProductWithFallback('RTX 4090 24GB');
 
-      expect(result.product.id).toBe('prod-in-1');
-      expect(result.regionUsed).toBe('AS-IN-01');
+      expect(result.product.id).toBe('prod-au-1');
+      expect(result.regionUsed).toBe('OC-AU-01');
       expect(mockedNovitaApiService.getProducts).toHaveBeenCalledTimes(3);
     });
 
@@ -146,7 +155,8 @@ describe('ProductService Multi-Region Fallback', () => {
       expect(mockedNovitaApiService.getProducts).toHaveBeenCalledTimes(1);
       expect(mockedNovitaApiService.getProducts).toHaveBeenCalledWith({
         productName: 'RTX 4090 24GB',
-        region: 'CN-HK-01'
+        region: 'CN-HK-01',
+        billingMethod: 'spot'
       });
     });
 
@@ -170,7 +180,8 @@ describe('ProductService Multi-Region Fallback', () => {
       expect(result.regionUsed).toBe('AS-IN-01');
       expect(mockedNovitaApiService.getProducts).toHaveBeenCalledWith({
         productName: 'RTX 4090 24GB',
-        region: 'AS-IN-01'
+        region: 'AS-IN-01',
+        billingMethod: 'spot'
       });
     });
 
@@ -181,9 +192,9 @@ describe('ProductService Multi-Region Fallback', () => {
 
       await expect(
         service.getOptimalProductWithFallback('Invalid GPU')
-      ).rejects.toThrow('No optimal product found for "Invalid GPU" in any available region');
+      ).rejects.toThrow('No optimal product found for "Invalid GPU" with billing method "spot" in any available region');
 
-      expect(mockedNovitaApiService.getProducts).toHaveBeenCalledTimes(3); // All 3 default regions tried
+      expect(mockedNovitaApiService.getProducts).toHaveBeenCalledTimes(8); // All 8 default regions tried
     });
 
     it('should fall back when preferred region fails but others succeed', async () => {
@@ -204,13 +215,15 @@ describe('ProductService Multi-Region Fallback', () => {
       // First call should be to preferred region
       expect(mockedNovitaApiService.getProducts).toHaveBeenNthCalledWith(1, {
         productName: 'RTX 4090 24GB',
-        region: 'CN-HK-01'
+        region: 'CN-HK-01',
+        billingMethod: 'spot'
       });
       
       // Second call should be to next priority region
       expect(mockedNovitaApiService.getProducts).toHaveBeenNthCalledWith(2, {
         productName: 'RTX 4090 24GB',
-        region: 'AS-SGP-02'
+        region: 'AS-SGP-02',
+        billingMethod: 'spot'
       });
     });
 
