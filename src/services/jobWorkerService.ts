@@ -109,7 +109,9 @@ export class JobWorkerService {
 
       const { product: optimalProduct, regionUsed } = await productService.getOptimalProductWithFallback(
         payload.productName,
-        payload.region
+        payload.region,
+        undefined,
+        payload.billingMode
       );
 
       logger.info('Optimal product selected with region fallback', {

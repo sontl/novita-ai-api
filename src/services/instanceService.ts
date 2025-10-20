@@ -224,7 +224,9 @@ export class InstanceService {
       // Step 1: Get optimal product with region fallback
       const { product: optimalProduct, regionUsed } = await productService.getOptimalProductWithFallback(
         request.productName,
-        region
+        region,
+        undefined,
+        billingMode
       );
 
       logger.info('Optimal product selected with region fallback', {

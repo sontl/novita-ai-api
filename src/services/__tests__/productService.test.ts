@@ -149,6 +149,16 @@ describe('ProductService', () => {
       expect(mockedNovitaApiService.getProducts).toHaveBeenCalledWith(filters);
     });
 
+    it('should pass billingMethod parameter when provided', async () => {
+      const filters = { productName: 'RTX 4090', billingMethod: 'on-demand' };
+      mockedNovitaApiService.getProducts.mockResolvedValue([mockProducts[0]!]);
+
+      const result = await service.getProducts(filters);
+
+      expect(result).toEqual([mockProducts[0]]);
+      expect(mockedNovitaApiService.getProducts).toHaveBeenCalledWith(filters);
+    });
+
     it('should return cached data when cache is valid', async () => {
       // First call to populate cache
       mockedNovitaApiService.getProducts.mockResolvedValue(mockProducts);
@@ -224,7 +234,8 @@ describe('ProductService', () => {
 
       expect(mockedNovitaApiService.getProducts).toHaveBeenCalledWith({
         productName: 'RTX 4090 24GB',
-        region: 'CN-HK-01'
+        region: 'CN-HK-01',
+        billingMethod: 'spot'
       });
     });
 
@@ -235,7 +246,8 @@ describe('ProductService', () => {
 
       expect(mockedNovitaApiService.getProducts).toHaveBeenCalledWith({
         productName: 'RTX 4090 24GB',
-        region: 'US-WEST-01'
+        region: 'US-WEST-01',
+        billingMethod: 'spot'
       });
     });
 
