@@ -20,7 +20,6 @@ router.get('/stats', async (req: Request, res: Response) => {
     const allCacheMetrics = cacheManager.getAllMetrics();
     
     // Get service-specific cache stats
-    const productStats = await productService.getCacheStats();
     const templateStats = await templateService.getCacheStats();
     
     const response = {
@@ -31,7 +30,6 @@ router.get('/stats', async (req: Request, res: Response) => {
         metrics: allCacheMetrics
       },
       services: {
-        product: productStats,
         template: templateStats
       },
       summary: {
@@ -93,7 +91,6 @@ router.post('/clear', async (req: Request, res: Response) => {
       await cacheManager.clearAll();
       
       // Also clear service-specific caches
-      await productService.clearCache();
       await templateService.clearCache();
       
       logger.info('All caches cleared');
@@ -127,7 +124,6 @@ router.post('/cleanup', async (req: Request, res: Response) => {
     const totalCleaned = await cacheManager.cleanupAllExpired();
     
     // Also cleanup service-specific caches
-    await productService.clearExpiredCache();
     await templateService.clearExpiredCache();
     
     logger.info('Cache cleanup completed', { totalCleaned });

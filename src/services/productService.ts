@@ -3,13 +3,8 @@ import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
 const logger = createAxiomSafeLogger('product');
 import { novitaApiService } from './novitaApiService';
 import { Product, NovitaApiClientError, RegionConfig } from '../types/api';
-import { cacheManager, ICacheService } from './cacheService';
 
 export class ProductService {
-  private productCache?: ICacheService<Product[]>;
-  private optimalProductCache?: ICacheService<Product>;
-  private cacheInitialized = false;
-
   private readonly defaultRegion = 'CN-HK-01';
 
   // Default region configuration with fallback priorities
@@ -24,29 +19,6 @@ export class ProductService {
     { id: 'oc-au-1', name: 'OC-AU-01', priority: 3 }
   ];
 
-  /**
-   * Initialize cache instances
-   */
-  private async initializeCaches(): Promise<void> {
-    if (this.cacheInitialized) {
-      return;
-    }
-
-    this.productCache = await cacheManager.getCache<Product[]>('products', {
-      maxSize: 100,
-      defaultTtl: 5 * 60 * 1000, // 5 minutes
-      cleanupIntervalMs: 60 * 1000 // Cleanup every minute
-    });
-
-    this.optimalProductCache = await cacheManager.getCache<Product>('optimal-products', {
-      maxSize: 50,
-      defaultTtl: 5 * 60 * 1000, // 5 minutes
-      cleanupIntervalMs: 60 * 1000 // Cleanup every minute
-    });
-
-    this.cacheInitialized = true;
-    logger.debug('Product service caches initialized');
-  }
 
   /**
    * Get products with caching support
@@ -57,31 +29,10 @@ export class ProductService {
     gpuType?: string;
     billingMethod?: string;
   }): Promise<Product[]> {
-    await this.initializeCaches();
-
-    const cacheKey = this.generateCacheKey(filters);
-
-    // Check cache first
-    const cachedProducts = await this.productCache!.get(cacheKey);
-    if (cachedProducts) {
-      logger.debug('Returning cached products', { cacheKey, filters });
-      return cachedProducts;
-    }
-
     try {
       // Fetch from API
       logger.debug('Fetching products from API', { filters });
       const products = await novitaApiService.getProducts(filters);
-
-      // Cache the results
-      await this.productCache!.set(cacheKey, products);
-
-      logger.info('Products fetched and cached', {
-        count: products.length,
-        cacheKey,
-        filters
-      });
-
       return products;
     } catch (error) {
       logger.error('Failed to fetch products', { error: (error as Error).message, filters });
@@ -93,23 +44,8 @@ export class ProductService {
    * Get optimal product by name and region (lowest spot price) with caching
    */
   async getOptimalProduct(productName: string, region?: string, billingMethod?: string): Promise<Product> {
-    await this.initializeCaches();
-
     const targetRegion = region || this.defaultRegion;
     const targetBillingMethod = billingMethod || 'spot';
-    const cacheKey = `optimal:${productName}:${targetRegion}:${targetBillingMethod}`;
-
-    // Check cache first
-    const cachedProduct = await this.optimalProductCache!.get(cacheKey);
-    if (cachedProduct) {
-      logger.debug('Returning cached optimal product', {
-        cacheKey,
-        productName,
-        region: targetRegion,
-        billingMethod: targetBillingMethod
-      });
-      return cachedProduct;
-    }
 
     try {
       // Fetch products with filters
@@ -149,20 +85,6 @@ export class ProductService {
           'NO_OPTIMAL_PRODUCT'
         );
       }
-
-      // Cache the optimal product
-      await this.optimalProductCache!.set(cacheKey, optimalProduct);
-
-      logger.info('Optimal product selected and cached', {
-        productId: optimalProduct.id,
-        productName: optimalProduct.name,
-        region: optimalProduct.region,
-        spotPrice: optimalProduct.spotPrice,
-        billingMethod: targetBillingMethod,
-        totalAvailable: availableProducts.length,
-        cacheKey
-      });
-
       return optimalProduct;
     } catch (error) {
       logger.error('Failed to get optimal product', {
@@ -296,146 +218,6 @@ export class ProductService {
 
       // Quaternary sort: product ID for consistent ordering
       return a.id.localeCompare(b.id);
-    });
-  }
-
-  /**
-   * Generate cache key from filters
-   */
-  private generateCacheKey(filters?: {
-    productName?: string;
-    region?: string;
-    gpuType?: string;
-    billingMethod?: string;
-  }): string {
-    if (!filters) {
-      return 'all';
-    }
-
-    const parts: string[] = [];
-    if (filters.productName) parts.push(`productName:${filters.productName}`);
-    if (filters.region) parts.push(`region:${filters.region}`);
-    if (filters.gpuType) parts.push(`gpu:${filters.gpuType}`);
-    if (filters.billingMethod) parts.push(`billing:${filters.billingMethod}`);
-
-    return parts.length > 0 ? parts.join('|') : 'all';
-  }
-
-  /**
-   * Clear all cached data
-   */
-  async clearCache(): Promise<void> {
-    await this.initializeCaches();
-    await this.productCache!.clear();
-    await this.optimalProductCache!.clear();
-    logger.info('Product cache cleared');
-  }
-
-  /**
-   * Clear expired cache entries
-   */
-  async clearExpiredCache(): Promise<void> {
-    if (!this.cacheInitialized || !this.productCache || !this.optimalProductCache) {
-      return;
-    }
-
-    const productCleaned = await this.productCache.cleanupExpired();
-    const optimalCleaned = await this.optimalProductCache.cleanupExpired();
-    const totalCleaned = productCleaned + optimalCleaned;
-
-    if (totalCleaned > 0) {
-      logger.debug('Cleared expired product cache entries', {
-        productCleaned,
-        optimalCleaned,
-        totalCleaned
-      });
-    }
-  }
-
-  /**
-   * Get cache statistics for monitoring
-   */
-  async getCacheStats(): Promise<{
-    productCache: {
-      size: number;
-      hitRatio: number;
-      metrics: any;
-    };
-    optimalProductCache: {
-      size: number;
-      hitRatio: number;
-      metrics: any;
-    };
-    totalCacheSize: number;
-  }> {
-    if (!this.cacheInitialized || !this.productCache || !this.optimalProductCache) {
-      return {
-        productCache: { size: 0, hitRatio: 0, metrics: {} },
-        optimalProductCache: { size: 0, hitRatio: 0, metrics: {} },
-        totalCacheSize: 0
-      };
-    }
-
-    const productMetrics = this.productCache.getMetrics();
-    const optimalMetrics = this.optimalProductCache.getMetrics();
-
-    const productSize = await this.productCache.size();
-    const optimalSize = await this.optimalProductCache.size();
-
-    return {
-      productCache: {
-        size: productSize,
-        hitRatio: this.productCache.getHitRatio(),
-        metrics: productMetrics
-      },
-      optimalProductCache: {
-        size: optimalSize,
-        hitRatio: this.optimalProductCache.getHitRatio(),
-        metrics: optimalMetrics
-      },
-      totalCacheSize: productSize + optimalSize
-    };
-  }
-
-  /**
-   * Invalidate cache for specific product
-   */
-  async invalidateProduct(productName: string, region?: string, billingMethod?: string): Promise<void> {
-    if (!this.cacheInitialized || !this.productCache || !this.optimalProductCache) {
-      return;
-    }
-
-    const targetRegion = region || this.defaultRegion;
-    const targetBillingMethod = billingMethod || 'spot';
-
-    // Remove from optimal product cache - need to handle all billing methods if not specified
-    if (billingMethod) {
-      const optimalKey = `optimal:${productName}:${targetRegion}:${targetBillingMethod}`;
-      await this.optimalProductCache.delete(optimalKey);
-    } else {
-      // If no billing method specified, clear all billing methods for this product/region
-      const optimalKeys = await this.optimalProductCache.keys();
-      for (const key of optimalKeys) {
-        if (key.startsWith(`optimal:${productName}:${targetRegion}:`)) {
-          await this.optimalProductCache.delete(key);
-        }
-      }
-    }
-
-    // Remove from product cache (need to check all keys that might contain this product)
-    const productKeys = await this.productCache.keys();
-    for (const key of productKeys) {
-      if (key.includes(`productName:${productName}`) || 
-          key.includes(`region:${targetRegion}`) ||
-          (billingMethod && key.includes(`billing:${targetBillingMethod}`))) {
-        await this.productCache.delete(key);
-      }
-    }
-
-    logger.debug('Invalidated product cache', {
-      productName,
-      region: targetRegion,
-      billingMethod: targetBillingMethod
     });
   }
 
