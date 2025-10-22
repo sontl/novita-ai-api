@@ -48,21 +48,6 @@ async function demonstrateProductService() {
     });
     console.log();
 
-    // Example 5: Cache statistics
-    console.log('5. Cache statistics:');
-    const stats = productService.getCacheStats();
-    console.log(`   Product cache entries: ${stats.productCache.size}`);
-    console.log(`   Optimal product cache entries: ${stats.optimalProductCache.size}`);
-    console.log(`   Total cache entries: ${stats.totalCacheSize}\n`);
-
-    // Example 6: Clear cache
-    console.log('6. Clearing cache:');
-    productService.clearCache();
-    const newStats = productService.getCacheStats();
-    console.log(`   Cache cleared. Total entries: ${newStats.totalCacheSize}\n`);
-
-    console.log('=== Example completed successfully ===');
-
   } catch (error) {
     console.error('Example failed:', error);
     logger.error('ProductService example failed', { error: (error as Error).message });

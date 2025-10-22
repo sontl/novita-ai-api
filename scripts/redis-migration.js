@@ -149,9 +149,6 @@ class RedisMigrationUtility {
         'instance-1': { status: 'running', lastUpdated: new Date().toISOString() },
         'instance-2': { status: 'stopped', lastUpdated: new Date().toISOString() }
       },
-      productCache: {
-        'product-1': { id: 'product-1', name: 'GPU-A100', region: 'CN-HK-01' }
-      }
     };
 
     console.log(`✅ Exported ${Object.keys(mockCacheData).length} cache collections`);
