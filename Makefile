@@ -74,9 +74,15 @@ clean: ## Clean up containers, images, and volumes
 logs: ## View application logs
 	@docker-compose logs -f novita-gpu-api
 
+logs-prod: ## View production logs
+	@docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f novita-gpu-api
+
 health: ## Check service health
 	@echo "🏥 Checking service health..."
-	@./scripts/health-check.sh
+	@curl -s http://localhost:3003/health | jq || echo "❌ Health check failed"
+
+verify: ## Verify deployment (comprehensive check)
+	@./scripts/verify-deployment.sh
 
 backup: ## Create backup
 	@echo "💾 Creating backup..."
@@ -129,10 +135,20 @@ status: ## Show service status
 	@docker-compose ps
 	@echo ""
 	@echo "🐳 Docker Images:"
-	@docker images | grep novita-gpu-instance-api || echo "No images found"
+	@docker images | grep novita || echo "No images found"
 	@echo ""
 	@echo "📦 Docker Volumes:"
 	@docker volume ls | grep novita || echo "No volumes found"
+	@echo ""
+	@echo "🏥 Health Status:"
+	@curl -s http://localhost:3003/health | jq '.status, .services' || echo "Service not responding"
+
+status-prod: ## Show production service status
+	@echo "📊 Production Service Status:"
+	@docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+	@echo ""
+	@echo "🏥 Health Status:"
+	@curl -s http://localhost:3003/health | jq '.status, .services' || echo "Service not responding"
 
 # Quick commands
 up: dev ## Alias for dev
@@ -140,3 +156,7 @@ down: dev-stop ## Alias for dev-stop
 restart: ## Restart development environment
 	@$(MAKE) dev-stop
 	@$(MAKE) dev
+
+restart-prod: ## Restart production environment
+	@echo "🔄 Restarting production environment..."
+	@docker-compose -f docker-compose.yml -f docker-compose.prod.yml restart

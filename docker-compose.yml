@@ -45,7 +45,12 @@ services:
       - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-900000}
       - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-100}
       
-      # Redis Configuration (Required for persistence)
+      # Redis Configuration (Required for persistence - using Aiven Cloud)
+      - REDIS_URL=${REDIS_URL}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_USERNAME=${REDIS_USERNAME:-default}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
       - REDIS_CONNECTION_TIMEOUT_MS=${REDIS_CONNECTION_TIMEOUT_MS:-10000}
       - REDIS_COMMAND_TIMEOUT_MS=${REDIS_COMMAND_TIMEOUT_MS:-5000}
       - REDIS_RETRY_ATTEMPTS=${REDIS_RETRY_ATTEMPTS:-3}
@@ -87,8 +92,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 40s
+      retries: 5
+      start_period: 60s
     
     networks:
       - novita-network

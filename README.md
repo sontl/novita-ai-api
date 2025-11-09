@@ -11,8 +11,15 @@ API service for managing Novita.ai GPU instances with automated lifecycle manage
 - **Distributed cache** for improved performance and scalability
 - Webhook notifications when instances are ready
 - RESTful API with comprehensive error handling
-- Docker Compose deployment ready
+- Docker Compose deployment ready with Redis
 - TypeScript with full type safety
+- Production-ready with health checks and auto-restart
+
+## Documentation
+
+- **[Quick Start Guide](QUICK_START.md)** - Get up and running in minutes
+- **[Production Deployment Fix](PRODUCTION_DEPLOYMENT_FIX.md)** - Troubleshooting and deployment details
+- **[API Documentation](docs/)** - Detailed API reference
 
 ## Quick Start
 

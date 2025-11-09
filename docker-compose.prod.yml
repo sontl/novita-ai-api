@@ -17,38 +17,16 @@ services:
       # Use named volume for logs in production
       - novita-logs-prod:/app/logs
     
-    # Production restart policy
+    # Production restart policy - CRITICAL: use restart instead of deploy for Docker Compose
     restart: always
     
-    # Production resource limits (more restrictive)
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
-      # Production deployment configuration
-      replicas: 1
-      update_config:
-        parallelism: 1
-        delay: 10s
-        failure_action: rollback
-        order: stop-first
-      rollback_config:
-        parallelism: 1
-        delay: 10s
-        failure_action: pause
-        order: stop-first
-    
-    # Production health check (more frequent)
+    # Production health check (more lenient for stability)
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
-      interval: 15s
-      timeout: 5s
+      interval: 30s
+      timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 120s
     
     # Production logging (structured)
     logging:
