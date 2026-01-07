@@ -6,7 +6,6 @@
 import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
 
 const logger = createAxiomSafeLogger('redis-job-queue');
-import { recordJobMetrics } from '../middleware/metricsMiddleware';
 import { IRedisClient } from '../utils/redisClient';
 import { RedisJobQueueDataLayer } from './redisJobQueueDataLayer';
 import {
@@ -76,7 +75,7 @@ export class RedisJobQueueService {
     try {
       // Persist job data to Redis
       await this.dataLayer.persistJob(job);
-      
+
       // Add job to priority queue
       await this.dataLayer.addJobToQueue(job);
 
@@ -133,11 +132,11 @@ export class RedisJobQueueService {
     try {
       // Get all job IDs from Redis
       const jobIds = await this.dataLayer.getAllJobIds();
-      
+
       // Load jobs in parallel
       const jobPromises = jobIds.map(jobId => this.dataLayer.loadJob(jobId));
       const allJobs = await Promise.all(jobPromises);
-      
+
       // Filter out null results and apply filters
       let jobs = allJobs.filter((job): job is Job => job !== null);
 
@@ -369,10 +368,7 @@ export class RedisJobQueueService {
       await this.dataLayer.removeJobFromProcessing(job.id);
       await this.dataLayer.addJobToCompleted(job.id);
 
-      // Record successful job metrics
       const processingTime = Date.now() - startTime;
-      const queueSize = await this.dataLayer.getQueueSize();
-      recordJobMetrics(job.type, processingTime, true, queueSize);
 
       logger.info('Job completed successfully in Redis', {
         operation: 'job_processing',
@@ -432,10 +428,6 @@ export class RedisJobQueueService {
           // Persist final state and update Redis tracking
           await this.dataLayer.persistJob(job);
           await this.dataLayer.addJobToFailed(job.id);
-
-          // Record failed job metrics
-          const queueSize = await this.dataLayer.getQueueSize();
-          recordJobMetrics(job.type, processingTime, false, queueSize);
 
           logger.error('Job failed permanently in Redis', {
             jobId: job.id,

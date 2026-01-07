@@ -1,5 +1,4 @@
 import { logger } from './logger';
-import { metricsService } from '../services/metricsService';
 
 /**
  * Redis operation metrics interface
@@ -97,7 +96,7 @@ export class RedisMetricsCollector {
   recordOperation(metrics: RedisOperationMetrics): void {
     this.operationMetrics.push(metrics);
     this.updateCommandMetrics(metrics);
-    
+
     // Keep only last 1000 operations to prevent memory leaks
     if (this.operationMetrics.length > 1000) {
       this.operationMetrics = this.operationMetrics.slice(-1000);
@@ -130,14 +129,6 @@ export class RedisMetricsCollector {
         category: 'redis-metrics'
       });
     }
-
-    // Integrate with existing metrics service
-    metricsService.recordRequest(
-      'REDIS',
-      metrics.command,
-      metrics.success ? 200 : 500,
-      metrics.duration
-    );
   }
 
   /**
@@ -145,12 +136,12 @@ export class RedisMetricsCollector {
    */
   recordConnection(success: boolean, error?: string): void {
     this.connectionMetrics.connectionAttempts++;
-    
+
     if (success) {
       this.connectionMetrics.isConnected = true;
       this.connectionMetrics.lastConnectionTime = new Date();
       this.consecutiveFailures = 0;
-      
+
       logger.info('Redis connection established', {
         attempts: this.connectionMetrics.connectionAttempts,
         category: 'redis-metrics'
@@ -159,7 +150,7 @@ export class RedisMetricsCollector {
       this.connectionMetrics.isConnected = false;
       this.connectionMetrics.connectionFailures++;
       this.connectionMetrics.lastFailureTime = new Date();
-      
+
       logger.error('Redis connection failed', {
         error,
         attempts: this.connectionMetrics.connectionAttempts,
@@ -174,7 +165,7 @@ export class RedisMetricsCollector {
    */
   recordDisconnection(): void {
     this.connectionMetrics.isConnected = false;
-    
+
     logger.info('Redis disconnected', {
       uptime: this.getUptime(),
       category: 'redis-metrics'
@@ -186,7 +177,7 @@ export class RedisMetricsCollector {
    */
   recordHealthCheck(isHealthy: boolean, error?: string): void {
     this.lastHealthCheck = new Date();
-    
+
     if (!isHealthy) {
       logger.warn('Redis health check failed', {
         error,
@@ -206,7 +197,7 @@ export class RedisMetricsCollector {
   getMetrics(): RedisMetrics {
     const now = new Date();
     const uptime = this.getUptime();
-    
+
     return {
       connection: {
         ...this.connectionMetrics,
@@ -233,7 +224,7 @@ export class RedisMetricsCollector {
     isHealthy: boolean;
   } {
     const performance = this.calculatePerformanceMetrics();
-    
+
     return {
       operationsPerSecond: performance.operationsPerSecond,
       averageLatency: performance.averageLatency,
@@ -251,7 +242,7 @@ export class RedisMetricsCollector {
     this.consecutiveFailures = 0;
     this.lastHealthCheck = undefined;
     this.startTime = new Date();
-    
+
     this.connectionMetrics = {
       isConnected: false,
       connectionAttempts: 0,
@@ -291,7 +282,7 @@ export class RedisMetricsCollector {
 
   private updateCommandMetrics(operation: RedisOperationMetrics): void {
     const command = operation.command.toUpperCase();
-    
+
     if (!this.commandMetrics[command]) {
       this.commandMetrics[command] = {
         count: 0,
@@ -336,19 +327,19 @@ export class RedisMetricsCollector {
     const totalOperations = this.operationMetrics.length;
     const successfulOperations = this.operationMetrics.filter(op => op.success).length;
     const failedOperations = totalOperations - successfulOperations;
-    
+
     const durations = this.operationMetrics.map(op => op.duration);
     const averageLatency = durations.reduce((sum, duration) => sum + duration, 0) / durations.length;
     const minLatency = Math.min(...durations);
     const maxLatency = Math.max(...durations);
-    
+
     // Calculate operations per second based on last minute
     const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
     const recentOperations = this.operationMetrics.filter(op => op.timestamp >= oneMinuteAgo);
     const operationsPerSecond = recentOperations.length / 60;
-    
+
     const errorRate = totalOperations > 0 ? (failedOperations / totalOperations) * 100 : 0;
-    
+
     const lastOperation = this.operationMetrics[this.operationMetrics.length - 1];
 
     return {
@@ -393,7 +384,7 @@ export class RedisMetricsCollector {
     if (!this.connectionMetrics.lastConnectionTime) {
       return 0;
     }
-    
+
     return Date.now() - this.connectionMetrics.lastConnectionTime.getTime();
   }
 }
@@ -439,7 +430,7 @@ export class RedisHealthChecker {
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval);
       this.healthCheckInterval = undefined;
-      
+
       logger.info('Redis health checks stopped', {
         category: 'redis-metrics'
       });
@@ -458,25 +449,25 @@ export class RedisHealthChecker {
     }
 
     const startTime = Date.now();
-    
+
     try {
       await this.pingOperation();
       const duration = Date.now() - startTime;
-      
+
       this.metricsCollector.recordOperation({
         command: 'PING',
         duration,
         success: true,
         timestamp: new Date()
       });
-      
+
       this.metricsCollector.recordHealthCheck(true);
-      
+
       return true;
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
-      
+
       this.metricsCollector.recordOperation({
         command: 'PING',
         duration,
@@ -484,9 +475,9 @@ export class RedisHealthChecker {
         error: errorMessage,
         timestamp: new Date()
       });
-      
+
       this.metricsCollector.recordHealthCheck(false, errorMessage);
-      
+
       return false;
     }
   }

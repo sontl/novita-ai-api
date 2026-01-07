@@ -2,7 +2,6 @@ import { IRedisClient } from '../utils/redisClient';
 import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
 
 const logger = createAxiomSafeLogger('redis-cache');
-import { cacheMetricsMiddleware } from '../middleware/metricsMiddleware';
 
 /**
  * Cache entry structure
@@ -32,13 +31,15 @@ export interface CacheMetrics {
  */
 export interface CacheStats {
   metrics: CacheMetrics;
-  entries: { [key: string]: {
-    size: number;
-    ttl: number;
-    age: number;
-    accessCount: number;
-    lastAccessed: number;
-  } };
+  entries: {
+    [key: string]: {
+      size: number;
+      ttl: number;
+      age: number;
+      accessCount: number;
+      lastAccessed: number;
+    }
+  };
 }
 
 export interface CacheServiceOptions {
@@ -83,7 +84,7 @@ export class RedisCacheService<T = any> {
     this.maxSize = options.maxSize || 1000;
     this.defaultTtl = options.defaultTtl || 5 * 60 * 1000; // 5 minutes default
     this.keyPrefix = `cache:${this.name}`;
-    
+
     // Start periodic cleanup if interval specified
     if (options.cleanupIntervalMs && options.cleanupIntervalMs > 0) {
       this.startPeriodicCleanup(options.cleanupIntervalMs);
@@ -97,10 +98,9 @@ export class RedisCacheService<T = any> {
     try {
       const redisKey = this.buildRedisKey(key);
       const entry = await this.redisClient.get<RedisCacheEntry<T>>(redisKey);
-      
+
       if (!entry) {
         this.metrics.misses++;
-        cacheMetricsMiddleware.recordMiss();
         logger.debug('Cache miss', { cache: this.name, key });
         return undefined;
       }
@@ -110,7 +110,6 @@ export class RedisCacheService<T = any> {
         await this.redisClient.del(redisKey);
         this.metrics.misses++;
         this.metrics.evictions++;
-        cacheMetricsMiddleware.recordMiss();
         logger.debug('Cache miss (expired)', { cache: this.name, key });
         return undefined;
       }
@@ -119,19 +118,16 @@ export class RedisCacheService<T = any> {
       entry.accessCount++;
       entry.lastAccessed = Date.now();
       this.metrics.hits++;
-      
+
       // Update entry in Redis with new access stats
       await this.redisClient.set(redisKey, entry, this.getRemainingTtl(entry));
-      
-      // Record global cache hit
-      cacheMetricsMiddleware.recordHit();
-      
-      logger.debug('Cache hit', { 
-        cache: this.name, 
-        key, 
-        accessCount: entry.accessCount 
+
+      logger.debug('Cache hit', {
+        cache: this.name,
+        key,
+        accessCount: entry.accessCount
       });
-      
+
       return entry.data;
     } catch (error) {
       logger.error('Redis cache get operation failed', {
@@ -140,7 +136,6 @@ export class RedisCacheService<T = any> {
         error: error instanceof Error ? error.message : String(error)
       });
       this.metrics.misses++;
-      cacheMetricsMiddleware.recordMiss();
       return undefined;
     }
   }
@@ -171,16 +166,14 @@ export class RedisCacheService<T = any> {
       await this.redisClient.set(redisKey, entry, entryTtl);
       this.metrics.sets++;
       await this.updateTotalSize();
-      
-      // Update global cache size
-      const newSize = await this.getCurrentSize();
-      cacheMetricsMiddleware.updateSize(newSize);
 
-      logger.debug('Cache set', { 
-        cache: this.name, 
-        key, 
+      const newSize = await this.getCurrentSize();
+
+      logger.debug('Cache set', {
+        cache: this.name,
+        key,
         ttl: entryTtl,
-        size: newSize 
+        size: newSize
       });
     } catch (error) {
       logger.error('Redis cache set operation failed', {
@@ -222,7 +215,7 @@ export class RedisCacheService<T = any> {
     try {
       const redisKey = this.buildRedisKey(key);
       const entry = await this.redisClient.get<RedisCacheEntry<T>>(redisKey);
-      
+
       if (!entry) {
         return false;
       }
@@ -251,7 +244,7 @@ export class RedisCacheService<T = any> {
     try {
       const pattern = `${this.keyPrefix}:*`;
       const keys = await this.scanKeys(pattern);
-      
+
       if (keys.length > 0) {
         // Delete keys in batches to avoid overwhelming Redis
         const batchSize = 100;
@@ -260,7 +253,7 @@ export class RedisCacheService<T = any> {
           await Promise.all(batch.map(key => this.redisClient.del(key)));
         }
       }
-      
+
       await this.updateTotalSize();
       logger.info('Cache cleared', { cache: this.name, clearedEntries: keys.length });
     } catch (error) {
@@ -363,9 +356,9 @@ export class RedisCacheService<T = any> {
 
       if (cleanedCount > 0) {
         await this.updateTotalSize();
-        logger.debug('Cleaned up expired cache entries', { 
-          cache: this.name, 
-          count: cleanedCount 
+        logger.debug('Cleaned up expired cache entries', {
+          cache: this.name,
+          count: cleanedCount
         });
       }
 
@@ -412,16 +405,16 @@ export class RedisCacheService<T = any> {
     try {
       const redisKey = this.buildRedisKey(key);
       const entry = await this.redisClient.get<RedisCacheEntry<T>>(redisKey);
-      
+
       if (!entry || this.isExpired(entry)) {
         return false;
       }
 
       entry.ttl = ttl;
       entry.timestamp = Date.now(); // Reset timestamp for new TTL
-      
+
       await this.redisClient.set(redisKey, entry, ttl);
-      
+
       logger.debug('Cache TTL updated', { cache: this.name, key, ttl });
       return true;
     } catch (error) {
@@ -441,7 +434,7 @@ export class RedisCacheService<T = any> {
     try {
       const redisKey = this.buildRedisKey(key);
       const entry = await this.redisClient.get<RedisCacheEntry<T>>(redisKey);
-      
+
       if (!entry || this.isExpired(entry)) {
         return undefined;
       }
@@ -480,9 +473,9 @@ export class RedisCacheService<T = any> {
       await this.cleanupExpired();
     }, intervalMs);
 
-    logger.debug('Started periodic cache cleanup', { 
-      cache: this.name, 
-      intervalMs 
+    logger.debug('Started periodic cache cleanup', {
+      cache: this.name,
+      intervalMs
     });
   }
 
@@ -569,14 +562,14 @@ export class RedisCacheService<T = any> {
     try {
       const pattern = `${this.keyPrefix}:*`;
       const keys = await this.scanKeys(pattern);
-      
+
       if (keys.length === 0) {
         return;
       }
 
       // Filter keys to ensure they match our cache prefix (defense against SCAN bugs)
       const validKeys = keys.filter(key => key.startsWith(this.keyPrefix + ':'));
-      
+
       if (validKeys.length === 0) {
         return;
       }
@@ -609,11 +602,11 @@ export class RedisCacheService<T = any> {
         await this.redisClient.del(lruKey);
         this.metrics.evictions++;
         await this.updateTotalSize();
-        
+
         const originalKey = this.extractOriginalKey(lruKey);
-        logger.debug('Evicted LRU cache entry', { 
-          cache: this.name, 
-          key: originalKey 
+        logger.debug('Evicted LRU cache entry', {
+          cache: this.name,
+          key: originalKey
         });
       }
     } catch (error) {
@@ -630,7 +623,7 @@ export class RedisCacheService<T = any> {
   private async scanKeys(pattern: string): Promise<string[]> {
     const keys: string[] = [];
     let cursor = '0';
-    
+
     do {
       try {
         const result = await this.redisClient.scan(cursor, { match: pattern, count: 100 });
@@ -647,7 +640,7 @@ export class RedisCacheService<T = any> {
         break;
       }
     } while (cursor !== '0');
-    
+
     return keys;
   }
 

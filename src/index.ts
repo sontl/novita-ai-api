@@ -37,10 +37,8 @@ import {
   performanceMiddleware
 } from './middleware/requestLogger';
 import { axiomLoggingMiddleware, axiomErrorMiddleware } from './middleware/axiomLoggingMiddleware';
-import { metricsMiddleware } from './middleware/metricsMiddleware';
 import { healthRouter } from './routes/health';
 import { instancesRouter } from './routes/instances';
-import { metricsRouter } from './routes/metrics';
 import cacheRouter from './routes/cache';
 import { uiRouter } from './routes/ui';
 import { JobWorkerService } from './services/jobWorkerService';
@@ -113,7 +111,6 @@ app.set('trust proxy', true);
 // Request correlation and performance tracking
 app.use(correlationIdMiddleware);
 app.use(performanceMiddleware);
-app.use(metricsMiddleware);
 
 // Axiom logging middleware (after correlation ID but before request logging)
 app.use(axiomLoggingMiddleware);
@@ -143,7 +140,6 @@ app.get('/app.js', (req, res) => {
 app.use('/health', healthRouter);
 app.use('/api/instances', instancesRouter);
 app.use('/api/cache', cacheRouter);
-app.use('/api/metrics', metricsRouter);
 app.use('/', uiRouter);
 
 // 404 handler for unmatched routes

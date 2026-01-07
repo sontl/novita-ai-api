@@ -6,7 +6,6 @@ import { getAxiomStatus } from '../config/axiomConfig';
 import { novitaApiService } from '../services/novitaApiService';
 import { serviceRegistry } from '../services/serviceRegistry';
 import { instanceService } from '../services/instanceService';
-import { metricsService } from '../services/metricsService';
 import { HealthCheckResponse, EnhancedHealthCheckResponse } from '../types/api';
 import { getServiceHealthStatus } from '../services/serviceInitializer';
 
@@ -27,9 +26,11 @@ router.get('/', async (req: Request, res: Response) => {
       checkRedisServiceDetails()
     ]);
 
-    // Get performance metrics
-    const healthMetrics = metricsService.getHealthMetrics();
-    const systemMetrics = metricsService.getSystemMetrics();
+    // Get basic system metrics using Node.js built-ins
+    const memUsage = process.memoryUsage();
+    const os = require('os');
+    const cpuUsage = process.cpuUsage();
+    const loadAvg = os.loadavg();
 
     // Determine overall health status
     // Core services that must be up for healthy status
@@ -50,21 +51,21 @@ router.get('/', async (req: Request, res: Response) => {
       services,
       uptime: process.uptime(),
       performance: {
-        requestsPerMinute: Math.round(healthMetrics.requestsPerMinute * 100) / 100,
-        averageResponseTime: Math.round(healthMetrics.averageResponseTime),
-        errorRate: Math.round(healthMetrics.errorRate * 100) / 100,
-        jobProcessingRate: Math.round(healthMetrics.jobProcessingRate * 100) / 100
+        requestsPerMinute: 0,
+        averageResponseTime: 0,
+        errorRate: 0,
+        jobProcessingRate: 0
       },
       system: {
         memory: {
-          usedMB: Math.round(systemMetrics.memory.heapUsed / 1024 / 1024),
-          totalMB: Math.round(systemMetrics.memory.heapTotal / 1024 / 1024),
-          externalMB: Math.round(systemMetrics.memory.external / 1024 / 1024),
-          rss: Math.round(systemMetrics.memory.rss / 1024 / 1024)
+          usedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
+          totalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
+          externalMB: Math.round(memUsage.external / 1024 / 1024),
+          rss: Math.round(memUsage.rss / 1024 / 1024)
         },
         cpu: {
-          usage: Math.round(systemMetrics.cpu.usage * 100) / 100,
-          loadAverage: systemMetrics.cpu.loadAverage.map(load => Math.round(load * 100) / 100)
+          usage: 0,
+          loadAverage: loadAvg.map((load: number) => Math.round(load * 100) / 100)
         }
       },
       dependencies: dependencyDetails,

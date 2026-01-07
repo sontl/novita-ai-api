@@ -15,11 +15,9 @@ import {
   MonitorInstanceJobPayload
 } from '../../types/job';
 import { logger } from '../../utils/logger';
-import { recordJobMetrics } from '../../middleware/metricsMiddleware';
 
 // Mock dependencies
 jest.mock('../../utils/logger');
-jest.mock('../../middleware/metricsMiddleware');
 jest.mock('../redisJobQueueDataLayer');
 
 describe('RedisJobQueueService', () => {
@@ -591,12 +589,6 @@ describe('RedisJobQueueService', () => {
         })
       );
       expect(mockDataLayer.addJobToCompleted).toHaveBeenCalledWith('job-123');
-      expect(recordJobMetrics).toHaveBeenCalledWith(
-        JobType.CREATE_INSTANCE,
-        expect.any(Number),
-        true,
-        0
-      );
     });
 
     it('should retry failed jobs within max attempts', async () => {
@@ -623,12 +615,6 @@ describe('RedisJobQueueService', () => {
       await (redisJobQueueService as any).processNextJob();
 
       expect(mockDataLayer.addJobToFailed).toHaveBeenCalledWith('job-123');
-      expect(recordJobMetrics).toHaveBeenCalledWith(
-        JobType.CREATE_INSTANCE,
-        expect.any(Number),
-        false,
-        0
-      );
     });
 
     it('should handle missing job handler', async () => {
