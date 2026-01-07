@@ -47,6 +47,7 @@ import { JobWorkerService } from './services/jobWorkerService';
 import { createMigrationScheduler } from './services/migrationScheduler';
 import { createFailedMigrationScheduler } from './services/failedMigrationScheduler';
 import { autoStopService } from './services/autoStopService';
+import { cacheClearScheduler } from './services/cacheClearScheduler';
 import { serviceRegistry } from './services/serviceRegistry';
 import { initializeServices, shutdownServices } from './services/serviceInitializer';
 
@@ -56,7 +57,7 @@ const app = express();
 try {
   const configSummary = getConfigSummary();
   const axiomStatus = getAxiomStatus();
-  
+
   logger.info('Configuration loaded successfully', {
     ...configSummary,
     axiom: axiomStatus
@@ -222,13 +223,17 @@ if (config.nodeEnv !== 'test') {
 
       // In development, log a reminder about the scheduler
       if (config.nodeEnv === 'development') {
-        logger.info('Development mode: Failed migration scheduler will run every ' + 
+        logger.info('Development mode: Failed migration scheduler will run every ' +
           Math.round((config.migration.scheduleIntervalMs * 2) / 60000) + ' minutes');
       }
 
       // Start auto-stop service for inactive instance management
       autoStopService.startScheduler();
       logger.info('Auto-stop service initialized', autoStopService.getAutoStopStats());
+
+      // Start cache clear scheduler for automated daily cache clearing
+      cacheClearScheduler.start();
+      logger.info('Cache clear scheduler initialized', cacheClearScheduler.getStatus());
 
       const server = app.listen(config.port, () => {
         logger.info(`Server running on port ${config.port}`);
@@ -241,6 +246,10 @@ if (config.nodeEnv !== 'test') {
         logger.info(`${signal} received, shutting down gracefully`);
 
         try {
+          // Shutdown cache clear scheduler
+          cacheClearScheduler.stop();
+          logger.info('Cache clear scheduler shutdown complete');
+
           // Shutdown auto-stop service
           autoStopService.stopScheduler();
           logger.info('Auto-stop service shutdown complete');

@@ -1,124 +1,85 @@
 # Novita GPU Instance API
 
-API service for managing Novita.ai GPU instances with automated lifecycle management.
+A high-performance API service for managing Novita.ai GPU instances with automated lifecycle management, high availability features, and seamless monitoring.
 
-## Features
+## 🚀 Features
 
-- Automated GPU instance creation with optimal pricing selection
-- Instance lifecycle management (create, start, monitor)
-- **Redis-backed data persistence** with graceful fallback to in-memory storage
-- **Persistent job queue** for reliable background processing
-- **Distributed cache** for improved performance and scalability
-- Webhook notifications when instances are ready
-- RESTful API with comprehensive error handling
-- Docker Compose deployment ready with Redis
-- TypeScript with full type safety
-- Production-ready with health checks and auto-restart
+- **Automated Lifecycle**: Smart instance creation, monitoring, and starting/stopping.
+- **Cost Optimization**: Built-in auto-stop service for inactive instances.
+- **Reliable Architecture**: Redis-backed persistence for jobs and caching with graceful in-memory fallback.
+- **Production Ready**: Comprehensive health checks, performance metrics, and Docker support.
+- **Type Safety**: Built with TypeScript for robust development and maintenance.
 
-## Documentation
+---
 
-- **[Quick Start Guide](QUICK_START.md)** - Get up and running in minutes
-- **[Production Deployment Fix](PRODUCTION_DEPLOYMENT_FIX.md)** - Troubleshooting and deployment details
-- **[API Documentation](docs/)** - Detailed API reference
+## 🛠️ Quick Start
 
-## Quick Start
+### 1. Requirements
+- Node.js 18+ (Local) or Docker & Docker Compose
+- A valid Novita.ai API Key
 
-### Prerequisites
-
-- Node.js 18+ (for local development)
-- Docker and Docker Compose (for containerized deployment)
-- Novita.ai API key
-
-### Environment Setup
-
-1. Copy the example environment file:
+### 2. Configuration
+Copy the environment template and fill in your credentials:
 ```bash
 cp .env.example .env
 ```
+Key variables in `.env`:
+- `NOVITA_API_KEY`: Your Novita API key.
+- `WEBHOOK_URL`: Endpoint for instance status updates.
+- `UPSTASH_REDIS_REST_URL`: (Optional) Redis URL for persistence.
 
-2. Edit `.env` and set your configuration:
-```bash
-# Required
-NOVITA_API_KEY=your_novita_api_key_here
-
-# Optional
-WEBHOOK_URL=https://your-webhook-endpoint.com/webhook
-
-# Redis Configuration (Optional - enables persistence)
-UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
-UPSTASH_REDIS_REST_TOKEN=your-redis-token
-REDIS_ENABLE_FALLBACK=true
-```
-
-### Local Development
-
-1. Install dependencies:
+### 3. Run the Service
+**Development:**
 ```bash
 npm install
-```
-
-2. Start development server:
-```bash
 npm run dev
 ```
-
-The API will be available at `http://localhost:3000`
-
-### Docker Deployment
-
-1. Build and start with Docker Compose:
+**Production (Docker):**
 ```bash
 docker-compose up -d
 ```
+The API will be available at `http://localhost:3000`.
 
-2. Check service health:
-```bash
-curl http://localhost:3000/health
-```
+---
 
-## API Endpoints
+## 📡 API Reference
 
-- `GET /health` - Health check endpoint
-- `POST /api/instances` - Create new GPU instance
-- `GET /api/instances/{id}` - Get instance status
-- `GET /api/instances` - List all instances
-- `POST /api/instances/{id}/start` - Start instance by ID
-- `POST /api/instances/start` - Start instance by name
-- `POST /api/instances/{id}/stop` - Stop instance by ID
-- `POST /api/instances/stop` - Stop instance by name
-- `GET /api/cache/stats` - Cache statistics
-- `GET /api/metrics` - Service metrics
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | System health and service status |
+| `/api/instances` | POST | Create a new GPU instance |
+| `/api/instances` | GET | List all managed instances |
+| `/api/instances/{id}` | GET | Get detailed status of an instance |
+| `/api/instances/{id}/start` | POST | Start a stopped instance |
+| `/api/instances/{id}/stop` | POST | Stop a running instance |
+| `/api/cache/stats` | GET | View cache hit ratios and statistics |
+| `/api/metrics` | GET | Export application performance metrics |
 
-**📖 Complete API Reference:** [docs/api/client-reference.md](./docs/api/client-reference.md)
+---
 
-## Documentation
+## 🚢 Deployment & Operations Guide
 
-📚 **[Complete Documentation Index](./docs/README.md)** - Navigate all documentation
+### Essential Environment Variables
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | API server port | `3000` |
+| `NODE_ENV` | `production` or `development` | `development` |
+| `LOG_LEVEL` | Logging verbosity (`debug`, `info`, `warn`, `error`) | `info` |
+| `INSTANCE_POLL_INTERVAL` | Status check frequency in ms | `30000` |
+| `REDIS_ENABLE_FALLBACK` | Fallback to RAM if Redis is down | `true` |
 
-### Quick Start
-- **[API Quick Start](./docs/api/quick-start.md)** - Get started in minutes
-- **[Docker Deployment Guide](./docs/deployment/docker.md)** - Deploy with Docker Compose
+### Production Best Practices
+1. **Persistence**: Always use Redis in production to ensure background jobs survive service restarts.
+2. **Monitoring**: Integrate `/api/metrics` with Prometheus/Grafana and set up alerts for the `/health` endpoint.
+3. **Security**: Ensure your `.env` is never committed. The Docker image runs as a non-root `node` user by default.
+4. **Maintenance**: Use `npm run build` to compile the TypeScript source before starting the production server with `npm start`.
 
-### Core Documentation
-- **[API Client Reference](./docs/api/client-reference.md)** - Complete API documentation
-- **[Configuration Reference](./docs/deployment/configuration.md)** - Environment variables and settings
-- **[Features Documentation](./docs/features/)** - Feature-specific guides
-- **[Integration Guides](./docs/integrations/)** - Redis, Axiom, and other integrations
+### Common Operations
+- **View Logs**: `docker-compose logs -f novita-api`
+- **Check Health**: `curl http://localhost:3000/health`
+- **Build Manually**: `npm run build`
 
-### Client Examples
+---
 
-See [client-examples/](./client-examples/) for ready-to-use client code in:
-- Node.js/JavaScript
-- Python
-- Shell scripts (cURL)
-
-## Development
-
-- `npm run dev` - Start development server with hot reload
-- `npm run build` - Build for production
-- `npm run test` - Run tests
-- `npm run lint` - Run ESLint
-
-## License
-
+## 📄 License
 MIT

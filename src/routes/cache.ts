@@ -7,6 +7,7 @@ import { instanceService } from '../services/instanceService';
 import { productService } from '../services/productService';
 import { templateService } from '../services/templateService';
 import { serviceRegistry } from '../services/serviceRegistry';
+import { cacheClearScheduler } from '../services/cacheClearScheduler';
 
 const router = Router();
 
@@ -18,10 +19,10 @@ router.get('/stats', async (req: Request, res: Response) => {
   try {
     const allCacheStats = await cacheManager.getAllStats();
     const allCacheMetrics = cacheManager.getAllMetrics();
-    
+
     // Get service-specific cache stats
     const templateStats = await templateService.getCacheStats();
-    
+
     const response = {
       timestamp: new Date().toISOString(),
       cacheManager: {
@@ -79,9 +80,9 @@ router.post('/clear', async (req: Request, res: Response) => {
       // Clear specific cache
       const cache = await cacheManager.getCache(cacheName);
       await cache.clear();
-      
+
       logger.info('Specific cache cleared', { cacheName });
-      
+
       res.json({
         message: `Cache '${cacheName}' cleared successfully`,
         timestamp: new Date().toISOString()
@@ -89,12 +90,12 @@ router.post('/clear', async (req: Request, res: Response) => {
     } else {
       // Clear all caches
       await cacheManager.clearAll();
-      
+
       // Also clear service-specific caches
       await templateService.clearCache();
-      
+
       logger.info('All caches cleared');
-      
+
       res.json({
         message: 'All caches cleared successfully',
         timestamp: new Date().toISOString()
@@ -122,12 +123,12 @@ router.post('/clear', async (req: Request, res: Response) => {
 router.post('/cleanup', async (req: Request, res: Response) => {
   try {
     const totalCleaned = await cacheManager.cleanupAllExpired();
-    
+
     // Also cleanup service-specific caches
     await templateService.clearExpiredCache();
-    
+
     logger.info('Cache cleanup completed', { totalCleaned });
-    
+
     res.json({
       message: 'Cache cleanup completed successfully',
       entriesRemoved: totalCleaned,
@@ -155,7 +156,7 @@ router.post('/hard-reset', async (req: Request, res: Response) => {
   try {
     // Get the Redis client instance from the service registry
     const redisClient = serviceRegistry.getRedisClient();
-    
+
     if (!redisClient) {
       return res.status(500).json({
         error: {
@@ -165,15 +166,15 @@ router.post('/hard-reset', async (req: Request, res: Response) => {
         }
       });
     }
-    
+
     // Get the underlying Redis connection to execute flushall
     const client = (redisClient as any).connectionManager.getClient();
-    
+
     // Flush all data from Redis
     await client.flushall();
-    
+
     logger.warn('Hard reset executed - ALL Redis data deleted');
-    
+
     return res.json({
       message: 'Hard reset completed successfully. All Redis data has been deleted.',
       timestamp: new Date().toISOString()
@@ -199,7 +200,7 @@ router.post('/hard-reset', async (req: Request, res: Response) => {
 router.get('/:cacheName/stats', async (req: Request, res: Response) => {
   try {
     const { cacheName } = req.params;
-    
+
     if (!cacheName || typeof cacheName !== 'string') {
       return res.status(400).json({
         error: {
@@ -209,11 +210,11 @@ router.get('/:cacheName/stats', async (req: Request, res: Response) => {
         }
       });
     }
-    
+
     const cache = await cacheManager.getCache(cacheName);
     const stats = await cache.getStats();
     const metrics = cache.getMetrics();
-    
+
     const response = {
       cacheName,
       timestamp: new Date().toISOString(),
@@ -248,7 +249,7 @@ router.get('/:cacheName/stats', async (req: Request, res: Response) => {
 router.delete('/:cacheName/:key', async (req: Request, res: Response) => {
   try {
     const { cacheName, key } = req.params;
-    
+
     if (!cacheName || typeof cacheName !== 'string') {
       return res.status(400).json({
         error: {
@@ -258,7 +259,7 @@ router.delete('/:cacheName/:key', async (req: Request, res: Response) => {
         }
       });
     }
-    
+
     if (!key || typeof key !== 'string') {
       return res.status(400).json({
         error: {
@@ -268,10 +269,10 @@ router.delete('/:cacheName/:key', async (req: Request, res: Response) => {
         }
       });
     }
-    
+
     const cache = await cacheManager.getCache(cacheName);
     const deleted = await cache.delete(key);
-    
+
     if (deleted) {
       logger.debug('Cache key deleted', { cacheName, key });
       return res.json({
@@ -297,6 +298,62 @@ router.delete('/:cacheName/:key', async (req: Request, res: Response) => {
       error: {
         code: 'CACHE_DELETE_ERROR',
         message: 'Failed to delete cache key',
+        timestamp: new Date().toISOString()
+      }
+    });
+  }
+});
+
+/**
+ * GET /api/cache/scheduler/status
+ * Get the status of the automated cache clear scheduler
+ */
+router.get('/scheduler/status', async (req: Request, res: Response) => {
+  try {
+    const status = cacheClearScheduler.getStatus();
+
+    logger.debug('Cache scheduler status requested');
+
+    return res.json({
+      scheduler: status,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Failed to get scheduler status', {
+      error: (error as Error).message
+    });
+    return res.status(500).json({
+      error: {
+        code: 'SCHEDULER_STATUS_ERROR',
+        message: 'Failed to retrieve scheduler status',
+        timestamp: new Date().toISOString()
+      }
+    });
+  }
+});
+
+/**
+ * POST /api/cache/scheduler/trigger
+ * Manually trigger the cache clear scheduler (doesn't affect the schedule)
+ */
+router.post('/scheduler/trigger', async (req: Request, res: Response) => {
+  try {
+    logger.info('Manual cache clear trigger requested');
+
+    await cacheClearScheduler.triggerManually();
+
+    return res.json({
+      message: 'Cache clear triggered successfully',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Failed to manually trigger cache clear', {
+      error: (error as Error).message
+    });
+    return res.status(500).json({
+      error: {
+        code: 'SCHEDULER_TRIGGER_ERROR',
+        message: 'Failed to trigger cache clear',
         timestamp: new Date().toISOString()
       }
     });
