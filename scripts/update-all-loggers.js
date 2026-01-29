@@ -21,11 +21,9 @@ const filesToUpdate = [
   { file: 'src/services/healthCheckerService.ts', component: 'health-checker' },
   { file: 'src/services/jobWorkerService.ts', component: 'job-worker' },
   { file: 'src/services/optimizedRedisCacheService.ts', component: 'optimized-redis-cache' },
-  { file: 'src/routes/metrics.ts', component: 'metrics-route' },
   { file: 'src/routes/health.ts', component: 'health-route' },
   { file: 'src/routes/cache.ts', component: 'cache-route' },
   { file: 'src/routes/instances.ts', component: 'instances-route' },
-  { file: 'src/middleware/metricsMiddleware.ts', component: 'metrics-middleware' },
   { file: 'src/middleware/requestLogger.ts', component: 'request-logger' },
   { file: 'src/middleware/errorHandler.ts', component: 'error-handler' },
   { file: 'src/clients/novitaClient.ts', component: 'novita-client' },
@@ -37,7 +35,7 @@ const filesToUpdate = [
 function updateFile(filePath, componentName) {
   try {
     const fullPath = path.join(__dirname, '..', filePath);
-    
+
     if (!fs.existsSync(fullPath)) {
       console.log(`⚠️  File not found: ${filePath}`);
       return false;
@@ -65,7 +63,7 @@ function updateFile(filePath, componentName) {
         .map(imp => imp.trim())
         .filter(imp => !imp.includes('logger'))
         .join(', ');
-      
+
       if (otherImports) {
         content = content.replace(
           mixedImport,

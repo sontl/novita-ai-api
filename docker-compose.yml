@@ -133,11 +133,7 @@ services:
 volumes:
   # Named volume for persistent logs
   novita-logs:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./logs
+    # Use a proper named volume instead of bind mount to avoid permission issues
 
 networks:
   novita-network:

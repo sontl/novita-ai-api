@@ -15,7 +15,7 @@ services:
     # Production volume configuration
     volumes:
       # Use named volume for logs in production
-      - novita-logs-prod:/app/logs
+      - novita-logs:/app/logs
     
     # Production restart policy - CRITICAL: use restart instead of deploy for Docker Compose
     restart: always
@@ -38,8 +38,5 @@ services:
 
 volumes:
   novita-logs-prod:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./logs
+    # Use a named volume for production logs
+    # This avoids the bind mount issue that was causing the error

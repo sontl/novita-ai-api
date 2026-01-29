@@ -1,11 +1,9 @@
 import { RedisCacheService } from '../redisCacheService';
 import { IRedisClient } from '../../utils/redisClient';
 import { logger } from '../../utils/logger';
-import { cacheMetricsMiddleware } from '../../middleware/metricsMiddleware';
 
 // Mock dependencies
 jest.mock('../../utils/logger');
-jest.mock('../../middleware/metricsMiddleware');
 
 describe('RedisCacheService', () => {
   let mockRedisClient: jest.Mocked<IRedisClient>;
@@ -33,11 +31,6 @@ describe('RedisCacheService', () => {
       llen: jest.fn(),
     };
 
-    // Mock cache metrics middleware
-    (cacheMetricsMiddleware.recordHit as jest.Mock) = jest.fn();
-    (cacheMetricsMiddleware.recordMiss as jest.Mock) = jest.fn();
-    (cacheMetricsMiddleware.updateSize as jest.Mock) = jest.fn();
-
     // Create cache service instance
     cacheService = new RedisCacheService('test-cache', mockRedisClient, {
       maxSize: 100,
@@ -58,7 +51,6 @@ describe('RedisCacheService', () => {
 
       expect(result).toBeUndefined();
       expect(mockRedisClient.get).toHaveBeenCalledWith('cache:test-cache:non-existent');
-      expect(cacheMetricsMiddleware.recordMiss).toHaveBeenCalled();
     });
 
     it('should return data for valid key', async () => {
@@ -70,7 +62,7 @@ describe('RedisCacheService', () => {
         accessCount: 0,
         lastAccessed: now - 1000
       };
-      
+
       mockRedisClient.get.mockResolvedValue(entry);
       mockRedisClient.set.mockResolvedValue();
 
@@ -86,7 +78,6 @@ describe('RedisCacheService', () => {
         }),
         expect.any(Number)
       );
-      expect(cacheMetricsMiddleware.recordHit).toHaveBeenCalled();
     });
 
     it('should return undefined for expired entry and delete it', async () => {
@@ -98,7 +89,7 @@ describe('RedisCacheService', () => {
         accessCount: 1,
         lastAccessed: now - 120000
       };
-      
+
       mockRedisClient.get.mockResolvedValue(expiredEntry);
       mockRedisClient.del.mockResolvedValue(true);
 
@@ -106,7 +97,6 @@ describe('RedisCacheService', () => {
 
       expect(result).toBeUndefined();
       expect(mockRedisClient.del).toHaveBeenCalledWith('cache:test-cache:expired-key');
-      expect(cacheMetricsMiddleware.recordMiss).toHaveBeenCalled();
     });
 
     it('should handle Redis errors gracefully', async () => {
@@ -115,7 +105,6 @@ describe('RedisCacheService', () => {
       const result = await cacheService.get('test-key');
 
       expect(result).toBeUndefined();
-      expect(cacheMetricsMiddleware.recordMiss).toHaveBeenCalled();
       expect(logger.error).toHaveBeenCalledWith(
         'Redis cache get operation failed',
         expect.objectContaining({
@@ -168,7 +157,7 @@ describe('RedisCacheService', () => {
       const existingKeys = Array.from({ length: 100 }, (_, i) => `cache:test-cache:key${i}`);
       mockRedisClient.keys.mockResolvedValue(existingKeys);
       mockRedisClient.exists.mockResolvedValue(false);
-      
+
       // Mock LRU entry
       const oldEntry = {
         data: 'old-value',
@@ -177,7 +166,7 @@ describe('RedisCacheService', () => {
         accessCount: 1,
         lastAccessed: Date.now() - 60000
       };
-      
+
       mockRedisClient.get.mockResolvedValue(oldEntry);
       mockRedisClient.del.mockResolvedValue(true);
       mockRedisClient.set.mockResolvedValue();
@@ -251,7 +240,7 @@ describe('RedisCacheService', () => {
         accessCount: 1,
         lastAccessed: now
       };
-      
+
       mockRedisClient.get.mockResolvedValue(entry);
 
       const result = await cacheService.has('test-key');
@@ -276,7 +265,7 @@ describe('RedisCacheService', () => {
         accessCount: 1,
         lastAccessed: now - 120000
       };
-      
+
       mockRedisClient.get.mockResolvedValue(expiredEntry);
       mockRedisClient.del.mockResolvedValue(true);
 
@@ -334,7 +323,7 @@ describe('RedisCacheService', () => {
         accessCount: 2,
         lastAccessed: now - 10000
       };
-      
+
       mockRedisClient.keys.mockResolvedValue(keys);
       mockRedisClient.get
         .mockResolvedValueOnce(entry1)
@@ -390,7 +379,7 @@ describe('RedisCacheService', () => {
         accessCount: 1,
         lastAccessed: now - 120000
       };
-      
+
       mockRedisClient.keys.mockResolvedValue(keys);
       mockRedisClient.get
         .mockResolvedValueOnce(validEntry)
@@ -429,7 +418,7 @@ describe('RedisCacheService', () => {
         accessCount: 1,
         lastAccessed: now - 30000
       };
-      
+
       mockRedisClient.get.mockResolvedValue(entry);
       mockRedisClient.set.mockResolvedValue();
 
@@ -463,7 +452,7 @@ describe('RedisCacheService', () => {
         accessCount: 1,
         lastAccessed: now - 120000
       };
-      
+
       mockRedisClient.get.mockResolvedValue(expiredEntry);
 
       const result = await cacheService.setTtl('expired-key', 120000);
@@ -482,7 +471,7 @@ describe('RedisCacheService', () => {
         accessCount: 1,
         lastAccessed: now - 30000
       };
-      
+
       mockRedisClient.get.mockResolvedValue(entry);
 
       const ttl = await cacheService.getTtl('test-key');
@@ -508,7 +497,7 @@ describe('RedisCacheService', () => {
         accessCount: 1,
         lastAccessed: now - 120000
       };
-      
+
       mockRedisClient.get.mockResolvedValue(expiredEntry);
 
       const ttl = await cacheService.getTtl('expired-key');
@@ -581,7 +570,7 @@ describe('RedisCacheService', () => {
   describe('destroy', () => {
     it('should cleanup resources and clear cache', async () => {
       mockRedisClient.keys.mockResolvedValue([]);
-      
+
       await cacheService.destroy();
 
       expect(mockRedisClient.keys).toHaveBeenCalledWith('cache:test-cache:*');

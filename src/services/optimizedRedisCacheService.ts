@@ -3,7 +3,6 @@ import { RedisPipelineWrapper } from '../utils/redisPipelineWrapper';
 import { createAxiomSafeLogger } from '../utils/axiomSafeLogger';
 
 const logger = createAxiomSafeLogger('optimized-redis-cache');
-import { cacheMetricsMiddleware } from '../middleware/metricsMiddleware';
 
 /**
  * Optimized Redis cache service that minimizes Redis commands
@@ -40,10 +39,10 @@ export class OptimizedRedisCacheService<T = any> {
     this.maxSize = options.maxSize || 1000;
     this.defaultTtl = options.defaultTtl || 5 * 60 * 1000;
     this.keyPrefix = `cache:${this.name}`;
-    
+
     // Start batch access update processor
     this.startAccessUpdateProcessor();
-    
+
     if (options.cleanupIntervalMs && options.cleanupIntervalMs > 0) {
       this.startPeriodicCleanup(options.cleanupIntervalMs);
     }
@@ -62,36 +61,32 @@ export class OptimizedRedisCacheService<T = any> {
         accessCount: number;
         lastAccessed: number;
       }>(redisKey);
-      
+
       if (!entry) {
         this.metrics.misses++;
-        cacheMetricsMiddleware.recordMiss();
         return undefined;
       }
 
       // Lazy expiration check - only delete if expired
       if (this.isExpired(entry)) {
         // Don't await - fire and forget for better performance
-        this.redisClient.del(redisKey).catch(err => 
+        this.redisClient.del(redisKey).catch(err =>
           logger.warn('Failed to delete expired entry', { key, error: err.message })
         );
         this.metrics.misses++;
         this.metrics.evictions++;
-        cacheMetricsMiddleware.recordMiss();
         return undefined;
       }
 
       // Batch access count updates instead of immediate Redis write
       this.scheduleAccessUpdate(redisKey, entry);
-      
+
       this.metrics.hits++;
-      cacheMetricsMiddleware.recordHit();
-      
+
       return entry.data;
     } catch (error) {
       logger.error('Redis cache get failed', { cache: this.name, key, error: error instanceof Error ? error.message : String(error) });
       this.metrics.misses++;
-      cacheMetricsMiddleware.recordMiss();
       return undefined;
     }
   }
@@ -117,7 +112,7 @@ export class OptimizedRedisCacheService<T = any> {
       await this.redisClient.set(redisKey, entry, entryTtl);
 
       this.metrics.sets++;
-      
+
       // Update size metric less frequently
       if (this.metrics.sets % 10 === 0) {
         this.updateTotalSizeAsync();
@@ -137,7 +132,7 @@ export class OptimizedRedisCacheService<T = any> {
 
     try {
       const redisKeys = keys.map(key => this.buildRedisKey(key));
-      
+
       // Use pipeline wrapper for batch deletes
       const pipeline = new RedisPipelineWrapper(this.redisClient);
       redisKeys.forEach(key => pipeline.del(key));
@@ -166,18 +161,18 @@ export class OptimizedRedisCacheService<T = any> {
     try {
       const pattern = `${this.keyPrefix}:*`;
       const keys = await this.scanKeys(pattern);
-      
+
       if (keys.length === 0) return 0;
 
       // Filter keys to ensure they match our cache prefix (defense against SCAN bugs)
       const validKeys = keys.filter(key => key.startsWith(this.keyPrefix + ':'));
-      
+
       if (validKeys.length === 0) return 0;
 
       // Process in batches to avoid overwhelming Redis
       const batchSize = 50;
       let cleanedCount = 0;
-      
+
       for (let i = 0; i < validKeys.length; i += batchSize) {
         const batch = validKeys.slice(i, i + batchSize);
         const expiredKeys: string[] = [];
@@ -186,7 +181,7 @@ export class OptimizedRedisCacheService<T = any> {
         const pipeline = new RedisPipelineWrapper(this.redisClient);
         batch.forEach(key => pipeline.get(key));
         const results = await pipeline.exec();
-        
+
         results.forEach((result, index) => {
           if (result.success && result.result && this.isExpired(result.result as any)) {
             const key = batch[index];
@@ -209,7 +204,7 @@ export class OptimizedRedisCacheService<T = any> {
           const deletePipeline = new RedisPipelineWrapper(this.redisClient);
           expiredKeys.forEach(key => deletePipeline.del(key));
           await deletePipeline.exec();
-          
+
           cleanedCount += expiredKeys.length;
           this.metrics.evictions += expiredKeys.length;
         }
@@ -235,7 +230,7 @@ export class OptimizedRedisCacheService<T = any> {
 
   async size(): Promise<number> {
     const now = Date.now();
-    
+
     // Return cached size if still valid
     if (this.sizeCache && (now - this.sizeCache.timestamp) < this.sizeCacheTtl) {
       return this.sizeCache.value;
@@ -247,11 +242,11 @@ export class OptimizedRedisCacheService<T = any> {
       // Filter keys to ensure they match our cache prefix (defense against SCAN bugs)
       const validKeys = keys.filter(key => key.startsWith(this.keyPrefix + ':'));
       const size = validKeys.length;
-      
+
       // Cache the size
       this.sizeCache = { value: size, timestamp: now };
       this.metrics.totalSize = size;
-      
+
       return size;
     } catch (error) {
       logger.error('Failed to get cache size', { cache: this.name, error: error instanceof Error ? error.message : String(error) });
@@ -293,11 +288,11 @@ export class OptimizedRedisCacheService<T = any> {
         });
 
         const entries = await Promise.all(getPromises);
-        
+
         // Then batch update all valid entries
         const pipeline = new RedisPipelineWrapper(this.redisClient);
         let updateCount = 0;
-        
+
         entries.forEach(({ redisKey, entry }) => {
           if (entry && typeof entry === 'object' && entry !== null && 'timestamp' in entry && 'ttl' in entry) {
             const update = updates.get(redisKey)!;
@@ -329,7 +324,7 @@ export class OptimizedRedisCacheService<T = any> {
    * Async size update to avoid blocking operations
    */
   private updateTotalSizeAsync(): void {
-    this.size().catch(error => 
+    this.size().catch(error =>
       logger.warn('Failed to update total size', { cache: this.name, error: error instanceof Error ? error.message : String(error) })
     );
   }
@@ -350,7 +345,7 @@ export class OptimizedRedisCacheService<T = any> {
 
   private startPeriodicCleanup(intervalMs: number): void {
     this.cleanupInterval = setInterval(() => {
-      this.cleanupExpired().catch(error => 
+      this.cleanupExpired().catch(error =>
         logger.warn('Periodic cleanup failed', { cache: this.name, error: error instanceof Error ? error.message : String(error) })
       );
     }, intervalMs);
@@ -366,7 +361,7 @@ export class OptimizedRedisCacheService<T = any> {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
     }
-    
+
     // Process any pending access updates before destroying
     if (this.pendingAccessUpdates.size > 0) {
       // Force process remaining updates
@@ -409,7 +404,7 @@ export class OptimizedRedisCacheService<T = any> {
   private async scanKeys(pattern: string): Promise<string[]> {
     const keys: string[] = [];
     let cursor = '0';
-    
+
     do {
       try {
         const result = await this.redisClient.scan(cursor, { match: pattern, count: 100 });
@@ -426,7 +421,7 @@ export class OptimizedRedisCacheService<T = any> {
         break;
       }
     } while (cursor !== '0');
-    
+
     return keys;
   }
 

@@ -5,19 +5,13 @@ import {
   redisMetricsCollector
 } from '../redisMetrics';
 
-// Mock the logger and metrics service
+// Mock the logger
 jest.mock('../logger', () => ({
   logger: {
     info: jest.fn(),
     warn: jest.fn(),
     error: jest.fn(),
     debug: jest.fn()
-  }
-}));
-
-jest.mock('../../services/metricsService', () => ({
-  metricsService: {
-    recordRequest: jest.fn()
   }
 }));
 
@@ -99,7 +93,7 @@ describe('RedisMetricsCollector', () => {
 
       const metrics = collector.getMetrics();
       const getStats = metrics.commands.GET;
-      
+
       expect(getStats!.count).toBe(3);
       expect(getStats!.successCount).toBe(2);
       expect(getStats!.errorCount).toBe(1);
@@ -215,7 +209,7 @@ describe('RedisMetricsCollector', () => {
       }
 
       const summary = collector.getPerformanceSummary();
-      
+
       expect(summary.operationsPerSecond).toBeGreaterThan(0);
       expect(summary.averageLatency).toBeGreaterThan(0);
       expect(summary.errorRate).toBe(20);
@@ -241,16 +235,16 @@ describe('RedisMetricsCollector', () => {
       });
 
       const stats = collector.getCommandStats();
-      
+
       expect(stats).toHaveLength(2);
-      
+
       const getStats = stats.find(s => s.command === 'GET');
       const setStats = stats.find(s => s.command === 'SET');
-      
+
       expect(getStats).toBeDefined();
       expect(getStats!.count).toBe(1);
       expect(getStats!.errorRate).toBe(0);
-      
+
       expect(setStats).toBeDefined();
       expect(setStats!.count).toBe(1);
       expect(setStats!.errorRate).toBe(100);
@@ -260,7 +254,7 @@ describe('RedisMetricsCollector', () => {
   describe('getMetricsForWindow', () => {
     it('should return metrics for specified time window', () => {
       const now = new Date();
-      
+
       // Record operations at different times
       collector.recordOperation({
         command: 'GET',
@@ -314,7 +308,7 @@ describe('RedisMetricsCollector', () => {
 
     it('should be unhealthy with too many consecutive failures', () => {
       collector.recordConnection(true);
-      
+
       // Record more than 5 consecutive failures
       for (let i = 0; i < 6; i++) {
         collector.recordOperation({
@@ -332,7 +326,7 @@ describe('RedisMetricsCollector', () => {
 
     it('should be unhealthy with high error rate in recent operations', () => {
       collector.recordConnection(true);
-      
+
       // Record 10 operations with 60% error rate
       for (let i = 0; i < 10; i++) {
         const operation: RedisOperationMetrics = {
@@ -353,7 +347,7 @@ describe('RedisMetricsCollector', () => {
 
     it('should be healthy with good connection and low error rate', () => {
       collector.recordConnection(true);
-      
+
       // Record operations with good success rate
       for (let i = 0; i < 10; i++) {
         const operation: RedisOperationMetrics = {
@@ -398,7 +392,7 @@ describe('RedisHealthChecker', () => {
 
       expect(result).toBe(true);
       expect(mockPingOperation).toHaveBeenCalledTimes(1);
-      
+
       const metrics = collector.getMetrics();
       expect(metrics.health.lastHealthCheck).toBeDefined();
       expect(metrics.commands.PING).toBeDefined();
@@ -412,7 +406,7 @@ describe('RedisHealthChecker', () => {
 
       expect(result).toBe(false);
       expect(mockPingOperation).toHaveBeenCalledTimes(1);
-      
+
       const metrics = collector.getMetrics();
       expect(metrics.health.lastHealthCheck).toBeDefined();
       expect(metrics.health.consecutiveFailures).toBe(1);
