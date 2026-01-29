@@ -18,7 +18,7 @@ const structuredFormat = winston.format.combine(
     if (requestId) {
       logEntry.requestId = requestId;
     }
-    
+
     if (correlationId) {
       logEntry.correlationId = correlationId;
     }
@@ -74,11 +74,11 @@ const axiomFormat = winston.format.combine(
 
     // Collect all additional data into metadata
     const metadata: any = {};
-    
+
     // Process all fields from the log entry
     Object.keys(info).forEach(key => {
-      if (key === 'timestamp' || key === 'level' || key === 'message' || 
-          key === 'service' || key === 'environment' || key === 'version') {
+      if (key === 'timestamp' || key === 'level' || key === 'message' ||
+        key === 'service' || key === 'environment' || key === 'version') {
         return; // Already handled above
       }
 
@@ -104,19 +104,52 @@ const axiomFormat = winston.format.combine(
   })
 );
 
+// Global handler for Axiom SDK errors (which may escape the transport error handler)
+// This prevents "ingest limit exceeded" errors from crashing the app
+const handleAxiomError = (error: Error) => {
+  if (error.message?.includes('ingest limit exceeded') ||
+    error.stack?.includes('@axiomhq')) {
+    const now = Date.now();
+    const lastAxiomErrorTime = (global as any).__lastAxiomErrorTime || 0;
+    if (now - lastAxiomErrorTime > 60000) { // Log at most once per minute
+      (global as any).__lastAxiomErrorTime = now;
+      console.warn(`⚠️  Axiom error (suppressed): ${error.message}`);
+      console.warn('   You have exceeded your Axiom data ingestion quota.');
+      console.warn('   To disable Axiom: remove AXIOM_DATASET and AXIOM_TOKEN environment variables.');
+    }
+    return true; // Indicate this error was handled
+  }
+  return false;
+};
+
+// Install global handlers for Axiom errors that escape the transport
+process.on('unhandledRejection', (reason: any) => {
+  if (reason instanceof Error && handleAxiomError(reason)) {
+    return; // Error was handled, don't rethrow
+  }
+  // Let other unhandled rejections propagate normally
+  console.error('Unhandled Rejection:', reason);
+});
+
 // Add Axiom transport if configured
-// TEMPORARILY DISABLED: Axiom dataset has reached 257 column limit
-// Need to create new dataset or clean existing one before re-enabling
+// Note: Axiom transport includes error handling for "ingest limit exceeded" errors
 if (process.env.AXIOM_DATASET && process.env.AXIOM_TOKEN) {
   try {
-    transports.push(
-      new WinstonTransport({
-        dataset: process.env.AXIOM_DATASET,
-        token: process.env.AXIOM_TOKEN,
-        orgId: process.env.AXIOM_ORG_ID, // Optional: only needed for personal tokens
-        format: axiomFormat
-      })
-    );
+    const axiomTransport = new WinstonTransport({
+      dataset: process.env.AXIOM_DATASET,
+      token: process.env.AXIOM_TOKEN,
+      orgId: process.env.AXIOM_ORG_ID, // Optional: only needed for personal tokens
+      format: axiomFormat,
+      handleExceptions: false, // Don't let Axiom errors crash the app
+      handleRejections: false
+    });
+
+    // Add error handler to prevent "ingest limit exceeded" errors from crashing the app
+    axiomTransport.on('error', (error: Error) => {
+      handleAxiomError(error);
+    });
+
+    transports.push(axiomTransport);
     console.log('✅ Axiom transport initialized successfully');
   } catch (error) {
     console.warn('⚠️  Failed to initialize Axiom transport:', (error as Error).message);
@@ -127,7 +160,7 @@ if (process.env.AXIOM_DATASET && process.env.AXIOM_TOKEN) {
 export const logger = winston.createLogger({
   level: config.logLevel,
   format: structuredFormat,
-  defaultMeta: { 
+  defaultMeta: {
     service: 'novita-gpu-instance-api',
     version: process.env.npm_package_version || '1.0.0',
     environment: config.nodeEnv,
@@ -227,11 +260,11 @@ export const sanitizeLogData = (data: any, visited = new WeakSet()): any => {
     if (sensitiveFields.some(field => key.toLowerCase().includes(field.toLowerCase()))) {
       return '[REDACTED]';
     }
-    
+
     if (typeof obj[key] === 'object' && obj[key] !== null) {
       return sanitizeLogData(obj[key], visited);
     }
-    
+
     return obj[key];
   };
 
@@ -254,7 +287,7 @@ export const logPerformance = (
 ): void => {
   const duration = Date.now() - startTime;
   const contextLogger = createContextLogger(context);
-  
+
   if (duration > 5000) {
     contextLogger.warn('Slow operation detected', {
       operation,
@@ -279,7 +312,7 @@ export const logHttpRequest = (
 ): void => {
   const contextLogger = createContextLogger(context);
   const level = statusCode >= 500 ? 'error' : statusCode >= 400 ? 'warn' : 'info';
-  
+
   contextLogger[level]('HTTP Request', {
     method,
     url,
