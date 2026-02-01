@@ -333,10 +333,23 @@ export class RedisJobQueueService {
   }
 
   /**
+   * Check if a job type is ephemeral (should not persist data after completion)
+   * Ephemeral jobs are routine/scheduled checks that run frequently and don't need historical data
+   */
+  private isEphemeralJobType(type: JobType): boolean {
+    const ephemeralTypes = [
+      JobType.AUTO_STOP_CHECK,
+      // Add other ephemeral job types here as needed
+    ];
+    return ephemeralTypes.includes(type);
+  }
+
+  /**
    * Process a specific job with Redis state management
    */
   private async processJob(job: Job): Promise<void> {
     const startTime = Date.now();
+    const isEphemeral = this.isEphemeralJobType(job.type);
 
     try {
       // Move job to processing state in Redis
@@ -352,7 +365,8 @@ export class RedisJobQueueService {
         jobId: job.id,
         type: job.type,
         attempt: job.attempts,
-        maxAttempts: job.maxAttempts
+        maxAttempts: job.maxAttempts,
+        isEphemeral
       });
 
       // Execute the job
@@ -363,10 +377,21 @@ export class RedisJobQueueService {
       job.completedAt = new Date();
       delete job.error;
 
-      // Persist final state and update Redis tracking
-      await this.dataLayer.persistJob(job);
+      // Remove from processing state
       await this.dataLayer.removeJobFromProcessing(job.id);
-      await this.dataLayer.addJobToCompleted(job.id);
+
+      // For ephemeral jobs, delete the job data immediately instead of persisting
+      if (isEphemeral) {
+        await this.dataLayer.deleteJob(job.id);
+        logger.debug('Ephemeral job data deleted after completion', {
+          jobId: job.id,
+          type: job.type
+        });
+      } else {
+        // Persist final state and update Redis tracking for non-ephemeral jobs
+        await this.dataLayer.persistJob(job);
+        await this.dataLayer.addJobToCompleted(job.id);
+      }
 
       const processingTime = Date.now() - startTime;
 
@@ -376,7 +401,8 @@ export class RedisJobQueueService {
         jobId: job.id,
         type: job.type,
         attempts: job.attempts,
-        processingTimeMs: processingTime
+        processingTimeMs: processingTime,
+        ephemeralCleanup: isEphemeral
       });
 
     } catch (error) {
@@ -398,7 +424,18 @@ export class RedisJobQueueService {
         // Remove from processing state
         await this.dataLayer.removeJobFromProcessing(job.id);
 
-        // Check if we should retry
+        // For ephemeral jobs, don't retry - just delete the job data
+        if (isEphemeral) {
+          await this.dataLayer.deleteJob(job.id);
+          logger.info('Ephemeral job deleted after failure (no retry)', {
+            jobId: job.id,
+            type: job.type,
+            error: errorMessage
+          });
+          return;
+        }
+
+        // Check if we should retry (only for non-ephemeral jobs)
         if (job.attempts < job.maxAttempts) {
           // Calculate retry delay with exponential backoff
           const baseDelay = 100; // 100ms for faster testing
