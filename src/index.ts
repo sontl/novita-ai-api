@@ -46,6 +46,7 @@ import { createMigrationScheduler } from './services/migrationScheduler';
 import { createFailedMigrationScheduler } from './services/failedMigrationScheduler';
 import { autoStopService } from './services/autoStopService';
 import { cacheClearScheduler } from './services/cacheClearScheduler';
+import { jobDataCleanupScheduler } from './services/jobDataCleanupScheduler';
 import { serviceRegistry } from './services/serviceRegistry';
 import { initializeServices, shutdownServices } from './services/serviceInitializer';
 
@@ -231,6 +232,10 @@ if (config.nodeEnv !== 'test') {
       cacheClearScheduler.start();
       logger.info('Cache clear scheduler initialized', cacheClearScheduler.getStatus());
 
+      // Start job data cleanup scheduler for automated cleanup every 3 hours
+      jobDataCleanupScheduler.start();
+      logger.info('Job data cleanup scheduler initialized', jobDataCleanupScheduler.getStatus());
+
       const server = app.listen(config.port, () => {
         logger.info(`Server running on port ${config.port}`);
         logger.info(`Environment: ${config.nodeEnv}`);
@@ -242,6 +247,10 @@ if (config.nodeEnv !== 'test') {
         logger.info(`${signal} received, shutting down gracefully`);
 
         try {
+          // Shutdown job data cleanup scheduler
+          jobDataCleanupScheduler.stop();
+          logger.info('Job data cleanup scheduler shutdown complete');
+
           // Shutdown cache clear scheduler
           cacheClearScheduler.stop();
           logger.info('Cache clear scheduler shutdown complete');
